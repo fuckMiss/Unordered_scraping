@@ -11,13 +11,11 @@
 #include <algorithm>
 #include <cuda_fp16.h>
 #include <iostream>
-#include <mutex>
 #include <sstream>
 #include <stdexcept>
 
 
 static Logger logger;
-static std::mutex g_preprocess_mutex_seg;
 
 // 在这里直接改成你自己数据集的类别名。
 // 例如：{"crack", "scratch", "dent"}
@@ -120,13 +118,20 @@ void YOLOv11_SEG::init(std::string engine_path, nvinfer1::ILogger& logger)
 
 void YOLOv11_SEG::initializeEngineState()
 {
+    nvinfer1::Dims input_dims{};
     nvinfer1::Dims det_dims{};
     nvinfer1::Dims mask_dims{};
 
 #if NV_TENSORRT_MAJOR < 10
+    if (engine->getNbBindings() < 3) {
+        throw runtime_error("SEG engine must expose at least 3 bindings");
+    }
+
     input_binding_index = 0;
-    runtime_.input_h = engine->getBindingDimensions(input_binding_index).d[2];
-    runtime_.input_w = engine->getBindingDimensions(input_binding_index).d[3];
+    input_dims = engine->getBindingDimensions(input_binding_index);
+    ValidateBatchOneNchwInputDims(input_dims, "SEG input");
+    runtime_.input_h = input_dims.d[2];
+    runtime_.input_w = input_dims.d[3];
     runtime_.input_dtype = engine->getBindingDataType(input_binding_index);
 
     auto output_dims_a = engine->getBindingDimensions(1);
@@ -158,6 +163,7 @@ void YOLOv11_SEG::initializeEngineState()
 #else
     vector<string> output_names;
     const int io_count = engine->getNbIOTensors();
+    int input_count = 0;
     for (int i = 0; i < io_count; ++i) {
         const char* tensor_name = engine->getIOTensorName(i);
         if (!tensor_name) {
@@ -165,21 +171,23 @@ void YOLOv11_SEG::initializeEngineState()
         }
         if (engine->getTensorIOMode(tensor_name) == nvinfer1::TensorIOMode::kINPUT) {
             input_tensor_name = tensor_name;
+            ++input_count;
         } else if (engine->getTensorIOMode(tensor_name) == nvinfer1::TensorIOMode::kOUTPUT) {
             output_names.emplace_back(tensor_name);
         }
     }
 
-    if (input_tensor_name.empty() || output_names.size() != 2) {
-        throw runtime_error("Failed to identify TensorRT SEG input/output tensors");
+    if (input_count != 1 || input_tensor_name.empty() || output_names.size() != 2) {
+        throw runtime_error("SEG engine must expose exactly 1 input tensor and 2 output tensors");
     }
 
     const string& output_name_a = output_names[0];
     const string& output_name_b = output_names[1];
 
-    auto input_dims = engine->getTensorShape(input_tensor_name.c_str());
+    input_dims = engine->getTensorShape(input_tensor_name.c_str());
     auto output_dims_a = engine->getTensorShape(output_name_a.c_str());
     auto output_dims_b = engine->getTensorShape(output_name_b.c_str());
+    ValidateBatchOneNchwInputDims(input_dims, "SEG input");
     runtime_.input_dtype = engine->getTensorDataType(input_tensor_name.c_str());
     const auto output_dtype_a = engine->getTensorDataType(output_name_a.c_str());
     const auto output_dtype_b = engine->getTensorDataType(output_name_b.c_str());
@@ -211,20 +219,12 @@ void YOLOv11_SEG::initializeEngineState()
     runtime_.input_w = input_dims.d[3];
 #endif
 
-    if (mask_dims.nbDims != 4 || det_dims.nbDims != 3) {
-        ostringstream oss;
-        oss << "Unsupported SEG output rank: det=" << DimsToString(det_dims)
-            << ", proto=" << DimsToString(mask_dims);
-        throw runtime_error(oss.str());
-    }
+    ValidateBatchOneTensorDims(det_dims, 3, "SEG detection output");
+    ValidateBatchOneTensorDims(mask_dims, 4, "SEG mask output");
 
-    {
-        vector<int> proto_axes = {mask_dims.d[1], mask_dims.d[2], mask_dims.d[3]};
-        sort(proto_axes.begin(), proto_axes.end());
-        runtime_.mask_dim = proto_axes[0];
-        runtime_.mask_h = proto_axes[1];
-        runtime_.mask_w = proto_axes[2];
-    }
+    runtime_.mask_dim = mask_dims.d[1];
+    runtime_.mask_h = mask_dims.d[2];
+    runtime_.mask_w = mask_dims.d[3];
 
     if (runtime_.mask_dim <= 0 || runtime_.mask_h <= 0 || runtime_.mask_w <= 0) {
         ostringstream oss;
@@ -300,13 +300,14 @@ void YOLOv11_SEG::initializeEngineState()
         throw runtime_error("Failed to allocate raw host output buffers");
     }
 
-    CUDA_CHECK(cudaMalloc(&gpu_buffers[0], 3 * runtime_.input_w * runtime_.input_h * sizeof(float)));
+    const size_t input_numel = static_cast<size_t>(3) * runtime_.input_w * runtime_.input_h;
+    CUDA_CHECK(cudaMalloc(&gpu_buffers[0], input_numel * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&gpu_output_buffers[0], runtime_.det_output_numel * dataTypeSize(runtime_.det_dtype)));
     CUDA_CHECK(cudaMalloc(&gpu_output_buffers[1], runtime_.mask_output_numel * dataTypeSize(runtime_.mask_dtype)));
 
     bindBuffers();
 
-    CUDA_CHECK(cudaMemset(gpu_buffers[0], 0, 3 * runtime_.input_w * runtime_.input_h * sizeof(float)));
+    CUDA_CHECK(cudaMemset(gpu_buffers[0], 0, input_numel * sizeof(float)));
     CUDA_CHECK(cudaMemset(gpu_output_buffers[0], 0, runtime_.det_output_numel * dataTypeSize(runtime_.det_dtype)));
     CUDA_CHECK(cudaMemset(gpu_output_buffers[1], 0, runtime_.mask_output_numel * dataTypeSize(runtime_.mask_dtype)));
 
@@ -327,13 +328,19 @@ void YOLOv11_SEG::bindBuffers()
 {
 #if NV_TENSORRT_MAJOR >= 10
     if (!input_tensor_name.empty()) {
-        context->setTensorAddress(input_tensor_name.c_str(), gpu_buffers[0]);
+        if (!context->setTensorAddress(input_tensor_name.c_str(), gpu_buffers[0])) {
+            throw runtime_error("Failed to bind SEG input tensor buffer");
+        }
     }
     if (!det_tensor_name.empty()) {
-        context->setTensorAddress(det_tensor_name.c_str(), gpu_output_buffers[0]);
+        if (!context->setTensorAddress(det_tensor_name.c_str(), gpu_output_buffers[0])) {
+            throw runtime_error("Failed to bind SEG detection tensor buffer");
+        }
     }
     if (!mask_tensor_name.empty()) {
-        context->setTensorAddress(mask_tensor_name.c_str(), gpu_output_buffers[1]);
+        if (!context->setTensorAddress(mask_tensor_name.c_str(), gpu_output_buffers[1])) {
+            throw runtime_error("Failed to bind SEG mask tensor buffer");
+        }
     }
 #endif
 }
@@ -347,7 +354,7 @@ void YOLOv11_SEG::preprocess(Mat& image)
     runtime_.pad_x = (runtime_.input_w - runtime_.scale_ratio * image.cols) * 0.5f;
     runtime_.pad_y = (runtime_.input_h - runtime_.scale_ratio * image.rows) * 0.5f;
 
-    lock_guard<mutex> lock(g_preprocess_mutex_seg);
+    lock_guard<mutex> lock(cuda_preprocess_io_mutex());
     cuda_preprocess(image.ptr(), image.cols, image.rows, gpu_buffers[0], runtime_.input_w, runtime_.input_h, stream);
     CUDA_CHECK(cudaStreamSynchronize(stream));
 }
@@ -359,9 +366,13 @@ void YOLOv11_SEG::infer()
     bindings[input_binding_index] = gpu_buffers[0];
     bindings[det_binding_index] = gpu_output_buffers[0];
     bindings[mask_binding_index] = gpu_output_buffers[1];
-    context->enqueueV2(bindings, stream, nullptr);
+    if (!context->enqueueV2(bindings, stream, nullptr)) {
+        throw runtime_error("TensorRT enqueueV2 failed for SEG inference");
+    }
 #else
-    context->enqueueV3(stream);
+    if (!context->enqueueV3(stream)) {
+        throw runtime_error("TensorRT enqueueV3 failed for SEG inference");
+    }
 #endif
 }
 

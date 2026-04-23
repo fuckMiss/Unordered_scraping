@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NvInfer.h"
+#include "cuda_utils.h"
 #include "preprocess.h"
 
 #include <cuda_runtime_api.h>
@@ -8,8 +9,8 @@
 inline void SafeDestroyCudaStream(cudaStream_t& stream) noexcept
 {
     if (stream) {
-        cudaStreamSynchronize(stream);
-        cudaStreamDestroy(stream);
+        CUDA_CHECK_NOEXCEPT(cudaStreamSynchronize(stream));
+        CUDA_CHECK_NOEXCEPT(cudaStreamDestroy(stream));
         stream = nullptr;
     }
 }
@@ -18,7 +19,7 @@ template <typename T>
 inline void SafeCudaFree(T*& buffer) noexcept
 {
     if (buffer) {
-        cudaFree(reinterpret_cast<void*>(buffer));
+        CUDA_CHECK_NOEXCEPT(cudaFree(reinterpret_cast<void*>(buffer)));
         buffer = nullptr;
     }
 }

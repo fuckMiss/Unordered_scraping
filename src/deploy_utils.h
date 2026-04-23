@@ -2,6 +2,7 @@
 
 #include "NvInfer.h"
 
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -10,6 +11,7 @@ std::vector<std::string> LoadClassNames(const std::string& path);
 bool IsPathExist(const std::string& path);
 bool IsFile(const std::string& path);
 std::vector<std::string> CollectImagePaths(const std::string& path, bool& isVideo);
+bool IsGuiAvailable();
 
 class TrtLogger : public nvinfer1::ILogger {
 public:

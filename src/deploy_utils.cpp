@@ -100,6 +100,20 @@ vector<string> CollectImagePaths(const string& path, bool& isVideo) {
     return image_paths;
 }
 
+bool IsGuiAvailable() {
+#ifdef _WIN32
+    return true;
+#else
+    const char* disable_gui = std::getenv("YOLOV11_NO_GUI");
+    if (disable_gui != nullptr && std::string(disable_gui) == "1") {
+        return false;
+    }
+
+    const char* display = std::getenv("DISPLAY");
+    return display != nullptr && display[0] != '\0';
+#endif
+}
+
 void TrtLogger::log(Severity severity, const char* msg) noexcept {
     if (severity <= Severity::kWARNING) {
         std::cout << msg << std::endl;

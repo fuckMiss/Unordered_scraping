@@ -1,13 +1,17 @@
 #include "preprocess.h"
 #include "cuda_utils.h"
 #include "device_launch_parameters.h"
+
+#include <cstring>
 #include <mutex>
+#include <stdexcept>
 
 static uint8_t* img_buffer_host = nullptr;
 static uint8_t* img_buffer_device = nullptr;
 static int preprocess_ref_count = 0;
 static int allocated_image_size = 0;
 static std::mutex preprocess_mutex;
+static std::mutex preprocess_io_mutex;
 
 struct AffineMatrix {
     float value[6];
@@ -102,6 +106,9 @@ void cuda_preprocess(
     uint8_t* src, int src_width, int src_height,
     float* dst, int dst_width, int dst_height,
     cudaStream_t stream) {
+    if (!img_buffer_host || !img_buffer_device) {
+        throw std::runtime_error("cuda_preprocess called before cuda_preprocess_init");
+    }
 
     int img_size = src_width * src_height * 3;
     // copy data to pinned memory
@@ -133,38 +140,65 @@ void cuda_preprocess(
         img_buffer_device, src_width * 3, src_width,
         src_height, dst, dst_width,
         dst_height, 128, d2s, jobs);
+    CUDA_CHECK(cudaPeekAtLastError());
 }
 
 void cuda_preprocess_init(int max_image_size) {
-    std::lock_guard<std::mutex> lock(preprocess_mutex);
-    if (preprocess_ref_count == 0) {
-        // prepare input data in pinned memory
-        CUDA_CHECK(cudaMallocHost((void**)&img_buffer_host, max_image_size * 3));
-        // prepare input data in device memory
-        CUDA_CHECK(cudaMalloc((void**)&img_buffer_device, max_image_size * 3));
-        allocated_image_size = max_image_size;
-    } else if (allocated_image_size < max_image_size) {
-        CUDA_CHECK(cudaFree(img_buffer_device));
-        CUDA_CHECK(cudaFreeHost(img_buffer_host));
-        CUDA_CHECK(cudaMallocHost((void**)&img_buffer_host, max_image_size * 3));
-        CUDA_CHECK(cudaMalloc((void**)&img_buffer_device, max_image_size * 3));
-        allocated_image_size = max_image_size;
+    if (max_image_size <= 0) {
+        throw std::invalid_argument("max_image_size must be positive");
     }
+
+    std::lock(preprocess_mutex, preprocess_io_mutex);
+    std::lock_guard<std::mutex> preprocess_guard(preprocess_mutex, std::adopt_lock);
+    std::lock_guard<std::mutex> io_guard(preprocess_io_mutex, std::adopt_lock);
+    if (preprocess_ref_count > 0 && allocated_image_size >= max_image_size) {
+        ++preprocess_ref_count;
+        return;
+    }
+
+    const size_t buffer_bytes = static_cast<size_t>(max_image_size) * 3;
+    uint8_t* new_host_buffer = nullptr;
+    uint8_t* new_device_buffer = nullptr;
+
+    try {
+        CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&new_host_buffer), buffer_bytes));
+        try {
+            CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&new_device_buffer), buffer_bytes));
+        } catch (...) {
+            CUDA_CHECK_NOEXCEPT(cudaFreeHost(new_host_buffer));
+            throw;
+        }
+    } catch (...) {
+        throw;
+    }
+
+    CUDA_CHECK_NOEXCEPT(cudaFree(img_buffer_device));
+    CUDA_CHECK_NOEXCEPT(cudaFreeHost(img_buffer_host));
+
+    img_buffer_host = new_host_buffer;
+    img_buffer_device = new_device_buffer;
+    allocated_image_size = max_image_size;
     ++preprocess_ref_count;
 }
 
-void cuda_preprocess_destroy() {
-    std::lock_guard<std::mutex> lock(preprocess_mutex);
+void cuda_preprocess_destroy() noexcept {
+    std::lock(preprocess_mutex, preprocess_io_mutex);
+    std::lock_guard<std::mutex> preprocess_guard(preprocess_mutex, std::adopt_lock);
+    std::lock_guard<std::mutex> io_guard(preprocess_io_mutex, std::adopt_lock);
     if (preprocess_ref_count <= 0) {
         return;
     }
 
     --preprocess_ref_count;
     if (preprocess_ref_count == 0) {
-        CUDA_CHECK(cudaFree(img_buffer_device));
-        CUDA_CHECK(cudaFreeHost(img_buffer_host));
+        CUDA_CHECK_NOEXCEPT(cudaFree(img_buffer_device));
+        CUDA_CHECK_NOEXCEPT(cudaFreeHost(img_buffer_host));
         img_buffer_device = nullptr;
         img_buffer_host = nullptr;
         allocated_image_size = 0;
     }
+}
+
+std::mutex& cuda_preprocess_io_mutex() {
+    return preprocess_io_mutex;
 }

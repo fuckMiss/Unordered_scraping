@@ -6,16 +6,14 @@
 #include "preprocess.h"
 #include "runtime_utils.h"
 #include "trt_utils.h"
-#include <iostream>
 #include <algorithm>
 #include <cmath>
-#include <stdexcept>
+#include <iostream>
 #include <sstream>
-#include <mutex>
+#include <stdexcept>
 
 
 static Logger logger;
-static std::mutex g_preprocess_mutex;
 
 // DOTA dataset class names (15 classes for OBB)
 // static const std::vector<std::string> OBB_CLASS_NAMES = {
@@ -89,10 +87,14 @@ void YOLOv11_OBB::bindBuffers()
 {
 #if NV_TENSORRT_MAJOR >= 10
     if (!input_tensor_name.empty()) {
-        context->setTensorAddress(input_tensor_name.c_str(), gpu_buffers[0]);
+        if (!context->setTensorAddress(input_tensor_name.c_str(), gpu_buffers[0])) {
+            throw std::runtime_error("Failed to bind OBB input tensor buffer");
+        }
     }
     if (!output_tensor_name.empty()) {
-        context->setTensorAddress(output_tensor_name.c_str(), gpu_buffers[1]);
+        if (!context->setTensorAddress(output_tensor_name.c_str(), gpu_buffers[1])) {
+            throw std::runtime_error("Failed to bind OBB output tensor buffer");
+        }
     }
 #endif
 }
@@ -106,9 +108,13 @@ void YOLOv11_OBB::init(std::string engine_path, nvinfer1::ILogger& logger)
 void YOLOv11_OBB::initializeEngineState()
 {
     // Get input and output sizes of the model
-#if NV_TENSORRT_MAJOR < 10
     nvinfer1::Dims input_dims{};
     nvinfer1::Dims output_dims{};
+#if NV_TENSORRT_MAJOR < 10
+    if (engine->getNbBindings() < 2) {
+        throw std::runtime_error("OBB engine must expose at least 2 bindings");
+    }
+
     input_tensor_name.clear();
     output_tensor_name.clear();
 
@@ -123,18 +129,14 @@ void YOLOv11_OBB::initializeEngineState()
         }
     }
 
-    if (input_dims.nbDims != 4 || output_dims.nbDims != 3) {
-        throw std::runtime_error("Unsupported OBB binding layout");
-    }
-
-    runtime_.input_h = input_dims.d[2];
-    runtime_.input_w = input_dims.d[3];
-    runtime_.detection_attribute_size = output_dims.d[1];
-    runtime_.num_detections = output_dims.d[2];
+    ValidateBatchOneNchwInputDims(input_dims, "OBB input");
+    ValidateBatchOneTensorDims(output_dims, 3, "OBB output");
 #else
     input_tensor_name.clear();
     output_tensor_name.clear();
     const int io_count = engine->getNbIOTensors();
+    int input_count = 0;
+    int output_count = 0;
     for (int i = 0; i < io_count; ++i) {
         const char* tensor_name = engine->getIOTensorName(i);
         if (!tensor_name) {
@@ -142,20 +144,43 @@ void YOLOv11_OBB::initializeEngineState()
         }
         if (engine->getTensorIOMode(tensor_name) == nvinfer1::TensorIOMode::kINPUT) {
             input_tensor_name = tensor_name;
+            ++input_count;
         } else if (engine->getTensorIOMode(tensor_name) == nvinfer1::TensorIOMode::kOUTPUT) {
             output_tensor_name = tensor_name;
+            ++output_count;
         }
     }
-    if (input_tensor_name.empty() || output_tensor_name.empty()) {
-        throw std::runtime_error("Failed to identify TensorRT OBB input/output tensors");
+    if (input_count != 1 || output_count != 1 || input_tensor_name.empty() || output_tensor_name.empty()) {
+        throw std::runtime_error("OBB engine must expose exactly 1 input tensor and 1 output tensor");
     }
-    auto input_dims = engine->getTensorShape(input_tensor_name.c_str());
-    auto output_dims = engine->getTensorShape(output_tensor_name.c_str());
+    input_dims = engine->getTensorShape(input_tensor_name.c_str());
+    output_dims = engine->getTensorShape(output_tensor_name.c_str());
+    ValidateBatchOneNchwInputDims(input_dims, "OBB input");
+    ValidateBatchOneTensorDims(output_dims, 3, "OBB output");
+#endif
+
     runtime_.input_h = input_dims.d[2];
     runtime_.input_w = input_dims.d[3];
-    runtime_.detection_attribute_size = output_dims.d[1];
-    runtime_.num_detections = output_dims.d[2];
-#endif
+
+    const int candidate_a = output_dims.d[1];
+    const int candidate_b = output_dims.d[2];
+    if (candidate_a > 5 && candidate_b > 5) {
+        if (candidate_a < candidate_b) {
+            runtime_.detection_attribute_size = candidate_a;
+            runtime_.num_detections = candidate_b;
+        } else {
+            runtime_.detection_attribute_size = candidate_b;
+            runtime_.num_detections = candidate_a;
+        }
+    } else if (candidate_a > 5) {
+        runtime_.detection_attribute_size = candidate_a;
+        runtime_.num_detections = candidate_b;
+    } else if (candidate_b > 5) {
+        runtime_.detection_attribute_size = candidate_b;
+        runtime_.num_detections = candidate_a;
+    } else {
+        throw std::runtime_error("Invalid OBB output layout: " + DimsToString(output_dims));
+    }
 
     // Ultralytics OBB export layout: cx, cy, w, h, class_probs..., angle
     runtime_.num_classes = runtime_.detection_attribute_size - 5;
@@ -184,12 +209,13 @@ void YOLOv11_OBB::initializeEngineState()
     printf("  Num classes: %d\n", runtime_.num_classes);
 
     // Initialize input buffers
+    const size_t input_numel = static_cast<size_t>(3) * runtime_.input_w * runtime_.input_h;
     cpu_output_buffer = new float[runtime_.output_numel];
-    CUDA_CHECK(cudaMalloc(&gpu_buffers[0], 3 * runtime_.input_w * runtime_.input_h * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&gpu_buffers[0], input_numel * sizeof(float)));
     // Initialize output buffer
     CUDA_CHECK(cudaMalloc(&gpu_buffers[1], runtime_.output_numel * sizeof(float)));
     bindBuffers();
-    CUDA_CHECK(cudaMemset(gpu_buffers[0], 0, 3 * runtime_.input_w * runtime_.input_h * sizeof(float)));
+    CUDA_CHECK(cudaMemset(gpu_buffers[0], 0, input_numel * sizeof(float)));
     CUDA_CHECK(cudaMemset(gpu_buffers[1], 0, runtime_.output_numel * sizeof(float)));
 
     cuda_preprocess_init(MAX_IMAGE_SIZE);
@@ -218,7 +244,7 @@ void YOLOv11_OBB::preprocess(Mat& image) {
     runtime_.pad_y = (runtime_.input_h - runtime_.scale_ratio * image.rows) * 0.5f;
 
     // preprocess.cu uses shared staging buffers, so guard the full copy+kernel+sync section.
-    std::lock_guard<std::mutex> lock(g_preprocess_mutex);
+    std::lock_guard<std::mutex> lock(cuda_preprocess_io_mutex());
     cuda_preprocess(image.ptr(), image.cols, image.rows, gpu_buffers[0], runtime_.input_w, runtime_.input_h, stream);
     CUDA_CHECK(cudaStreamSynchronize(stream));
 }
@@ -229,9 +255,13 @@ void YOLOv11_OBB::infer()
     void* bindings[2]{};
     bindings[input_binding_index] = gpu_buffers[0];
     bindings[output_binding_index] = gpu_buffers[1];
-    context->enqueueV2(bindings, stream, nullptr);
+    if (!context->enqueueV2(bindings, stream, nullptr)) {
+        throw std::runtime_error("TensorRT enqueueV2 failed for OBB inference");
+    }
 #else
-    this->context->enqueueV3(this->stream);
+    if (!this->context->enqueueV3(this->stream)) {
+        throw std::runtime_error("TensorRT enqueueV3 failed for OBB inference");
+    }
 #endif
 }
 

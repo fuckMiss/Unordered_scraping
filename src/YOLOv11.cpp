@@ -15,7 +15,6 @@
 
 
 static Logger logger;
-static std::mutex g_preprocess_mutex_det;
 
 namespace {
 
@@ -57,6 +56,10 @@ void YOLOv11::initializeEngineState()
     nvinfer1::Dims output_dims{};
 
 #if NV_TENSORRT_MAJOR < 10
+    if (engine->getNbBindings() < 2) {
+        throw std::runtime_error("DET engine must expose at least 2 bindings");
+    }
+
     input_binding_index = 0;
     output_binding_index = 1;
 
@@ -73,6 +76,8 @@ void YOLOv11::initializeEngineState()
     output_dims = engine->getBindingDimensions(output_binding_index);
 #else
     const int io_count = engine->getNbIOTensors();
+    int input_count = 0;
+    int output_count = 0;
     for (int i = 0; i < io_count; ++i) {
         const char* tensor_name = engine->getIOTensorName(i);
         if (!tensor_name) {
@@ -81,24 +86,23 @@ void YOLOv11::initializeEngineState()
 
         if (engine->getTensorIOMode(tensor_name) == nvinfer1::TensorIOMode::kINPUT) {
             input_tensor_name = tensor_name;
+            ++input_count;
         } else if (engine->getTensorIOMode(tensor_name) == nvinfer1::TensorIOMode::kOUTPUT) {
             output_tensor_name = tensor_name;
+            ++output_count;
         }
     }
 
-    if (input_tensor_name.empty() || output_tensor_name.empty()) {
-        throw std::runtime_error("Failed to identify TensorRT input/output tensors for DET engine");
+    if (input_count != 1 || output_count != 1 || input_tensor_name.empty() || output_tensor_name.empty()) {
+        throw std::runtime_error("DET engine must expose exactly 1 input tensor and 1 output tensor");
     }
 
     input_dims = engine->getTensorShape(input_tensor_name.c_str());
     output_dims = engine->getTensorShape(output_tensor_name.c_str());
 #endif
 
-    if (input_dims.nbDims != 4 || output_dims.nbDims != 3) {
-        throw std::runtime_error(
-            "Unsupported DET tensor layout: input=" + DimsToString(input_dims) +
-            ", output=" + DimsToString(output_dims));
-    }
+    ValidateBatchOneNchwInputDims(input_dims, "DET input");
+    ValidateBatchOneTensorDims(output_dims, 3, "DET output");
 
     input_h = input_dims.d[2];
     input_w = input_dims.d[3];
@@ -128,9 +132,12 @@ void YOLOv11::initializeEngineState()
         throw std::runtime_error("Invalid DET output layout: detection_attribute_size must be >= 5");
     }
 
-    cpu_output_buffer = new float[static_cast<size_t>(detection_attribute_size) * num_detections];
-    CUDA_CHECK(cudaMalloc(&gpu_buffers[0], 3 * input_w * input_h * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&gpu_buffers[1], static_cast<size_t>(detection_attribute_size) * num_detections * sizeof(float)));
+    const size_t input_numel = static_cast<size_t>(3) * input_w * input_h;
+    const size_t output_numel = static_cast<size_t>(detection_attribute_size) * num_detections;
+
+    cpu_output_buffer = new float[output_numel];
+    CUDA_CHECK(cudaMalloc(&gpu_buffers[0], input_numel * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&gpu_buffers[1], output_numel * sizeof(float)));
 
     CUDA_CHECK(cudaStreamCreate(&stream));
     bindBuffers();
@@ -138,8 +145,8 @@ void YOLOv11::initializeEngineState()
     cuda_preprocess_init(MAX_IMAGE_SIZE);
     preprocess_initialized_ = true;
 
-    CUDA_CHECK(cudaMemset(gpu_buffers[0], 0, 3 * input_w * input_h * sizeof(float)));
-    CUDA_CHECK(cudaMemset(gpu_buffers[1], 0, static_cast<size_t>(detection_attribute_size) * num_detections * sizeof(float)));
+    CUDA_CHECK(cudaMemset(gpu_buffers[0], 0, input_numel * sizeof(float)));
+    CUDA_CHECK(cudaMemset(gpu_buffers[1], 0, output_numel * sizeof(float)));
 
     if (kEnableWarmup) {
         for (int i = 0; i < 10; ++i) {
@@ -153,10 +160,14 @@ void YOLOv11::bindBuffers()
 {
 #if NV_TENSORRT_MAJOR >= 10
     if (!input_tensor_name.empty()) {
-        context->setTensorAddress(input_tensor_name.c_str(), gpu_buffers[0]);
+        if (!context->setTensorAddress(input_tensor_name.c_str(), gpu_buffers[0])) {
+            throw std::runtime_error("Failed to bind DET input tensor buffer");
+        }
     }
     if (!output_tensor_name.empty()) {
-        context->setTensorAddress(output_tensor_name.c_str(), gpu_buffers[1]);
+        if (!context->setTensorAddress(output_tensor_name.c_str(), gpu_buffers[1])) {
+            throw std::runtime_error("Failed to bind DET output tensor buffer");
+        }
     }
 #endif
 }
@@ -178,7 +189,7 @@ void YOLOv11::preprocess(Mat& image)
 {
     ValidateInputImage(image, MAX_IMAGE_SIZE);
 
-    std::lock_guard<std::mutex> lock(g_preprocess_mutex_det);
+    std::lock_guard<std::mutex> lock(cuda_preprocess_io_mutex());
     cuda_preprocess(image.ptr(), image.cols, image.rows, gpu_buffers[0], input_w, input_h, stream);
     CUDA_CHECK(cudaStreamSynchronize(stream));
 }
@@ -189,9 +200,13 @@ void YOLOv11::infer()
     void* bindings[2]{};
     bindings[input_binding_index] = gpu_buffers[0];
     bindings[output_binding_index] = gpu_buffers[1];
-    context->enqueueV2(bindings, stream, nullptr);
+    if (!context->enqueueV2(bindings, stream, nullptr)) {
+        throw std::runtime_error("TensorRT enqueueV2 failed for DET inference");
+    }
 #else
-    context->enqueueV3(stream);
+    if (!context->enqueueV3(stream)) {
+        throw std::runtime_error("TensorRT enqueueV3 failed for DET inference");
+    }
 #endif
 }
 
