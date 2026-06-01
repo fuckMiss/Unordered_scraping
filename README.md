@@ -14,6 +14,10 @@
 - `SEG`：实例分割
 - `APP`：Qt 联合应用层
 
+## 界面演示
+
+![Qt APP 截止阀无序抓取上料视觉检测系统演示](docs/images/app-demo.png)
+
 ## 文档导航
 
 - `README.md`
