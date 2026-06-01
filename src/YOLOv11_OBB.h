@@ -65,6 +65,7 @@ public:
     
     // 【修改3】绘制增加output_path参数，支持自定义保存路径
     void draw(Mat& image, const vector<OBBDetection>& output, const string& output_path = "obb_result.jpg");
+    const vector<string>& getClassNames() const { return config_.class_names; }
 
 private:
     // 从.engine文件加载引擎

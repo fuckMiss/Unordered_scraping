@@ -65,6 +65,7 @@ public:
     void infer();
     void postprocess(vector<SegDetection>& output, int img_w, int img_h);
     void draw(Mat& image, const vector<SegDetection>& output, const string& output_path = "seg_result.jpg");
+    const vector<string>& getClassNames() const { return config_.class_names; }
 
 private:
     void init(std::string engine_path, nvinfer1::ILogger& logger);
