@@ -3,6 +3,7 @@
 *.o
 *.so
 *.a
+*.tar.gz
 
 # CMake / generated files
 CMakeFiles/
@@ -14,6 +15,14 @@ Makefile
 /weights/*.engine
 /weights/*.onnx
 /weights/*.pt
+
+# Local runtime launchers and generated results
+/TankEye.desktop
+/logs/
+/test_results/
+/obb_result_*
+/seg_result_*
+/qt/assets/app_icon.jpeg
 
 # Local tool metadata
 .codex
