@@ -2,43 +2,7 @@ cmake_minimum_required(VERSION 3.12)
 project(yolov11-tensorrt)
 
 find_package(CUDA REQUIRED)
-# Force the system Qt installation so the build does not accidentally mix Anaconda Qt
-# with the system libstdc++/libffi toolchain at link time.
-set(Qt5_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5" CACHE PATH "Qt5 config directory" FORCE)
-set(Qt5Core_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5Core" CACHE PATH "Qt5Core config directory" FORCE)
-set(Qt5Gui_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui" CACHE PATH "Qt5Gui config directory" FORCE)
-set(Qt5Widgets_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5Widgets" CACHE PATH "Qt5Widgets config directory" FORCE)
-find_package(Qt5 REQUIRED COMPONENTS Widgets)
-
-set(CMAKE_AUTOMOC ON)
-
-# Set C++ standard
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-# Find and include OpenCV
-set(OpenCV_DIR "/home/cll/下载/opencv/build" CACHE PATH "OpenCV config directory")
-set(OPENCV_ROOT "/home/cll/下载/opencv")
-set(OPENCV_LIB_DIR "${OpenCV_DIR}/lib")
-
-# Set TensorRT path if not set in environment variables
-set(TENSORRT_DIR "/opt/TensorRT-8.6.1.6")
-set(TENSORRT_INCLUDE_DIR "${TENSORRT_DIR}/include")
-set(TENSORRT_LIB_DIR "${TENSORRT_DIR}/lib")
-
-# Include directories
-file(GLOB OPENCV_MODULE_INCLUDE_DIRS "${OPENCV_ROOT}/modules/*/include")
-set(PROJECT_INCLUDE_DIRS
-    ${CUDA_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${TENSORRT_INCLUDE_DIR}
-    ${OpenCV_DIR}
-    ${OPENCV_ROOT}/include
-    ${OPENCV_MODULE_INCLUDE_DIRS}
-)
-
-set(OPENCV_MODULES
+find_package(OpenCV REQUIRED COMPONENTS
     gapi
     highgui
     ml
@@ -55,12 +19,86 @@ set(OPENCV_MODULES
     imgproc
     core
 )
-set(OpenCV_LIBS)
-foreach(module IN LISTS OPENCV_MODULES)
-    list(APPEND OpenCV_LIBS "${OPENCV_LIB_DIR}/libopencv_${module}.so")
-endforeach()
+# Force the system Qt installation so the build does not accidentally mix Anaconda Qt
+# with the system libstdc++/libffi toolchain at link time.
+set(Qt5_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5" CACHE PATH "Qt5 config directory" FORCE)
+set(Qt5Core_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5Core" CACHE PATH "Qt5Core config directory" FORCE)
+set(Qt5Gui_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui" CACHE PATH "Qt5Gui config directory" FORCE)
+set(Qt5Widgets_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5Widgets" CACHE PATH "Qt5Widgets config directory" FORCE)
+find_package(Qt5 REQUIRED COMPONENTS Widgets)
 
-set(TENSORRT_LIBS nvinfer nvinfer_plugin nvparsers nvonnxparser)
+set(CMAKE_AUTOMOC ON)
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Find TensorRT from apt, tar installs, or explicit -DTENSORRT_ROOT=/path.
+set(TENSORRT_ROOT "" CACHE PATH "TensorRT root directory")
+set(TENSORRT_SEARCH_ROOTS
+    ${TENSORRT_ROOT}
+    $ENV{TENSORRT_ROOT}
+    $ENV{TENSORRT_DIR}
+    /usr
+    /usr/local
+    /opt/TensorRT
+    /opt/TensorRT-10.6.0.26
+    /opt/TensorRT-10.6.0
+    /opt/TensorRT-8.6.1.6
+)
+find_path(TENSORRT_INCLUDE_DIR
+    NAMES NvInfer.h
+    HINTS ${TENSORRT_SEARCH_ROOTS}
+    PATH_SUFFIXES include include/x86_64-linux-gnu
+    REQUIRED
+)
+find_library(TENSORRT_NVINFER_LIBRARY
+    NAMES nvinfer
+    HINTS ${TENSORRT_SEARCH_ROOTS}
+    PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu
+    REQUIRED
+)
+find_library(TENSORRT_NVINFER_PLUGIN_LIBRARY
+    NAMES nvinfer_plugin
+    HINTS ${TENSORRT_SEARCH_ROOTS}
+    PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu
+    REQUIRED
+)
+find_library(TENSORRT_NVONNXPARSER_LIBRARY
+    NAMES nvonnxparser
+    HINTS ${TENSORRT_SEARCH_ROOTS}
+    PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu
+    REQUIRED
+)
+find_library(TENSORRT_NVPARSERS_LIBRARY
+    NAMES nvparsers
+    HINTS ${TENSORRT_SEARCH_ROOTS}
+    PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu
+)
+get_filename_component(TENSORRT_LIB_DIR "${TENSORRT_NVINFER_LIBRARY}" DIRECTORY)
+set(TENSORRT_LIBS
+    ${TENSORRT_NVINFER_LIBRARY}
+    ${TENSORRT_NVINFER_PLUGIN_LIBRARY}
+    ${TENSORRT_NVONNXPARSER_LIBRARY}
+)
+if(TENSORRT_NVPARSERS_LIBRARY)
+    list(APPEND TENSORRT_LIBS ${TENSORRT_NVPARSERS_LIBRARY})
+endif()
+message(STATUS "TensorRT include dir: ${TENSORRT_INCLUDE_DIR}")
+message(STATUS "TensorRT library dir: ${TENSORRT_LIB_DIR}")
+message(STATUS "TensorRT libraries: ${TENSORRT_LIBS}")
+message(STATUS "OpenCV version: ${OpenCV_VERSION}")
+message(STATUS "OpenCV include dirs: ${OpenCV_INCLUDE_DIRS}")
+message(STATUS "OpenCV libraries: ${OpenCV_LIBS}")
+
+# Include directories
+set(PROJECT_INCLUDE_DIRS
+    ${CUDA_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${TENSORRT_INCLUDE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
 
 # Add CUDA source files
 set(CUDA_SOURCES src/preprocess.cu)
@@ -138,6 +176,8 @@ add_executable(${PROJECT_NAME}_qt_app
     qt/grasp_main_window.h
     qt/grasp_workflow.cpp
     qt/grasp_workflow.h
+    qt/robot_controller.cpp
+    qt/robot_controller.h
     qt/frame_overlay.cpp
     qt/frame_overlay.h
     qt/frame_postprocess.cpp
@@ -153,4 +193,3 @@ target_link_libraries(${PROJECT_NAME}_qt_app
 )
 
 # /opt/TensorRT-8.6.1.6/bin/trtexec --onnx=./weights/yolo11s-seg.onnx --saveEngine=./weights/yolo11s-seg.engine --fp16
-

@@ -18,6 +18,8 @@
 #include <QMetaObject>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
+#include <QTimer>
 #include <QPixmap>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -30,6 +32,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <iostream>
 
 using namespace cv;
 using namespace std;
@@ -117,6 +121,18 @@ QString FormatNumber(float value)
 QString DefaultLogoPath()
 {
     return QStringLiteral("qt/assets/log.png");
+}
+
+QStringList DefaultAutoGrabTestImages()
+{
+    return {
+        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/20260331_090339_757.jpg"),
+        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/20260331_090343_106.jpg"),
+        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/2.jpeg"),
+        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/3.jpeg"),
+        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/1.jpeg"),
+        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/3.jpeg"),
+    };
 }
 
 QIcon CreateAvatarIcon(const QSize& size, const QColor& color)
@@ -359,7 +375,9 @@ QRect ResizeGeometryFromDrag(const QRect& start_geometry,
 
 GraspMainWindow::GraspMainWindow(QWidget* parent)
     : QMainWindow(parent)
+    , robot_controller_(this)
 {
+    auto_grab_test_images_ = DefaultAutoGrabTestImages();
     setupUi();
     applyStyles();
     bindActions();
@@ -373,6 +391,7 @@ GraspMainWindow::GraspMainWindow(QWidget* parent)
 
 GraspMainWindow::~GraspMainWindow()
 {
+    stopAutoGrabCycle(false);
     workflow_.stopCamera();
 }
 
@@ -536,6 +555,7 @@ void GraspMainWindow::resizeEvent(QResizeEvent* event)
 
 void GraspMainWindow::closeEvent(QCloseEvent* event)
 {
+    stopAutoGrabCycle(false);
     workflow_.stopCamera();
     QMainWindow::closeEvent(event);
 }
@@ -862,12 +882,14 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     load_image_button_ = new QPushButton(QStringLiteral("加载图片"), this);
     open_camera_button_ = new QPushButton(QStringLiteral("打开相机"), this);
     start_button_ = new QPushButton(QStringLiteral("开始检测"), this);
+    auto_grab_button_ = new QPushButton(QStringLiteral("自动抓取"), this);
     stop_button_ = new QPushButton(QStringLiteral("停止检测"), this);
     target_list_button_ = new QPushButton(QStringLiteral("多目标列表"), this);
     engineering_button_ = new QPushButton(QStringLiteral("工程设置"), this);
     load_image_button_->setMinimumHeight(40);
     open_camera_button_->setMinimumHeight(40);
     start_button_->setMinimumHeight(46);
+    auto_grab_button_->setMinimumHeight(46);
     stop_button_->setMinimumHeight(46);
     target_list_button_->setMinimumHeight(36);
     engineering_button_->setMinimumHeight(36);
@@ -898,7 +920,8 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     detect_buttons->setHorizontalSpacing(8);
     detect_buttons->setVerticalSpacing(8);
     detect_buttons->addWidget(start_button_, 0, 0);
-    detect_buttons->addWidget(stop_button_, 0, 1);
+    detect_buttons->addWidget(auto_grab_button_, 0, 1);
+    detect_buttons->addWidget(stop_button_, 1, 0, 1, 2);
     detect_layout->addLayout(detect_buttons);
     auto* manage_buttons = new QHBoxLayout();
     manage_buttons->setSpacing(8);
@@ -1014,6 +1037,7 @@ void GraspMainWindow::bindActions()
     connect(load_image_button_, &QPushButton::clicked, this, [this]() { loadImage(); });
     connect(open_camera_button_, &QPushButton::clicked, this, [this]() { openCamera(); });
     connect(start_button_, &QPushButton::clicked, this, [this]() { startDetection(); });
+    connect(auto_grab_button_, &QPushButton::clicked, this, [this]() { startAutoGrabCycle(); });
     connect(stop_button_, &QPushButton::clicked, this, [this]() { stopDetection(); });
     connect(target_list_button_, &QPushButton::clicked, this, [this]() { showTargetListPage(); });
     connect(target_list_back_button_, &QPushButton::clicked, this, [this]() { showDetailPage(); });
@@ -1213,26 +1237,13 @@ void GraspMainWindow::loadImage()
         return;
     }
 
-    workflow_.stopCamera();
-    input_mode_ = InputMode::Image;
-    image_path_label_->setText(path);
-
-    Mat image = imread(path.toStdString());
-    if (image.empty()) {
-        QMessageBox::critical(this, QStringLiteral("读取失败"), QStringLiteral("无法读取所选图片。"));
-        return;
-    }
-
-    current_frame_ = image;
-    clearResults();
-    renderCurrentFrame();
-    refreshDeviceStatus();
-    refreshRuntimeStrip();
-    updateStatusMessage(QStringLiteral("图片已加载，点击“开始检测”执行 OBB+SEG 联合推理。"));
+    stopAutoGrabCycle(false);
+    loadImageFromPath(path, true);
 }
 
 void GraspMainWindow::openCamera()
 {
+    stopAutoGrabCycle(false);
     workflow_.stopCamera();
     clearResults();
 
@@ -1279,6 +1290,8 @@ void GraspMainWindow::openCamera()
 
 void GraspMainWindow::startDetection()
 {
+    stopAutoGrabCycle(false);
+
     if (!workflow_.areModelsLoaded()) {
         QMessageBox::warning(this,
                              QStringLiteral("模型未加载"),
@@ -1314,10 +1327,216 @@ void GraspMainWindow::startDetection()
 
 void GraspMainWindow::stopDetection()
 {
+    stopAutoGrabCycle();
     workflow_.stopCamera();
     refreshDeviceStatus();
     refreshRuntimeStrip();
     updateStatusMessage(QStringLiteral("检测已停止。"), 4000);
+}
+
+void GraspMainWindow::startAutoGrabCycle()
+{
+    cout << "[AutoGrab] start requested" << endl;
+    if (!workflow_.areModelsLoaded()) {
+        cout << "[AutoGrab] rejected: models are not loaded" << endl;
+        QMessageBox::warning(this,
+                             QStringLiteral("模型未加载"),
+                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG engine。"));
+        return;
+    }
+
+    if (input_mode_ == InputMode::Camera) {
+        cout << "[AutoGrab] input mode: camera; every robot-home callback will re-detect the latest camera frame" << endl;
+        if (!workflow_.isCameraRunning()) {
+            openCamera();
+        }
+    } else if (current_frame_.empty()) {
+        cout << "[AutoGrab] no image loaded, trying first built-in test image" << endl;
+        if (!auto_grab_test_images_.empty() && loadImageFromPath(auto_grab_test_images_.front(), false)) {
+            auto_grab_test_image_index_ = 0;
+            cout << "[AutoGrab] loaded built-in test image: "
+                 << auto_grab_test_images_.front().toStdString() << endl;
+        } else {
+            cout << "[AutoGrab] rejected: no input image and built-in test image failed" << endl;
+            QMessageBox::information(this, QStringLiteral("没有输入"), QStringLiteral("请先加载图片，或打开相机。"));
+            return;
+        }
+    } else {
+        const QString current_path = image_path_label_->text().trimmed();
+        auto_grab_test_image_index_ = auto_grab_test_images_.indexOf(current_path);
+        cout << "[AutoGrab] input mode: image, current path=" << current_path.toStdString()
+             << ", test index=" << auto_grab_test_image_index_ << endl;
+    }
+
+    auto_grab_active_ = true;
+    runOneAutoGrabCycle();
+}
+
+void GraspMainWindow::runOneAutoGrabCycle()
+{
+    if (!auto_grab_active_) {
+        cout << "[AutoGrab] skip cycle: auto grab is inactive" << endl;
+        return;
+    }
+
+    if (!workflow_.areModelsLoaded()) {
+        cout << "[AutoGrab] stop: models are not loaded" << endl;
+        stopAutoGrabCycle();
+        QMessageBox::warning(this,
+                             QStringLiteral("模型未加载"),
+                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG engine。"));
+        return;
+    }
+
+    if (current_frame_.empty() && input_mode_ == InputMode::Camera) {
+        cout << "[AutoGrab] waiting for camera frame" << endl;
+        auto_grab_state_ = AutoGrabState::Detecting;
+        refreshDeviceStatus();
+        refreshRuntimeStrip();
+        updateStatusMessage(QStringLiteral("自动检测中，等待相机画面..."));
+        QTimer::singleShot(300, this, [this]() { runOneAutoGrabCycle(); });
+        return;
+    }
+
+    if (current_frame_.empty()) {
+        handleAutoGrabNoTarget();
+        return;
+    }
+
+    auto_grab_state_ = AutoGrabState::Detecting;
+    refreshDeviceStatus();
+    refreshRuntimeStrip();
+    updateStatusMessage(QStringLiteral("自动检测中"));
+    cout << "[AutoGrab] detecting frame: " << image_path_label_->text().trimmed().toStdString() << endl;
+
+    FrameInferenceResult result;
+    string error_message;
+    if (!workflow_.runImage(current_frame_, result, &error_message)) {
+        cout << "[AutoGrab] detection failed: " << error_message << endl;
+        stopAutoGrabCycle();
+        QMessageBox::critical(this, QStringLiteral("检测失败"), QString::fromStdString(error_message));
+        return;
+    }
+
+    setFrameAndResult(current_frame_, result);
+    cout << "[AutoGrab] detection done: candidates=" << current_result_.detections.size()
+         << ", segments=" << current_result_.segments.size()
+         << ", primary_index=" << current_result_.primary_index
+         << ", total_ms=" << current_result_.total_inference_ms << endl;
+    const int primary_index = current_result_.primary_index;
+    if (primary_index < 0 || primary_index >= static_cast<int>(current_result_.detections.size())) {
+        handleAutoGrabNoTarget();
+        return;
+    }
+
+    const PoseDetection target = current_result_.detections[primary_index];
+    cout << "[AutoGrab] primary target: index=" << primary_index
+         << ", x=" << target.center_x
+         << ", y=" << target.center_y
+         << ", angle=" << target.angle_deg
+         << ", obb_class=" << target.class_name
+         << ", seg_class=" << target.segment_class_name
+         << ", conf=" << target.confidence << endl;
+    auto_grab_state_ = AutoGrabState::WaitingRobot;
+    refreshDeviceStatus();
+    refreshRuntimeStrip();
+    updateStatusMessage(QStringLiteral("已找到主目标，机械臂执行中"));
+
+    robot_controller_.grabAsync(target, [this]() {
+        QMetaObject::invokeMethod(this, [this]() { onRobotReturnedHome(); }, Qt::QueuedConnection);
+    });
+}
+
+void GraspMainWindow::onRobotReturnedHome()
+{
+    if (!auto_grab_active_) {
+        cout << "[AutoGrab] robot callback ignored: auto grab is inactive" << endl;
+        return;
+    }
+
+    cout << "[AutoGrab] robot returned home callback received" << endl;
+    updateStatusMessage(QStringLiteral("机械臂已回原点，重新检测"));
+    if (input_mode_ == InputMode::Image) {
+        const bool advanced = advanceAutoGrabTestImage();
+        cout << "[AutoGrab] test image advance: " << (advanced ? "yes" : "no")
+             << ", current=" << image_path_label_->text().trimmed().toStdString() << endl;
+        if (!advanced) {
+            finishAutoGrabCycle(QStringLiteral("图片序列已处理完，自动抓取流程结束"));
+            return;
+        }
+    } else if (input_mode_ == InputMode::Camera) {
+        cout << "[AutoGrab] camera mode: re-detecting the latest captured frame" << endl;
+    }
+
+    QTimer::singleShot(0, this, [this]() { runOneAutoGrabCycle(); });
+}
+
+void GraspMainWindow::handleAutoGrabNoTarget()
+{
+    if (input_mode_ == InputMode::Camera) {
+        cout << "[AutoGrab] no grabbable target in this camera frame; waiting for next frame" << endl;
+        auto_grab_state_ = AutoGrabState::Detecting;
+        refreshDeviceStatus();
+        refreshRuntimeStrip();
+        updateStatusMessage(QStringLiteral("当前帧无可抓取目标，继续检测下一帧..."), 2000);
+        QTimer::singleShot(300, this, [this]() { runOneAutoGrabCycle(); });
+        return;
+    }
+
+    if (input_mode_ == InputMode::Image) {
+        cout << "[AutoGrab] no grabbable target in this image; pausing before next test image" << endl;
+        auto_grab_state_ = AutoGrabState::NoTarget;
+        refreshDeviceStatus();
+        refreshRuntimeStrip();
+        updateStatusMessage(QStringLiteral("当前图片无可抓取目标，稍后检测下一张图片..."), 1500);
+
+        QTimer::singleShot(1500, this, [this]() {
+            if (!auto_grab_active_) {
+                cout << "[AutoGrab] image no-target pause ended, but auto grab is inactive" << endl;
+                return;
+            }
+
+            const bool advanced = advanceAutoGrabTestImage();
+            if (advanced) {
+                auto_grab_state_ = AutoGrabState::Detecting;
+                refreshDeviceStatus();
+                refreshRuntimeStrip();
+                updateStatusMessage(QStringLiteral("继续检测下一张图片..."), 1500);
+                runOneAutoGrabCycle();
+                return;
+            }
+
+            finishAutoGrabCycle(QStringLiteral("图片序列已检测完，未找到新的可抓取目标"));
+        });
+        return;
+    }
+
+    finishAutoGrabCycle(QStringLiteral("未检测到可抓取目标，流程结束"));
+}
+
+void GraspMainWindow::finishAutoGrabCycle(const QString& message)
+{
+    cout << "[AutoGrab] finished: " << message.toStdString() << endl;
+    auto_grab_active_ = false;
+    auto_grab_state_ = AutoGrabState::NoTarget;
+    robot_controller_.cancel();
+    refreshDeviceStatus();
+    refreshRuntimeStrip();
+    updateStatusMessage(message, 6000);
+}
+
+void GraspMainWindow::stopAutoGrabCycle(bool mark_stopped)
+{
+    if (!auto_grab_active_ && auto_grab_state_ == AutoGrabState::Idle && !robot_controller_.isBusy()) {
+        return;
+    }
+
+    cout << (mark_stopped ? "[AutoGrab] stopped by user" : "[AutoGrab] reset/cancelled silently") << endl;
+    auto_grab_active_ = false;
+    auto_grab_state_ = mark_stopped ? AutoGrabState::Stopped : AutoGrabState::Idle;
+    robot_controller_.cancel();
+    refreshDeviceStatus();
+    refreshRuntimeStrip();
 }
 
 void GraspMainWindow::setFrameAndResult(const Mat& frame, const FrameInferenceResult& result)
@@ -1330,6 +1549,71 @@ void GraspMainWindow::setFrameAndResult(const Mat& frame, const FrameInferenceRe
     refreshTargetTable();
     refreshDeviceStatus();
     refreshRuntimeStrip();
+}
+
+bool GraspMainWindow::loadImageFromPath(const QString& path, bool notify)
+{
+    if (path.trimmed().isEmpty()) {
+        cout << "[Image] load rejected: empty path" << endl;
+        return false;
+    }
+
+    workflow_.stopCamera();
+    input_mode_ = InputMode::Image;
+    image_path_label_->setText(path);
+
+    Mat image = imread(path.toStdString());
+    if (image.empty()) {
+        cout << "[Image] load failed: " << path.toStdString() << endl;
+        if (notify) {
+            QMessageBox::critical(this, QStringLiteral("读取失败"), QStringLiteral("无法读取所选图片。"));
+        }
+        return false;
+    }
+
+    current_frame_ = image;
+    cout << "[Image] loaded: " << path.toStdString()
+         << " (" << image.cols << "x" << image.rows << ")" << endl;
+    clearResults();
+    renderCurrentFrame();
+    refreshDeviceStatus();
+    refreshRuntimeStrip();
+    if (notify) {
+        updateStatusMessage(QStringLiteral("图片已加载，点击“开始检测”执行 OBB+SEG 联合推理。"));
+    }
+    return true;
+}
+
+bool GraspMainWindow::advanceAutoGrabTestImage()
+{
+    if (auto_grab_test_images_.empty()) {
+        cout << "[AutoGrab] test image advance failed: no test images configured" << endl;
+        return false;
+    }
+
+    const QString current_path = image_path_label_->text().trimmed();
+    int current_index = auto_grab_test_image_index_;
+    if (current_index < 0) {
+        current_index = auto_grab_test_images_.indexOf(current_path);
+    }
+
+    const int next_index = current_index + 1;
+    if (next_index < 0 || next_index >= auto_grab_test_images_.size()) {
+        cout << "[AutoGrab] test image advance skipped: no next image, current_index="
+             << current_index << ", total=" << auto_grab_test_images_.size() << endl;
+        return false;
+    }
+
+    if (!loadImageFromPath(auto_grab_test_images_[next_index], false)) {
+        cout << "[AutoGrab] test image advance failed: cannot load "
+             << auto_grab_test_images_[next_index].toStdString() << endl;
+        return false;
+    }
+
+    auto_grab_test_image_index_ = next_index;
+    cout << "[AutoGrab] advanced to test image index " << next_index
+         << ": " << auto_grab_test_images_[next_index].toStdString() << endl;
+    return true;
 }
 
 void GraspMainWindow::renderCurrentFrame()
@@ -1436,7 +1720,8 @@ void GraspMainWindow::refreshDeviceStatus()
 
     const bool has_input = !current_frame_.empty() || input_mode_ == InputMode::Camera;
     start_button_->setEnabled(workflow_.areModelsLoaded() && has_input);
-    stop_button_->setEnabled(workflow_.isCameraRunning());
+    auto_grab_button_->setEnabled(workflow_.areModelsLoaded() && has_input && !auto_grab_active_);
+    stop_button_->setEnabled(workflow_.isCameraRunning() || auto_grab_active_ || robot_controller_.isBusy());
 }
 
 void GraspMainWindow::refreshRuntimeStrip()
@@ -1447,7 +1732,15 @@ void GraspMainWindow::refreshRuntimeStrip()
     runtime_mode_label_->setText(QStringLiteral("模式：%1").arg(mode));
 
     QString state = QStringLiteral("待机");
-    if (!workflow_.areModelsLoaded()) {
+    if (auto_grab_state_ == AutoGrabState::Detecting) {
+        state = QStringLiteral("自动检测中");
+    } else if (auto_grab_state_ == AutoGrabState::WaitingRobot) {
+        state = QStringLiteral("机械臂执行中");
+    } else if (auto_grab_state_ == AutoGrabState::NoTarget) {
+        state = QStringLiteral("无可抓取目标");
+    } else if (auto_grab_state_ == AutoGrabState::Stopped) {
+        state = QStringLiteral("检测已停止");
+    } else if (!workflow_.areModelsLoaded()) {
         state = QStringLiteral("模型未就绪");
     } else if (workflow_.isCameraRunning()) {
         state = QStringLiteral("联合检测中");
@@ -1519,6 +1812,7 @@ bool GraspMainWindow::loadModelsFromPaths(const QString& obb_engine_path,
     }
 
     workflow_.stopCamera();
+    stopAutoGrabCycle(false);
 
     OBBConfig obb_config;
     SEGConfig seg_config;

@@ -21,7 +21,7 @@ yolov11-tensorrt/
 
 - 操作系统：Linux 或 Windows
 - CUDA：11.6 或更高版本
-- TensorRT：8.6 或更高版本
+- TensorRT：8.6 或更高版本；当前本机验证环境为 TensorRT 10.6.0.26 + CUDA 12.6
 - OpenCV：4.0 或更高版本
 - Python：3.10 或更高版本
 - `ultralytics`：用于导出 YOLOv11 SEG 模型
@@ -49,10 +49,8 @@ pip install --upgrade ultralytics
 
 ```bash
 mkdir -p build
-cd build
-cmake ..
-cmake --build . --config Release
-cmake --build . --target yolov11-tensorrt_seg --config Release
+cmake -S . -B build
+cmake --build build --target yolov11-tensorrt_seg -j4
 ```
 
 `--target yolov11-tensorrt_seg` 表示只编译 SEG 推理目标。
@@ -78,11 +76,22 @@ weights/best_seg.onnx
 
 ### 2. 从 ONNX 现场构建 TensorRT engine
 
+推荐使用当前 TensorRT 安装里的 `trtexec` 生成 engine：
+
+```bash
+/usr/src/tensorrt/bin/trtexec \
+  --onnx=./weights/best_seg.onnx \
+  --saveEngine=./weights/best_seg.engine \
+  --fp16
+```
+
+如果 `trtexec` 已加入 `PATH`，也可以直接使用 `trtexec`。
+
+项目的 SEG 可执行入口也支持传入 `.onnx` 自动构建 engine：
+
 ```bash
 ./build/yolov11-tensorrt_seg ./weights/best_seg.onnx ""
 ```
-
-执行后会生成对应的 `.engine` 文件。
 
 ### 3. 运行推理
 
@@ -174,7 +183,10 @@ model.export(format="onnx")
 ### 3. 生成 engine
 
 ```bash
-./build/yolov11-tensorrt_seg ./weights/best_seg.onnx ""
+/usr/src/tensorrt/bin/trtexec \
+  --onnx=./weights/best_seg.onnx \
+  --saveEngine=./weights/best_seg.engine \
+  --fp16
 ```
 
 ### 4. 运行自己的模型

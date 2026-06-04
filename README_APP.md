@@ -24,6 +24,7 @@ qt/
 ├── main.cpp                # Qt 应用入口
 ├── grasp_main_window.*     # 主窗口与界面交互
 ├── grasp_workflow.*        # 应用层双模型编排
+├── robot_controller.*      # 机械臂控制接口；当前为 QTimer 模拟回原点回调
 ├── frame_result.h          # 应用层统一结果结构
 ├── frame_postprocess.*     # 应用层后处理与 OBB/SEG 关联
 ├── frame_overlay.*         # 应用层联合绘制
@@ -48,6 +49,7 @@ qt/
 - 加载单张图片
 - 打开默认相机
 - 在同一帧上执行 `OBB + SEG` 联合推理
+- 对当前主目标执行模拟自动抓取闭环
 - 在主画面叠加：
   - `SEG mask`
   - `SEG bbox`
@@ -67,29 +69,65 @@ qt/
   - `OBB / SEG` 分阶段耗时
   - 总耗时
 
+## 自动抓取闭环
+
+当前应用层新增了一个模拟版自动抓取流程：
+
+```text
+自动检测中
+  -> 找到 primary_index 主目标
+  -> 把主目标 X / Y / 角度交给 RobotController
+  -> QTimer 模拟机械臂抓取、放料、回原点
+  -> 回原点回调触发重新检测
+  -> 没有可抓取目标时结束
+```
+
+界面入口：
+
+- `开始检测`：只执行一次当前帧联合检测。
+- `自动抓取`：进入自动闭环，每轮只抓取一个主目标。
+- `停止检测`：停止相机检测或自动抓取流程。
+
+当前没有接真实机械臂，`qt/robot_controller.*` 里使用 `QTimer::singleShot(2000)` 模拟机械臂完成动作并回到原点。
+后续接真实机械臂时，保留 `grabAsync(...)` 接口，替换内部通信实现即可。
+
+图片测试模式里内置了两张测试图：
+
+```text
+asset/20260331_090339_757.jpg
+asset/20260331_090343_106.jpg
+```
+
+第一轮检测第一张图；模拟抓取完成并触发回调后，会自动切到第二张图再检测，用来模拟“抓走一个零件后”的现场。
+
 ## 当前后处理逻辑
 
-当前应用层后处理是一个基础版本：
+当前应用层后处理是面向抓取场景的基础版本：
 
 - 将 `OBB` 原始结果转换成应用层目标结构
 - 将 `SEG` 原始结果转换成应用层区域结构
-- 用 `bbox IoU` 做轻量关联
+- 要求 `OBB` 中心点落在且只落在一个 `SEG mask` 内
+- 将 `OBB` 沿主要方向扩展后，过滤掉会碰到其他 `SEG mask` 的目标
 - 给出一个主目标 `primary_index`
 
 代码位置：
 
 - `qt/frame_postprocess.cpp`
 
-这只是预留的第一版挂点，不是最终业务规则。
+这只是预留的第一版抓取规则挂点，不是最终业务规则。
 
 ## 构建
 
 构建 Qt 联合版：
 
 ```bash
+sudo apt install qtbase5-dev qtbase5-dev-tools qt5-qmake
+rm -rf build
 cmake -S . -B build
 cmake --build build --target yolov11-tensorrt_qt_app -j4
 ```
+
+建议使用系统 Qt5，不建议混用 Anaconda Qt。混用 Anaconda Qt 和系统图形库时，可能在链接阶段出现 `glib / pango / gdk_pixbuf` 相关符号错误。
 
 Qt 应用目标名：
 
@@ -102,7 +140,7 @@ build/yolov11-tensorrt_qt_app
 ### 方式 1：启动时直接传入两个 engine
 
 ```bash
-./build/yolov11-tensorrt_qt_app ./weights/best_obb.engine ./weights/yolo11s-seg.engine
+./build/yolov11-tensorrt_qt_app ./weights/best_obb.engine ./weights/best_seg.engine
 ```
 
 程序首次显示时会自动尝试加载这两个模型。
@@ -127,7 +165,7 @@ argv[2] = SEG engine
 3. 选择 `SEG engine`
 4. 点 `加载双模型`
 5. 再加载图片或打开相机
-6. 点 `开始检测`
+6. 点 `开始检测` 做单次检测，或点 `自动抓取` 启动模拟闭环
 
 ## 建议的模型使用方式
 

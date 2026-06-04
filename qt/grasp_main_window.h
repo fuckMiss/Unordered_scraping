@@ -1,9 +1,11 @@
 #pragma once
 
 #include "grasp_workflow.h"
+#include "robot_controller.h"
 
 #include <QMainWindow>
 #include <QPoint>
+#include <QStringList>
 #include <Qt>
 
 class QFrame;
@@ -42,6 +44,14 @@ private:
         Camera
     };
 
+    enum class AutoGrabState {
+        Idle,
+        Detecting,
+        WaitingRobot,
+        NoTarget,
+        Stopped
+    };
+
     void setupUi();
     void buildTopBar(QVBoxLayout* root_layout);
     void buildDisplayPanel(QSplitter* splitter);
@@ -64,8 +74,16 @@ private:
     void openCamera();
     void startDetection();
     void stopDetection();
+    void startAutoGrabCycle();
+    void runOneAutoGrabCycle();
+    void onRobotReturnedHome();
+    void handleAutoGrabNoTarget();
+    void finishAutoGrabCycle(const QString& message);
+    void stopAutoGrabCycle(bool mark_stopped = true);
 
     void setFrameAndResult(const cv::Mat& frame, const FrameInferenceResult& result);
+    bool loadImageFromPath(const QString& path, bool notify);
+    bool advanceAutoGrabTestImage();
     void renderCurrentFrame();
     void refreshInfoPanel();
     void refreshTargetTable();
@@ -100,6 +118,7 @@ private:
     QPushButton* load_image_button_ = nullptr;
     QPushButton* open_camera_button_ = nullptr;
     QPushButton* start_button_ = nullptr;
+    QPushButton* auto_grab_button_ = nullptr;
     QPushButton* stop_button_ = nullptr;
     QPushButton* engineering_button_ = nullptr;
     QPushButton* target_list_button_ = nullptr;
@@ -127,11 +146,16 @@ private:
     QLabel* angle_value_label_ = nullptr;
 
     GraspWorkflow workflow_;
+    RobotController robot_controller_;
     InputMode input_mode_ = InputMode::Idle;
+    AutoGrabState auto_grab_state_ = AutoGrabState::Idle;
     cv::Mat current_frame_;
     FrameInferenceResult current_result_;
     QString obb_engine_path_;
     QString seg_engine_path_;
+    QStringList auto_grab_test_images_;
+    int auto_grab_test_image_index_ = -1;
+    bool auto_grab_active_ = false;
     bool initial_models_attempted_ = false;
     bool top_bar_dragging_ = false;
     QPoint top_bar_drag_offset_;

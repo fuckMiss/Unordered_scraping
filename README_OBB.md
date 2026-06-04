@@ -21,7 +21,7 @@ yolov11-tensorrt/
 
 - 操作系统：Linux 或 Windows
 - CUDA：11.6 或更高版本
-- TensorRT：8.6 或更高版本
+- TensorRT：8.6 或更高版本；当前本机验证环境为 TensorRT 10.6.0.26 + CUDA 12.6
 - OpenCV：4.0 或更高版本
 - Python：3.10 或更高版本
 - `ultralytics`：用于导出 YOLOv11 OBB 模型
@@ -49,13 +49,8 @@ pip install --upgrade ultralytics
 
 ```bash
 mkdir -p build
-cd build
-cmake ..
-cmake --build . --config Release
-cmake --build . --target yolov11-tensorrt_obb --config Release
-
-make -j$(nproc)
-make yolov11-tensorrt_obb -j$(nproc)
+cmake -S . -B build
+cmake --build build --target yolov11-tensorrt_obb -j4
 ```
 
 `--target yolov11-tensorrt_obb` 表示只编译 OBB 推理目标。
@@ -81,11 +76,22 @@ weights/best_obb.onnx
 
 ### 2. 从 ONNX 现场构建 TensorRT engine
 
+推荐使用当前 TensorRT 安装里的 `trtexec` 生成 engine：
+
+```bash
+/usr/src/tensorrt/bin/trtexec \
+  --onnx=./weights/best_obb.onnx \
+  --saveEngine=./weights/best_obb.engine \
+  --fp16
+```
+
+如果 `trtexec` 已加入 `PATH`，也可以直接使用 `trtexec`。
+
+项目的 OBB 可执行入口也支持传入 `.onnx` 自动构建 engine：
+
 ```bash
 ./build/yolov11-tensorrt_obb ./weights/best_obb.onnx ""
 ```
-
-执行后会生成对应的 `.engine` 文件。
 
 ### 3. 运行推理
 
@@ -139,11 +145,10 @@ weights/best_obb.onnx
 示例：
 
 ```bash
-./build/yolov11-tensorrt_obb ./weights/best_obb.engine ./asset/boats.jpg \
-  --num-classes=1 \
-  --conf=0.30 \
+./build/yolov11-tensorrt_obb ./weights/best_obb.engine ./asset/20260331_090339_757.jpg \
+  --num-classes=2 \
+  --conf=0.25 \
   --nms=0.25 \
-  --labels=./asset/border.labels.txt \
   --no-warmup
 ```
 
@@ -171,7 +176,10 @@ model.export(format="onnx")
 ### 3. 生成 engine
 
 ```bash
-./build/yolov11-tensorrt_obb ./weights/best_obb.onnx ""
+/usr/src/tensorrt/bin/trtexec \
+  --onnx=./weights/best_obb.onnx \
+  --saveEngine=./weights/best_obb.engine \
+  --fp16
 ```
 
 ### 4. 运行自己的模型
