@@ -1,0 +1,33 @@
+# Build outputs
+/build/
+/build_*/
+build_win*/
+*.o
+*.so
+*.a
+*.tar.gz
+
+# CMake / generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Model weights and TensorRT engines
+/weights/*.engine
+/weights/*.onnx
+/weights/*.pt
+
+# Local runtime launchers and generated results
+/TankEye.desktop
+/logs/
+/test_results/
+/aqtinstall.log
+/obb_result_*
+/seg_result_*
+/test_screenshot_*
+/qt/assets/app_icon.jpeg
+
+# Local tool metadata
+.codex
+.sixth/
