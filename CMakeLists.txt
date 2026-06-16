@@ -207,6 +207,9 @@ if(BUILD_QT_APP)
         qt/frame_result.h
     )
     target_include_directories(${PROJECT_NAME}_qt_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/qt)
+    if(WIN32)
+        set_target_properties(${PROJECT_NAME}_qt_app PROPERTIES WIN32_EXECUTABLE TRUE)
+    endif()
     target_link_libraries(${PROJECT_NAME}_qt_app
         Qt5::Widgets
         ${PROJECT_NAME}_deploy_common

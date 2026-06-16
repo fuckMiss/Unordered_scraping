@@ -22,6 +22,8 @@ Makefile
 /TankEye.desktop
 /logs/
 /test_results/
+/dist/
+/dist.zip
 /aqtinstall.log
 /obb_result_*
 /seg_result_*

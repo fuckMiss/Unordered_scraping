@@ -607,6 +607,7 @@ void GraspMainWindow::setupUi()
     resize(1360, 820);
     setMinimumSize(1080, 680);
     setWindowTitle(QStringLiteral("截止阀无序抓取上料视觉检测系统"));
+    setWindowIcon(QIcon(DefaultLogoPath()));
 
     central_panel_ = new QWidget(this);
     setCentralWidget(central_panel_);
