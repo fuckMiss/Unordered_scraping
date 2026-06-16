@@ -81,4 +81,8 @@ foreach ($File in $RuntimeFiles) {
     Copy-IfExists $File $TargetDir
 }
 
+$AssetTargetDir = Join-Path $TargetDir "qt\assets"
+New-Item -ItemType Directory -Force -Path $AssetTargetDir | Out-Null
+Copy-IfExists (Join-Path $AppDir "qt\assets\app_logo_cutout.png") $AssetTargetDir
+
 Write-Host "Windows runtime deployed to: $TargetDir"

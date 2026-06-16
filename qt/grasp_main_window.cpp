@@ -4,7 +4,9 @@
 
 #include <QApplication>
 #include <QCloseEvent>
+#include <QCoreApplication>
 #include <QDialog>
+#include <QDir>
 #include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -120,18 +122,30 @@ QString FormatNumber(float value)
 
 QString DefaultLogoPath()
 {
-    return QStringLiteral("qt/assets/log.png");
+    const QString relative_path = QStringLiteral("qt/assets/app_logo_cutout.png");
+    const QStringList candidates = {
+        relative_path,
+        QDir(QCoreApplication::applicationDirPath()).filePath(relative_path),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../../") + relative_path),
+    };
+
+    for (const QString& candidate : candidates) {
+        if (QFileInfo::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return relative_path;
 }
 
 QStringList DefaultAutoGrabTestImages()
 {
     return {
-        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/20260331_090339_757.jpg"),
-        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/20260331_090343_106.jpg"),
-        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/2.jpeg"),
-        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/3.jpeg"),
-        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/1.jpeg"),
-        QStringLiteral("/home/cll/桌面/dev/Unordered_scraping-main/asset/3.jpeg"),
+        QStringLiteral("asset\\20260331_090339_757.jpg"),
+        QStringLiteral("asset\\20260331_090343_106.jpg"),
+        QStringLiteral("asset\\2.jpeg"),
+        QStringLiteral("asset\\3.jpeg"),
+        QStringLiteral("asset\\1.jpeg"),
+        QStringLiteral("asset\\3.jpeg"),
     };
 }
 
@@ -650,11 +664,11 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
 
     logo_label_ = new QLabel(top_bar_);
     logo_label_->setObjectName("logoLabel");
-    logo_label_->setFixedSize(42, 42);
+    logo_label_->setFixedSize(50, 42);
     logo_label_->setAlignment(Qt::AlignCenter);
     const QPixmap logo_pixmap(DefaultLogoPath());
     if (!logo_pixmap.isNull()) {
-        logo_label_->setPixmap(logo_pixmap.scaled(28, 28, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        logo_label_->setPixmap(logo_pixmap.scaled(42, 34, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     } else {
         logo_label_->setText(QStringLiteral("L"));
     }
@@ -796,7 +810,7 @@ void GraspMainWindow::buildSidePanel(QSplitter* splitter)
     buildResultSection(detail_layout);
     buildStatusSection(detail_layout);
     buildActionSection(detail_layout);
-    detail_layout->addStretch();
+    buildWorkSummarySection(detail_layout);
     side_pages_->addWidget(detail_page_);
 
     target_list_page_ = new QWidget(side_pages_);
@@ -934,6 +948,38 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     side_layout->addWidget(detect_group);
 }
 
+void GraspMainWindow::buildWorkSummarySection(QVBoxLayout* side_layout)
+{
+    auto* summary_card = new QFrame(this);
+    summary_card->setObjectName("workSummaryCard");
+    auto* summary_layout = new QVBoxLayout(summary_card);
+    summary_layout->setContentsMargins(12, 12, 12, 12);
+    summary_layout->setSpacing(8);
+
+    auto* title = new QLabel(QStringLiteral("作业摘要"), summary_card);
+    title->setObjectName("summaryTitle");
+    summary_layout->addWidget(title);
+
+    work_summary_input_label_ = new QLabel(summary_card);
+    work_summary_target_label_ = new QLabel(summary_card);
+    work_summary_state_label_ = new QLabel(summary_card);
+
+    const auto init_summary_label = [](QLabel* label) {
+        label->setObjectName("summaryLine");
+        label->setWordWrap(true);
+    };
+    init_summary_label(work_summary_input_label_);
+    init_summary_label(work_summary_target_label_);
+    init_summary_label(work_summary_state_label_);
+
+    summary_layout->addWidget(work_summary_input_label_);
+    summary_layout->addWidget(work_summary_target_label_);
+    summary_layout->addWidget(work_summary_state_label_);
+    summary_layout->addStretch(1);
+
+    side_layout->addWidget(summary_card, 1);
+}
+
 void GraspMainWindow::buildTargetListSection(QVBoxLayout* side_layout)
 {
     auto* header_layout = new QHBoxLayout();
@@ -976,8 +1022,7 @@ void GraspMainWindow::applyStyles()
         "#runtimeBar { background: rgba(255,255,255,0.04); border: 1px solid #2d4458; border-radius: 14px; }"
         "#imageViewport { background: #060b10; border-radius: 22px; border: 1px solid #34506a; color: #d7e0e8;"
         " font-size: 22px; font-weight: 600; }"
-        "#logoLabel { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #f6f6f7, stop:1 #d9dde2);"
-        " border: 1px solid #898f97; border-radius: 21px; padding: 2px; }"
+        "#logoLabel { background: transparent; border: none; padding: 0px; }"
         "#brandLabel { color: #ece4dc; font-size: 17px; font-weight: 500; }"
         "#titleLabel { color: #f3eee8; font-size: 20px; font-weight: 800; }"
         "#sectionTitle { color: #eef5fb; font-size: 18px; font-weight: 700; padding-top: 2px; }"
@@ -1000,6 +1045,10 @@ void GraspMainWindow::applyStyles()
         "#statusStackItem { background: rgba(255,255,255,0.03); border: 1px solid #30495f; border-radius: 12px; }"
         "#statusStackName { color: #dbe7f1; font-size: 14px; font-weight: 600; }"
         "#controlGroupCard { background: rgba(255,255,255,0.04); border: 1px solid #30495f; border-radius: 16px; }"
+        "#workSummaryCard { background: rgba(19,31,42,0.78); border: 1px solid #2c465d; border-radius: 16px; }"
+        "#summaryTitle { color: #eef5fb; font-size: 15px; font-weight: 700; }"
+        "#summaryLine { color: #a9bdcc; background: rgba(255,255,255,0.025); border: 1px solid #2b4256;"
+        " border-radius: 10px; padding: 7px 9px; font-size: 12px; }"
         "#pathHintLabel { color: #9eb2c3; background: rgba(255,255,255,0.025); border: 1px solid #2b4256; border-radius: 10px; padding: 8px 10px; font-size: 12px; }"
         "#targetListScrollArea, #targetListScrollContent { background: transparent; border: none; }"
         "QLabel { color: #b7c7d6; }"
@@ -1770,6 +1819,33 @@ void GraspMainWindow::refreshRuntimeStrip()
         current_result_.total_inference_ms > 0.0
             ? QStringLiteral("总耗时：%1 ms").arg(QString::number(current_result_.total_inference_ms, 'f', 1))
             : QStringLiteral("总耗时：--"));
+
+    if (work_summary_input_label_ && work_summary_target_label_ && work_summary_state_label_) {
+        QString input_text = QStringLiteral("输入：等待图像或相机");
+        if (input_mode_ == InputMode::Camera) {
+            input_text = workflow_.isCameraRunning() ? QStringLiteral("输入：相机实时流")
+                                                     : QStringLiteral("输入：相机待启动");
+        } else if (input_mode_ == InputMode::Image) {
+            const QString path = currentImagePath();
+            input_text = path.isEmpty() ? QStringLiteral("输入：图片模式")
+                                        : QStringLiteral("输入：%1").arg(QFileInfo(path).fileName());
+        }
+
+        QString target_text = QStringLiteral("主目标：暂无");
+        const int primary_index = current_result_.primary_index;
+        if (primary_index >= 0 && primary_index < static_cast<int>(current_result_.detections.size())) {
+            const auto& detection = current_result_.detections[primary_index];
+            target_text = QStringLiteral("主目标：#%1  X %2  Y %3  A %4°")
+                              .arg(primary_index + 1)
+                              .arg(FormatNumber(detection.center_x),
+                                   FormatNumber(detection.center_y),
+                                   FormatNumber(detection.angle_deg));
+        }
+
+        work_summary_input_label_->setText(input_text);
+        work_summary_target_label_->setText(target_text);
+        work_summary_state_label_->setText(QStringLiteral("流程：%1").arg(state));
+    }
 }
 
 void GraspMainWindow::updateStatusMessage(const QString& message, int timeout_ms)
