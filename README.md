@@ -47,17 +47,17 @@ Unordered_scraping-main/
 ├── CMakeLists.txt
 ├── deploy_windows.ps1            # Windows DLL 部署脚本
 ├── launch_tankeye.ps1            # Windows Qt APP 启动脚本
-└── README_*.md                   # 分模块说明文档
+└── docs/                         # 分模块说明文档
 ```
 
 ## 文档导航
 
-- `README_WINDOWS.md`：Windows 构建、部署和启动说明
-- `README_NEW_MACHINE_WINDOWS.md`：新 Windows 机器从 `.pt` 模型到 Qt APP 的完整部署流程
-- `README_APP.md`：Qt 应用层结构和运行说明
-- `README_OBB.md`：OBB 模型部署与推理说明
-- `README_SEG.md`：SEG 模型部署与推理说明
-- `README_DEPLOY.md`：部署相关补充说明
+- `docs/README_WINDOWS.md`：Windows 构建、部署和启动说明
+- `docs/README_NEW_MACHINE_WINDOWS.md`：新 Windows 机器从 `.pt` 模型到 Qt APP 的完整部署流程
+- `docs/README_APP.md`：Qt 应用层结构和运行说明
+- `docs/README_OBB.md`：OBB 模型部署与推理说明
+- `docs/README_SEG.md`：SEG 模型部署与推理说明
+- `docs/README_DEPLOY.md`：部署相关补充说明
 
 ## 环境要求
 
