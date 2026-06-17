@@ -10,9 +10,8 @@
 
 ## 1. 项目用途
 
-本项目是一个 YOLOv11 TensorRT C++ 推理项目，包含三类推理入口：
+本项目是一个 YOLOv11 TensorRT C++ 推理项目，包含两个命令行测试入口和一个 Qt 上位机入口：
 
-- `DET`：普通目标检测，对应 `main.cpp`
 - `OBB`：旋转框检测，对应 `main_obb.cpp`
 - `SEG`：实例分割，对应 `main_seg.cpp`
 - `Qt APP`：上位机界面，同时加载 `OBB + SEG` 两个 engine，对应 `qt/main.cpp`
@@ -317,7 +316,6 @@ src\
 
 TensorRT C++ 推理核心代码：
 
-- `YOLOv11.cpp/.h`：普通 DET 推理
 - `YOLOv11_OBB.cpp/.h`：OBB 推理
 - `YOLOv11_SEG.cpp/.h`：SEG 推理
 - `preprocess.cu/.h`：CUDA 预处理
@@ -340,18 +338,17 @@ Qt 上位机界面：
 - `robot_controller.*`：机械臂流程模拟控制
 
 ```text
-main.cpp
 main_obb.cpp
 main_seg.cpp
 ```
 
-三个命令行测试入口。
+两个命令行测试入口。
 
 ```text
 CMakeLists.txt
 ```
 
-项目构建入口，定义 DET、OBB、SEG、Qt APP 四个目标。
+项目构建入口，定义 OBB、SEG、Qt APP 三个目标。
 
 ```text
 deploy_windows.ps1

@@ -98,7 +98,7 @@ weights/best_seg.onnx
 单张图片：
 
 ```bash
-./build/yolov11-tensorrt_seg ./weights/best_seg.engine ./asset/bus.jpg
+./build/yolov11-tensorrt_seg ./weights/best_seg.engine ./asset/20260331_090339_757.jpg
 ```
 
 视频：
@@ -151,7 +151,7 @@ weights/best_seg.onnx
 示例：
 
 ```bash
-./build/yolov11-tensorrt_seg ./weights/best_seg.engine ./asset/bus.jpg \
+./build/yolov11-tensorrt_seg ./weights/best_seg.engine ./asset/20260331_090339_757.jpg \
   --conf=0.25 \
   --nms=0.45 \
   --mask-thres=0.50 \
@@ -194,7 +194,7 @@ model.export(format="onnx")
 如果你有 3 个类别，并且想通过标签文件传入类别名：
 
 ```bash
-./build/yolov11-tensorrt_seg ./weights/best_seg.engine ./asset/bus.jpg \
+./build/yolov11-tensorrt_seg ./weights/best_seg.engine ./asset/20260331_090339_757.jpg \
   --num-classes=3 \
   --labels=./asset/seg.labels.txt
 ```

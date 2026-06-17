@@ -43,10 +43,10 @@ cmd.exe /s /c '"D:\Visual Studio\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
 cmd.exe /s /c '"D:\Visual Studio\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 && cmake --build build_win_qt --config Release --target yolov11-tensorrt_qt_app'
 ```
 
-Command-line targets can also be built:
+Command-line test targets can also be built:
 
 ```powershell
-cmd.exe /s /c '"D:\Visual Studio\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 && cmake --build build_win_qt --config Release --target yolov11-tensorrt yolov11-tensorrt_obb yolov11-tensorrt_seg'
+cmd.exe /s /c '"D:\Visual Studio\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 && cmake --build build_win_qt --config Release --target yolov11-tensorrt_obb yolov11-tensorrt_seg'
 ```
 
 ## Deploy Runtime DLLs

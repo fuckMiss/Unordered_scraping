@@ -157,13 +157,6 @@ cuda_add_library(${PROJECT_NAME}_deploy_common STATIC
 )
 configure_yolov11_target(${PROJECT_NAME}_deploy_common)
 
-add_library(${PROJECT_NAME}_deploy_det STATIC
-    src/YOLOv11.cpp
-    src/YOLOv11.h
-)
-configure_yolov11_target(${PROJECT_NAME}_deploy_det)
-target_link_libraries(${PROJECT_NAME}_deploy_det ${PROJECT_NAME}_deploy_common)
-
 add_library(${PROJECT_NAME}_deploy_obb STATIC
     src/YOLOv11_OBB.cpp
     src/YOLOv11_OBB.h
@@ -177,10 +170,6 @@ add_library(${PROJECT_NAME}_deploy_seg STATIC
 )
 configure_yolov11_target(${PROJECT_NAME}_deploy_seg)
 target_link_libraries(${PROJECT_NAME}_deploy_seg ${PROJECT_NAME}_deploy_common)
-
-# ========== Standard YOLOv11 detection executable ==========
-add_executable(${PROJECT_NAME} main.cpp)
-target_link_libraries(${PROJECT_NAME} ${PROJECT_NAME}_deploy_det)
 
 # ========== YOLOv11 OBB detection executable ==========
 add_executable(${PROJECT_NAME}_obb main_obb.cpp)

@@ -187,7 +187,7 @@ model.export(format="onnx")
 如果你是单类模型：
 
 ```bash
-./build/yolov11-tensorrt_obb ./weights/best_obb.engine ./asset/boats.jpg \
+./build/yolov11-tensorrt_obb ./weights/best_obb.engine ./asset/20260331_090339_757.jpg \
   --num-classes=1 \
   --labels=./asset/border.labels.txt
 ```
