@@ -36,9 +36,9 @@ void DrawCenterReticle(Mat& image)
     line(image, Point(center.x, center.y + gap), Point(center.x, center.y + ring_radius + arm), cross_color, 6, LINE_AA);
 }
 
-void DrawSegmentationOverlay(Mat& image, const FrameInferenceResult& result)
+void DrawSegmentationOverlay(Mat& image, const FrameInferenceResult& result, bool show_all_detections)
 {
-    if (result.segments.empty()) {
+    if (!show_all_detections || result.segments.empty()) {
         return;
     }
 
@@ -62,6 +62,17 @@ void DrawSegmentationOverlay(Mat& image, const FrameInferenceResult& result)
         if (segment.bbox.width > 0 && segment.bbox.height > 0) {
             rectangle(image, segment.bbox, color, 2, LINE_AA);
         }
+        if (segment.min_rect_corners.size() == 4) {
+            for (size_t i = 0; i < segment.min_rect_corners.size(); ++i) {
+                line(image,
+                     segment.min_rect_corners[i],
+                     segment.min_rect_corners[(i + 1) % segment.min_rect_corners.size()],
+                     Scalar(255, 0, 0),
+                     2,
+                     LINE_AA);
+            }
+        }
+        circle(image, segment.center, 5, Scalar(0, 0, 255), FILLED, LINE_AA);
     }
 }
 
@@ -84,6 +95,12 @@ void DrawDetectionPolygon(Mat& image, const PoseDetection& detection, bool selec
 
     arrowedLine(image, detection.arrow_start, detection.arrow_end, arrow_color, arrow_thickness, LINE_AA, 0, 0.28);
     circle(image, detection.arrow_start, selected ? 5 : 4, arrow_color, FILLED, LINE_AA);
+
+    circle(image, detection.x_point, selected ? 6 : 5, Scalar(255, 0, 255), FILLED, LINE_AA);
+    if (detection.has_small_point) {
+        circle(image, detection.small_point, selected ? 7 : 6, Scalar(0, 255, 255), FILLED, LINE_AA);
+        line(image, detection.seg_center, detection.small_point, Scalar(0, 255, 255), 1, LINE_AA);
+    }
 }
 
 }  // namespace
@@ -91,16 +108,23 @@ void DrawDetectionPolygon(Mat& image, const PoseDetection& detection, bool selec
 void DrawFrameOverlay(Mat& image,
                       const FrameInferenceResult& result,
                       int selected_index,
-                      bool draw_center_reticle)
+                      bool draw_center_reticle,
+                      bool show_all_detections)
 {
-    DrawSegmentationOverlay(image, result);
-
     if (draw_center_reticle) {
         DrawCenterReticle(image);
     }
 
     const int active_index = ResolveSelectionIndex(result, selected_index);
-    for (int i = 0; i < static_cast<int>(result.detections.size()); ++i) {
-        DrawDetectionPolygon(image, result.detections[i], i == active_index);
+    if (show_all_detections) {
+        DrawSegmentationOverlay(image, result, true);
+        for (int i = 0; i < static_cast<int>(result.detections.size()); ++i) {
+            DrawDetectionPolygon(image, result.detections[i], i == active_index);
+        }
+        return;
+    }
+
+    if (active_index >= 0) {
+        DrawDetectionPolygon(image, result.detections[active_index], true);
     }
 }

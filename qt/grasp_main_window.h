@@ -21,6 +21,7 @@ class QResizeEvent;
 class QCloseEvent;
 class QEvent;
 class QShowEvent;
+class QTimer;
 
 class GraspMainWindow : public QMainWindow
 {
@@ -29,6 +30,7 @@ public:
     ~GraspMainWindow() override;
 
     void setInitialEnginePaths(const QString& obb_engine_path, const QString& seg_engine_path);
+    void setShowAllDetections(bool show_all_detections);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -49,7 +51,9 @@ private:
         Detecting,
         WaitingRobot,
         NoTarget,
-        Stopped
+        Stopped,
+        PlcPolling,
+        PlcWriting
     };
 
     void setupUi();
@@ -77,6 +81,11 @@ private:
     void stopDetection();
     void startAutoGrabCycle();
     void runOneAutoGrabCycle();
+    void togglePlcLinkMode();
+    void pollPlcTrigger();
+    void processPlcTriggeredFrame();
+    void writeCurrentResultToPlc(const QString& context, bool clear_trigger);
+    void writePlcTestValues();
     void onRobotReturnedHome();
     void handleAutoGrabNoTarget();
     void finishAutoGrabCycle(const QString& message);
@@ -115,12 +124,17 @@ private:
     QLabel* runtime_seg_count_label_ = nullptr;
     QLabel* runtime_stage_time_label_ = nullptr;
     QLabel* runtime_total_time_label_ = nullptr;
+    QLabel* pick_status_value_label_ = nullptr;
+    QLabel* head_type_value_label_ = nullptr;
     QLabel* image_path_label_ = nullptr;
     QPushButton* load_image_button_ = nullptr;
     QPushButton* open_camera_button_ = nullptr;
     QPushButton* start_button_ = nullptr;
     QPushButton* auto_grab_button_ = nullptr;
+    QPushButton* plc_link_button_ = nullptr;
+    QPushButton* plc_test_button_ = nullptr;
     QPushButton* stop_button_ = nullptr;
+    QPushButton* display_mode_button_ = nullptr;
     QPushButton* engineering_button_ = nullptr;
     QPushButton* target_list_button_ = nullptr;
     QPushButton* target_list_back_button_ = nullptr;
@@ -159,7 +173,11 @@ private:
     QString seg_engine_path_;
     QStringList auto_grab_test_images_;
     int auto_grab_test_image_index_ = -1;
+    bool show_all_detections_ = false;
     bool auto_grab_active_ = false;
+    bool plc_link_active_ = false;
+    bool plc_poll_busy_ = false;
+    QTimer* plc_poll_timer_ = nullptr;
     bool initial_models_attempted_ = false;
     bool top_bar_dragging_ = false;
     QPoint top_bar_drag_offset_;

@@ -9,7 +9,9 @@
 template <typename T>
 struct TrtDeleter {
     void operator()(T* object) const noexcept {
-        delete object;
+        if (object != nullptr) {
+            object->destroy();
+        }
     }
 };
 

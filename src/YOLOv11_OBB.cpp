@@ -23,7 +23,7 @@ static Logger logger;
 //     "roundabout",      "soccer ball field", "basketball court"
 // };
 static const std::vector<std::string> OBB_CLASS_NAMES = {
-    "LEFT","RIGHT"
+    "LEFT", "RIGHT", "small"
 };
 
 static std::vector<std::string> buildDefaultClassNames(int num_classes) {

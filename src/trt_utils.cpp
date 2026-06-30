@@ -116,12 +116,12 @@ bool SaveTensorRTEngine(nvinfer1::ICudaEngine* engine, const string& onnx_path)
     ofstream file(engine_path, ios::binary | ios::out);
     if (!file.is_open()) {
         cout << "Create engine file " << engine_path << " failed" << endl;
-        delete data;
+        data->destroy();
         return false;
     }
 
     file.write(static_cast<const char*>(data->data()), data->size());
     file.close();
-    delete data;
+    data->destroy();
     return true;
 }

@@ -3,6 +3,7 @@ project(yolov11-tensorrt)
 
 option(BUILD_QT_APP "Build the Qt application target" ON)
 
+set(CUDA_USE_STATIC_CUDA_RUNTIME OFF)
 find_package(CUDA REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS
     gapi
@@ -31,7 +32,7 @@ if(BUILD_QT_APP)
         set(Qt5Gui_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui" CACHE PATH "Qt5Gui config directory" FORCE)
         set(Qt5Widgets_DIR "/usr/lib/x86_64-linux-gnu/cmake/Qt5Widgets" CACHE PATH "Qt5Widgets config directory" FORCE)
     endif()
-    find_package(Qt5 REQUIRED COMPONENTS Widgets)
+    find_package(Qt5 REQUIRED COMPONENTS Widgets Network)
 endif()
 
 set(CMAKE_AUTOMOC ${BUILD_QT_APP})
@@ -201,6 +202,7 @@ if(BUILD_QT_APP)
     endif()
     target_link_libraries(${PROJECT_NAME}_qt_app
         Qt5::Widgets
+        Qt5::Network
         ${PROJECT_NAME}_deploy_common
         ${PROJECT_NAME}_deploy_obb
         ${PROJECT_NAME}_deploy_seg

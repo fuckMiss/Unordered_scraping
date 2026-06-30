@@ -12,6 +12,9 @@ struct SegRegion
     float confidence = 0.0f;
     cv::Rect bbox;
     cv::Mat mask;
+    cv::Point2f center;
+    std::vector<cv::Point2f> contour;
+    std::vector<cv::Point2f> min_rect_corners;
 };
 
 struct PoseDetection
@@ -24,6 +27,13 @@ struct PoseDetection
     float center_x = 0.0f;
     float center_y = 0.0f;
     float angle_deg = 0.0f;
+    int pick_status_code = 3;
+    int head_type_code = 0;
+    std::string head_type_text;
+    cv::Point2f seg_center;
+    cv::Point2f x_point;
+    cv::Point2f small_point;
+    bool has_small_point = false;
     cv::Point2f arrow_start;
     cv::Point2f arrow_end;
     cv::Rect bbox;
@@ -41,4 +51,7 @@ struct FrameInferenceResult
     std::vector<PoseDetection> detections;
     std::vector<SegRegion> segments;
     int primary_index = -1;
+    int pick_status_code = 3;
+    int head_type_code = 0;
+    std::string head_type_text;
 };

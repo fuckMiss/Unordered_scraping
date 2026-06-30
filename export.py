@@ -2,7 +2,7 @@ from ultralytics import YOLO
 
 
 # Load the YOLO segmentation model
-model = YOLO("/home/cll/桌面/dev/Unordered_scraping-main/weights/best_seg.pt")
+model = YOLO("weights\\best_seg.pt")
 
 # Export the model to ONNX format
 export_path = model.export(format="onnx")

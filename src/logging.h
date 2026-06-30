@@ -71,14 +71,19 @@ public:
         {
             // prepend timestamp
             std::time_t timestamp = std::time(nullptr);
-            tm* tm_local = std::localtime(&timestamp);
+            tm tm_local{};
+#if defined(_WIN32)
+            localtime_s(&tm_local, &timestamp);
+#else
+            tm_local = *std::localtime(&timestamp);
+#endif
             std::cout << "[";
-            std::cout << std::setw(2) << std::setfill('0') << 1 + tm_local->tm_mon << "/";
-            std::cout << std::setw(2) << std::setfill('0') << tm_local->tm_mday << "/";
-            std::cout << std::setw(4) << std::setfill('0') << 1900 + tm_local->tm_year << "-";
-            std::cout << std::setw(2) << std::setfill('0') << tm_local->tm_hour << ":";
-            std::cout << std::setw(2) << std::setfill('0') << tm_local->tm_min << ":";
-            std::cout << std::setw(2) << std::setfill('0') << tm_local->tm_sec << "] ";
+            std::cout << std::setw(2) << std::setfill('0') << 1 + tm_local.tm_mon << "/";
+            std::cout << std::setw(2) << std::setfill('0') << tm_local.tm_mday << "/";
+            std::cout << std::setw(4) << std::setfill('0') << 1900 + tm_local.tm_year << "-";
+            std::cout << std::setw(2) << std::setfill('0') << tm_local.tm_hour << ":";
+            std::cout << std::setw(2) << std::setfill('0') << tm_local.tm_min << ":";
+            std::cout << std::setw(2) << std::setfill('0') << tm_local.tm_sec << "] ";
             // std::stringbuf::str() gets the string contents of the buffer
             // insert the buffer contents pre-appended by the appropriate prefix into the stream
             mOutput << mPrefix << str();

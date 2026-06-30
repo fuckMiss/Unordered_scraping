@@ -1,4 +1,4 @@
-#include "grasp_main_window.h"
+﻿#include "grasp_main_window.h"
 
 #include "frame_overlay.h"
 
@@ -118,6 +118,29 @@ QImage MatToQImage(const Mat& image)
 QString FormatNumber(float value)
 {
     return QString::number(value, 'f', 1);
+}
+
+QHBoxLayout* CreatePathRow(QDialog* dialog, QLineEdit* path_edit, const QString& title, const QString& dialog_title)
+{
+    auto* row = new QHBoxLayout();
+    auto* title_label = new QLabel(title, dialog);
+    title_label->setMinimumWidth(90);
+    auto* browse_button = new QPushButton(QStringLiteral("浏览"), dialog);
+    row->addWidget(title_label);
+    row->addWidget(path_edit, 1);
+    row->addWidget(browse_button);
+
+    QObject::connect(browse_button, &QPushButton::clicked, dialog, [dialog, path_edit, dialog_title]() {
+        const QString path = QFileDialog::getOpenFileName(dialog,
+                                                          dialog_title,
+                                                          path_edit->text(),
+                                                          QStringLiteral("TensorRT Engine (*.engine);;All Files (*)"));
+        if (!path.isEmpty()) {
+            path_edit->setText(path);
+        }
+    });
+
+    return row;
 }
 
 QString DefaultLogoPath()
@@ -392,6 +415,9 @@ GraspMainWindow::GraspMainWindow(QWidget* parent)
     , robot_controller_(this)
 {
     auto_grab_test_images_ = DefaultAutoGrabTestImages();
+    plc_poll_timer_ = new QTimer(this);
+    plc_poll_timer_->setInterval(300);
+    show_all_detections_ = false;
     setupUi();
     applyStyles();
     bindActions();
@@ -413,6 +439,16 @@ void GraspMainWindow::setInitialEnginePaths(const QString& obb_engine_path, cons
 {
     obb_engine_path_ = obb_engine_path;
     seg_engine_path_ = seg_engine_path;
+}
+
+void GraspMainWindow::setShowAllDetections(bool show_all_detections)
+{
+    show_all_detections_ = show_all_detections;
+    if (display_mode_button_) {
+        display_mode_button_->setText(show_all_detections_ ? QStringLiteral("全显") : QStringLiteral("隐藏"));
+    }
+    renderCurrentFrame();
+    refreshTargetTable();
 }
 
 bool GraspMainWindow::eventFilter(QObject* watched, QEvent* event)
@@ -845,6 +881,12 @@ void GraspMainWindow::buildResultSection(QVBoxLayout* side_layout)
     metrics->addWidget(CreateMetricCell(QStringLiteral("角度"), angle_value_label_, overview_card));
     overview_layout->addLayout(metrics);
 
+    auto* plc_metrics = new QHBoxLayout();
+    plc_metrics->setSpacing(8);
+    plc_metrics->addWidget(CreateMetricCell(QStringLiteral("D506"), pick_status_value_label_, overview_card));
+    plc_metrics->addWidget(CreateMetricCell(QStringLiteral("D508"), head_type_value_label_, overview_card));
+    overview_layout->addLayout(plc_metrics);
+
     side_layout->addWidget(overview_card);
 }
 
@@ -898,16 +940,23 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     open_camera_button_ = new QPushButton(QStringLiteral("打开相机"), this);
     start_button_ = new QPushButton(QStringLiteral("开始检测"), this);
     auto_grab_button_ = new QPushButton(QStringLiteral("自动抓取"), this);
+    plc_link_button_ = new QPushButton(QStringLiteral("PLC联动"), this);
+    plc_test_button_ = new QPushButton(QStringLiteral("PLC测试写入"), this);
     stop_button_ = new QPushButton(QStringLiteral("停止检测"), this);
+    display_mode_button_ = new QPushButton(QStringLiteral("全显"), this);
     target_list_button_ = new QPushButton(QStringLiteral("多目标列表"), this);
     engineering_button_ = new QPushButton(QStringLiteral("工程设置"), this);
     load_image_button_->setMinimumHeight(40);
     open_camera_button_->setMinimumHeight(40);
     start_button_->setMinimumHeight(46);
     auto_grab_button_->setMinimumHeight(46);
+    plc_link_button_->setMinimumHeight(40);
+    plc_test_button_->setMinimumHeight(40);
     stop_button_->setMinimumHeight(46);
+    display_mode_button_->setMinimumHeight(36);
     target_list_button_->setMinimumHeight(36);
     engineering_button_->setMinimumHeight(36);
+    display_mode_button_->setObjectName("secondaryActionButton");
     target_list_button_->setObjectName("secondaryActionButton");
     engineering_button_->setObjectName("secondaryActionButton");
 
@@ -936,11 +985,14 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     detect_buttons->setVerticalSpacing(8);
     detect_buttons->addWidget(start_button_, 0, 0);
     detect_buttons->addWidget(auto_grab_button_, 0, 1);
-    detect_buttons->addWidget(stop_button_, 1, 0, 1, 2);
+    detect_buttons->addWidget(plc_link_button_, 1, 0);
+    detect_buttons->addWidget(plc_test_button_, 1, 1);
+    detect_buttons->addWidget(stop_button_, 2, 0, 1, 2);
     detect_layout->addLayout(detect_buttons);
     auto* manage_buttons = new QHBoxLayout();
     manage_buttons->setSpacing(8);
     manage_buttons->addStretch();
+    manage_buttons->addWidget(display_mode_button_, 0);
     manage_buttons->addWidget(target_list_button_, 0);
     manage_buttons->addWidget(engineering_button_, 0);
     detect_layout->addLayout(manage_buttons);
@@ -1088,7 +1140,10 @@ void GraspMainWindow::bindActions()
     connect(open_camera_button_, &QPushButton::clicked, this, [this]() { openCamera(); });
     connect(start_button_, &QPushButton::clicked, this, [this]() { startDetection(); });
     connect(auto_grab_button_, &QPushButton::clicked, this, [this]() { startAutoGrabCycle(); });
+    connect(plc_link_button_, &QPushButton::clicked, this, [this]() { togglePlcLinkMode(); });
+    connect(plc_test_button_, &QPushButton::clicked, this, [this]() { writePlcTestValues(); });
     connect(stop_button_, &QPushButton::clicked, this, [this]() { stopDetection(); });
+    connect(display_mode_button_, &QPushButton::clicked, this, [this]() { setShowAllDetections(!show_all_detections_); });
     connect(target_list_button_, &QPushButton::clicked, this, [this]() { showTargetListPage(); });
     connect(target_list_back_button_, &QPushButton::clicked, this, [this]() { showDetailPage(); });
     connect(engineering_button_, &QPushButton::clicked, this, [this]() { openEngineeringSettings(); });
@@ -1106,6 +1161,7 @@ void GraspMainWindow::bindActions()
     });
     connect(close_window_button_, &QToolButton::clicked, this, [this]() { close(); });
     connect(sidebar_toggle_button_, &QToolButton::clicked, this, [this]() { toggleSidePanel(); });
+    connect(plc_poll_timer_, &QTimer::timeout, this, [this]() { pollPlcTrigger(); });
     connect(main_splitter_, &QSplitter::splitterMoved, this, [this](int, int) {
         if (!side_panel_expanded_ || !side_panel_) {
             repositionSidePanelToggle();
@@ -1229,33 +1285,11 @@ void GraspMainWindow::openEngineeringSettings()
     auto* seg_path_edit = new QLineEdit(seg_engine_path_, &dialog);
     seg_path_edit->setPlaceholderText(QStringLiteral("选择 SEG engine 文件"));
 
-    const auto create_path_row = [&dialog](const QString& title, QLineEdit* path_edit, const QString& dialog_title) {
-        auto* row = new QHBoxLayout();
-        auto* title_label = new QLabel(title, &dialog);
-        title_label->setMinimumWidth(90);
-        auto* browse_button = new QPushButton(QStringLiteral("浏览"), &dialog);
-        row->addWidget(title_label);
-        row->addWidget(path_edit, 1);
-        row->addWidget(browse_button);
-
-        QObject::connect(browse_button, &QPushButton::clicked, &dialog, [&dialog, path_edit, dialog_title]() {
-            const QString path = QFileDialog::getOpenFileName(&dialog,
-                                                              dialog_title,
-                                                              path_edit->text(),
-                                                              QStringLiteral("TensorRT Engine (*.engine);;All Files (*)"));
-            if (!path.isEmpty()) {
-                path_edit->setText(path);
-            }
-        });
-
-        return row;
-    };
-
     auto* status_label = new QLabel(BuildModelStatusText(workflow_), &dialog);
     auto* load_button = new QPushButton(QStringLiteral("加载双模型"), &dialog);
 
-    layout->addLayout(create_path_row(QStringLiteral("OBB Engine"), obb_path_edit, QStringLiteral("选择 OBB Engine")));
-    layout->addLayout(create_path_row(QStringLiteral("SEG Engine"), seg_path_edit, QStringLiteral("选择 SEG Engine")));
+    layout->addLayout(CreatePathRow(&dialog, obb_path_edit, QStringLiteral("OBB Engine"), QStringLiteral("选择 OBB Engine")));
+    layout->addLayout(CreatePathRow(&dialog, seg_path_edit, QStringLiteral("SEG Engine"), QStringLiteral("选择 SEG Engine")));
 
     auto* bottom_row = new QHBoxLayout();
     bottom_row->addWidget(status_label, 1);
@@ -1322,6 +1356,7 @@ void GraspMainWindow::openCamera()
             QMetaObject::invokeMethod(
                 this,
                 [this, error_message]() {
+                    input_mode_ = InputMode::Idle;
                     refreshDeviceStatus();
                     refreshRuntimeStrip();
                     QMessageBox::critical(this, QStringLiteral("相机错误"), QString::fromStdString(error_message));
@@ -1369,19 +1404,155 @@ void GraspMainWindow::startDetection()
     }
 
     setFrameAndResult(current_frame_, result);
-    updateStatusMessage(result.detections.empty() && result.segments.empty()
-                            ? QStringLiteral("未检测到 OBB 或 SEG 结果。")
-                            : QStringLiteral("图片联合检测完成。"),
-                        5000);
+    writeCurrentResultToPlc(QStringLiteral("图片联合检测"), false);
 }
 
 void GraspMainWindow::stopDetection()
 {
     stopAutoGrabCycle();
+    plc_link_active_ = false;
+    plc_poll_busy_ = false;
+    if (plc_poll_timer_) {
+        plc_poll_timer_->stop();
+    }
+    if (auto_grab_state_ == AutoGrabState::PlcPolling || auto_grab_state_ == AutoGrabState::PlcWriting) {
+        auto_grab_state_ = AutoGrabState::Stopped;
+    }
     workflow_.stopCamera();
     refreshDeviceStatus();
     refreshRuntimeStrip();
     updateStatusMessage(QStringLiteral("检测已停止。"), 4000);
+}
+
+void GraspMainWindow::togglePlcLinkMode()
+{
+    if (plc_link_active_) {
+        plc_link_active_ = false;
+        plc_poll_busy_ = false;
+        plc_poll_timer_->stop();
+        auto_grab_state_ = AutoGrabState::Idle;
+        refreshDeviceStatus();
+        refreshRuntimeStrip();
+        updateStatusMessage(QStringLiteral("PLC联动已停止。"), 4000);
+        return;
+    }
+
+    if (!workflow_.areModelsLoaded()) {
+        QMessageBox::warning(this,
+                             QStringLiteral("模型未加载"),
+                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG engine。"));
+        return;
+    }
+
+    if (!workflow_.isCameraRunning()) {
+        openCamera();
+        if (!workflow_.isCameraRunning()) {
+            plc_link_active_ = false;
+            plc_poll_busy_ = false;
+            plc_poll_timer_->stop();
+            refreshDeviceStatus();
+            refreshRuntimeStrip();
+            updateStatusMessage(QStringLiteral("PLC联动未启动：相机未成功打开。"), 4000);
+            return;
+        }
+    }
+
+    plc_link_active_ = true;
+    plc_poll_busy_ = false;
+    auto_grab_state_ = AutoGrabState::PlcPolling;
+    plc_poll_timer_->start();
+    refreshDeviceStatus();
+    refreshRuntimeStrip();
+    updateStatusMessage(QStringLiteral("PLC联动已启动，等待 D1500=1。"), 5000);
+}
+
+void GraspMainWindow::pollPlcTrigger()
+{
+    if (!plc_link_active_ || plc_poll_busy_) {
+        return;
+    }
+
+    plc_poll_busy_ = true;
+    bool triggered = false;
+    string error_message;
+    if (!robot_controller_.readPhotoTrigger(&triggered, &error_message)) {
+        plc_poll_busy_ = false;
+        updateStatusMessage(QStringLiteral("PLC读取失败：%1").arg(QString::fromStdString(error_message)), 3000);
+        return;
+    }
+
+    if (!triggered) {
+        plc_poll_busy_ = false;
+        return;
+    }
+
+    auto_grab_state_ = AutoGrabState::PlcWriting;
+    refreshRuntimeStrip();
+    processPlcTriggeredFrame();
+    auto_grab_state_ = plc_link_active_ ? AutoGrabState::PlcPolling : AutoGrabState::Idle;
+    refreshRuntimeStrip();
+    plc_poll_busy_ = false;
+}
+
+void GraspMainWindow::processPlcTriggeredFrame()
+{
+    if (!workflow_.areModelsLoaded()) {
+        updateStatusMessage(QStringLiteral("PLC触发被忽略：模型未加载。"), 3000);
+        return;
+    }
+
+    if (current_frame_.empty()) {
+        FrameInferenceResult empty_result;
+        empty_result.pick_status_code = 3;
+        string error_message;
+        if (!robot_controller_.writeFrameResult(empty_result, &error_message)) {
+            updateStatusMessage(QStringLiteral("PLC写入失败：%1").arg(QString::fromStdString(error_message)), 5000);
+            return;
+        }
+        robot_controller_.clearPhotoTrigger(&error_message);
+        updateStatusMessage(QStringLiteral("PLC触发时没有相机帧，已写 D506=3。"), 5000);
+        return;
+    }
+
+    FrameInferenceResult result;
+    string error_message;
+    if (!workflow_.runImage(current_frame_, result, &error_message)) {
+        updateStatusMessage(QStringLiteral("PLC触发检测失败：%1").arg(QString::fromStdString(error_message)), 5000);
+        return;
+    }
+
+    setFrameAndResult(current_frame_, result);
+    writeCurrentResultToPlc(QStringLiteral("PLC触发检测"), true);
+}
+
+void GraspMainWindow::writeCurrentResultToPlc(const QString& context, bool clear_trigger)
+{
+    string error_message;
+    if (!robot_controller_.writeFrameResult(current_result_, &error_message)) {
+        updateStatusMessage(QStringLiteral("%1完成，但 PLC 写入失败：%2")
+                                .arg(context, QString::fromStdString(error_message)),
+                            6000);
+        return;
+    }
+
+    if (clear_trigger && !robot_controller_.clearPhotoTrigger(&error_message)) {
+        updateStatusMessage(QStringLiteral("%1结果已写入，但 D1500 清零失败：%2")
+                                .arg(context, QString::fromStdString(error_message)),
+                            6000);
+        return;
+    }
+
+    updateStatusMessage(QStringLiteral("%1完成，已写入 PLC。").arg(context), 5000);
+}
+
+void GraspMainWindow::writePlcTestValues()
+{
+    string error_message;
+    if (robot_controller_.writePlcTestValues(&error_message)) {
+        updateStatusMessage(QStringLiteral("PLC测试值已写入 D500/D502/D504/D506/D508。"), 5000);
+        return;
+    }
+    updateStatusMessage(QStringLiteral("PLC测试写入失败：%1").arg(QString::fromStdString(error_message)), 6000);
 }
 
 void GraspMainWindow::startAutoGrabCycle()
@@ -1480,6 +1651,9 @@ void GraspMainWindow::runOneAutoGrabCycle()
     }
 
     const PoseDetection target = current_result_.detections[primary_index];
+    if (current_result_.pick_status_code != 1) {
+        cout << "[AutoGrab] primary status=" << current_result_.pick_status_code << " (not grab-ready)" << endl;
+    }
     cout << "[AutoGrab] primary target: index=" << primary_index
          << ", x=" << target.center_x
          << ", y=" << target.center_y
@@ -1673,7 +1847,7 @@ void GraspMainWindow::renderCurrentFrame()
     }
 
     Mat display = current_frame_.clone();
-    DrawFrameOverlay(display, current_result_, -1, false);
+    DrawFrameOverlay(display, current_result_, -1, false, show_all_detections_);
 
     const QImage image = MatToQImage(display);
     if (image.isNull()) {
@@ -1693,6 +1867,12 @@ void GraspMainWindow::refreshInfoPanel()
         x_value_label_->setText(QStringLiteral("--"));
         y_value_label_->setText(QStringLiteral("--"));
         angle_value_label_->setText(QStringLiteral("--"));
+        pick_status_value_label_->setText(QString::number(current_result_.pick_status_code));
+        head_type_value_label_->setText(current_result_.head_type_code > 0
+                                            ? QStringLiteral("%1 %2")
+                                                  .arg(current_result_.head_type_code)
+                                                  .arg(QString::fromStdString(current_result_.head_type_text))
+                                            : QStringLiteral("--"));
         return;
     }
 
@@ -1700,6 +1880,12 @@ void GraspMainWindow::refreshInfoPanel()
     x_value_label_->setText(FormatNumber(detection.center_x));
     y_value_label_->setText(FormatNumber(detection.center_y));
     angle_value_label_->setText(FormatNumber(detection.angle_deg) + QStringLiteral(" deg"));
+    pick_status_value_label_->setText(QString::number(detection.pick_status_code));
+    head_type_value_label_->setText(detection.head_type_code > 0
+                                        ? QStringLiteral("%1 %2")
+                                              .arg(detection.head_type_code)
+                                              .arg(QString::fromStdString(detection.head_type_text))
+                                        : QStringLiteral("--"));
 }
 
 void GraspMainWindow::refreshTargetTable()
@@ -1709,6 +1895,49 @@ void GraspMainWindow::refreshTargetTable()
     }
 
     ClearLayoutItems(target_list_content_layout_);
+
+    if (!show_all_detections_) {
+        const int primary_index = current_result_.primary_index;
+        if (primary_index < 0 || primary_index >= static_cast<int>(current_result_.detections.size())) {
+            auto* empty_card = new QLabel(QStringLiteral("当前无检测结果"), target_list_content_);
+            empty_card->setObjectName("pathHintLabel");
+            empty_card->setWordWrap(true);
+            target_list_content_layout_->addWidget(empty_card);
+            target_list_content_layout_->addStretch();
+            return;
+        }
+
+        const auto& detection = current_result_.detections[primary_index];
+        auto* card = new QFrame(target_list_content_);
+        card->setObjectName("infoCard");
+        auto* card_layout = new QVBoxLayout(card);
+        card_layout->setContentsMargins(12, 12, 12, 12);
+        card_layout->setSpacing(8);
+
+        auto* title_label = new QLabel(QStringLiteral("主目标"), card);
+        title_label->setObjectName("statusStackName");
+        card_layout->addWidget(title_label);
+
+        auto* metrics_layout = new QHBoxLayout();
+        metrics_layout->setSpacing(8);
+        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("X"), FormatNumber(detection.center_x), card));
+        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("Y"), FormatNumber(detection.center_y), card));
+        metrics_layout->addWidget(
+            CreateStaticMetricCell(QStringLiteral("角度"), FormatNumber(detection.angle_deg) + QStringLiteral(" deg"), card));
+        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("D506"), QString::number(detection.pick_status_code), card));
+        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("D508"),
+                                                         detection.head_type_code > 0
+                                                             ? QStringLiteral("%1 %2")
+                                                                   .arg(detection.head_type_code)
+                                                                   .arg(QString::fromStdString(detection.head_type_text))
+                                                             : QStringLiteral("--"),
+                                                         card));
+        card_layout->addLayout(metrics_layout);
+
+        target_list_content_layout_->addWidget(card);
+        target_list_content_layout_->addStretch();
+        return;
+    }
 
     if (current_result_.detections.empty()) {
         auto* empty_card = new QLabel(QStringLiteral("当前无检测结果"), target_list_content_);
@@ -1737,6 +1966,14 @@ void GraspMainWindow::refreshTargetTable()
         metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("Y"), FormatNumber(detection.center_y), card));
         metrics_layout->addWidget(
             CreateStaticMetricCell(QStringLiteral("角度"), FormatNumber(detection.angle_deg) + QStringLiteral(" deg"), card));
+        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("D506"), QString::number(detection.pick_status_code), card));
+        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("D508"),
+                                                         detection.head_type_code > 0
+                                                             ? QStringLiteral("%1 %2")
+                                                                   .arg(detection.head_type_code)
+                                                                   .arg(QString::fromStdString(detection.head_type_text))
+                                                             : QStringLiteral("--"),
+                                                         card));
         card_layout->addLayout(metrics_layout);
 
         target_list_content_layout_->addWidget(card);
@@ -1767,11 +2004,17 @@ void GraspMainWindow::refreshDeviceStatus()
                  QStringLiteral("已加载"), QStringLiteral("未加载"));
     SetIndicator(seg_status_dot_, seg_status_value_, workflow_.isSegModelLoaded(),
                  QStringLiteral("已加载"), QStringLiteral("未加载"));
+    if (display_mode_button_) {
+        display_mode_button_->setText(show_all_detections_ ? QStringLiteral("全显") : QStringLiteral("隐藏"));
+    }
 
     const bool has_input = !current_frame_.empty() || input_mode_ == InputMode::Camera;
     start_button_->setEnabled(workflow_.areModelsLoaded() && has_input);
     auto_grab_button_->setEnabled(workflow_.areModelsLoaded() && has_input && !auto_grab_active_);
-    stop_button_->setEnabled(workflow_.isCameraRunning() || auto_grab_active_ || robot_controller_.isBusy());
+    plc_link_button_->setText(plc_link_active_ ? QStringLiteral("停止PLC联动") : QStringLiteral("PLC联动"));
+    plc_link_button_->setEnabled(workflow_.areModelsLoaded());
+    plc_test_button_->setEnabled(true);
+    stop_button_->setEnabled(workflow_.isCameraRunning() || auto_grab_active_ || plc_link_active_ || robot_controller_.isBusy());
 }
 
 void GraspMainWindow::refreshRuntimeStrip()
@@ -1790,6 +2033,8 @@ void GraspMainWindow::refreshRuntimeStrip()
         state = QStringLiteral("无可抓取目标");
     } else if (auto_grab_state_ == AutoGrabState::Stopped) {
         state = QStringLiteral("检测已停止");
+    } else if (auto_grab_state_ == AutoGrabState::PlcPolling || plc_link_active_) {
+        state = plc_poll_busy_ ? QStringLiteral("PLC触发处理中") : QStringLiteral("等待PLC触发");
     } else if (!workflow_.areModelsLoaded()) {
         state = QStringLiteral("模型未就绪");
     } else if (workflow_.isCameraRunning()) {
@@ -1841,6 +2086,11 @@ void GraspMainWindow::refreshRuntimeStrip()
                               .arg(FormatNumber(detection.center_x),
                                    FormatNumber(detection.center_y),
                                    FormatNumber(detection.angle_deg));
+            if (detection.head_type_code > 0) {
+                target_text += QStringLiteral("  D508 %1%2")
+                                   .arg(detection.head_type_code)
+                                   .arg(QString::fromStdString(detection.head_type_text));
+            }
         }
 
         work_summary_input_label_->setText(input_text);
