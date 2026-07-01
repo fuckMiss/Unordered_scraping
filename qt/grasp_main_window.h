@@ -64,7 +64,6 @@ private:
     void buildResultSection(QVBoxLayout* side_layout);
     void buildStatusSection(QVBoxLayout* side_layout);
     void buildActionSection(QVBoxLayout* side_layout);
-    void buildWorkSummarySection(QVBoxLayout* side_layout);
     void buildTargetListSection(QVBoxLayout* side_layout);
     void applyStyles();
     void bindActions();
@@ -85,6 +84,7 @@ private:
     void pollPlcTrigger();
     void processPlcTriggeredFrame();
     void writeCurrentResultToPlc(const QString& context, bool clear_trigger);
+    void writePlcFailureResult(const QString& context, bool clear_trigger);
     void writePlcTestValues();
     void onRobotReturnedHome();
     void handleAutoGrabNoTarget();
@@ -159,10 +159,6 @@ private:
     QLabel* x_value_label_ = nullptr;
     QLabel* y_value_label_ = nullptr;
     QLabel* angle_value_label_ = nullptr;
-    QLabel* work_summary_input_label_ = nullptr;
-    QLabel* work_summary_target_label_ = nullptr;
-    QLabel* work_summary_state_label_ = nullptr;
-
     GraspWorkflow workflow_;
     RobotController robot_controller_;
     InputMode input_mode_ = InputMode::Idle;

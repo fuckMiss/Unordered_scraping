@@ -847,7 +847,6 @@ void GraspMainWindow::buildSidePanel(QSplitter* splitter)
     buildResultSection(detail_layout);
     buildStatusSection(detail_layout);
     buildActionSection(detail_layout);
-    buildWorkSummarySection(detail_layout);
     side_pages_->addWidget(detail_page_);
 
     target_list_page_ = new QWidget(side_pages_);
@@ -1001,38 +1000,6 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     side_layout->addWidget(detect_group);
 }
 
-void GraspMainWindow::buildWorkSummarySection(QVBoxLayout* side_layout)
-{
-    auto* summary_card = new QFrame(this);
-    summary_card->setObjectName("workSummaryCard");
-    auto* summary_layout = new QVBoxLayout(summary_card);
-    summary_layout->setContentsMargins(12, 12, 12, 12);
-    summary_layout->setSpacing(8);
-
-    auto* title = new QLabel(QStringLiteral("作业摘要"), summary_card);
-    title->setObjectName("summaryTitle");
-    summary_layout->addWidget(title);
-
-    work_summary_input_label_ = new QLabel(summary_card);
-    work_summary_target_label_ = new QLabel(summary_card);
-    work_summary_state_label_ = new QLabel(summary_card);
-
-    const auto init_summary_label = [](QLabel* label) {
-        label->setObjectName("summaryLine");
-        label->setWordWrap(true);
-    };
-    init_summary_label(work_summary_input_label_);
-    init_summary_label(work_summary_target_label_);
-    init_summary_label(work_summary_state_label_);
-
-    summary_layout->addWidget(work_summary_input_label_);
-    summary_layout->addWidget(work_summary_target_label_);
-    summary_layout->addWidget(work_summary_state_label_);
-    summary_layout->addStretch(1);
-
-    side_layout->addWidget(summary_card, 1);
-}
-
 void GraspMainWindow::buildTargetListSection(QVBoxLayout* side_layout)
 {
     auto* header_layout = new QHBoxLayout();
@@ -1098,10 +1065,6 @@ void GraspMainWindow::applyStyles()
         "#statusStackItem { background: rgba(255,255,255,0.03); border: 1px solid #30495f; border-radius: 12px; }"
         "#statusStackName { color: #dbe7f1; font-size: 14px; font-weight: 600; }"
         "#controlGroupCard { background: rgba(255,255,255,0.04); border: 1px solid #30495f; border-radius: 16px; }"
-        "#workSummaryCard { background: rgba(19,31,42,0.78); border: 1px solid #2c465d; border-radius: 16px; }"
-        "#summaryTitle { color: #eef5fb; font-size: 15px; font-weight: 700; }"
-        "#summaryLine { color: #a9bdcc; background: rgba(255,255,255,0.025); border: 1px solid #2b4256;"
-        " border-radius: 10px; padding: 7px 9px; font-size: 12px; }"
         "#pathHintLabel { color: #9eb2c3; background: rgba(255,255,255,0.025); border: 1px solid #2b4256; border-radius: 10px; padding: 8px 10px; font-size: 12px; }"
         "#targetListScrollArea, #targetListScrollContent { background: transparent; border: none; }"
         "QLabel { color: #b7c7d6; }"
@@ -1497,27 +1460,19 @@ void GraspMainWindow::pollPlcTrigger()
 void GraspMainWindow::processPlcTriggeredFrame()
 {
     if (!workflow_.areModelsLoaded()) {
-        updateStatusMessage(QStringLiteral("PLC触发被忽略：模型未加载。"), 3000);
+        writePlcFailureResult(QStringLiteral("PLC触发被忽略：模型未加载"), true);
         return;
     }
 
     if (current_frame_.empty()) {
-        FrameInferenceResult empty_result;
-        empty_result.pick_status_code = 3;
-        string error_message;
-        if (!robot_controller_.writeFrameResult(empty_result, &error_message)) {
-            updateStatusMessage(QStringLiteral("PLC写入失败：%1").arg(QString::fromStdString(error_message)), 5000);
-            return;
-        }
-        robot_controller_.clearPhotoTrigger(&error_message);
-        updateStatusMessage(QStringLiteral("PLC触发时没有相机帧，已写 D506=3。"), 5000);
+        writePlcFailureResult(QStringLiteral("PLC触发时没有相机帧"), true);
         return;
     }
 
     FrameInferenceResult result;
     string error_message;
     if (!workflow_.runImage(current_frame_, result, &error_message)) {
-        updateStatusMessage(QStringLiteral("PLC触发检测失败：%1").arg(QString::fromStdString(error_message)), 5000);
+        writePlcFailureResult(QStringLiteral("PLC触发检测失败：%1").arg(QString::fromStdString(error_message)), true);
         return;
     }
 
@@ -1543,6 +1498,29 @@ void GraspMainWindow::writeCurrentResultToPlc(const QString& context, bool clear
     }
 
     updateStatusMessage(QStringLiteral("%1完成，已写入 PLC。").arg(context), 5000);
+}
+
+void GraspMainWindow::writePlcFailureResult(const QString& context, bool clear_trigger)
+{
+    FrameInferenceResult failure_result;
+    failure_result.pick_status_code = 3;
+
+    string error_message;
+    if (!robot_controller_.writeFrameResult(failure_result, &error_message)) {
+        updateStatusMessage(QStringLiteral("%1，且 PLC 失败状态写入失败：%2")
+                                .arg(context, QString::fromStdString(error_message)),
+                            6000);
+        return;
+    }
+
+    if (clear_trigger && !robot_controller_.clearPhotoTrigger(&error_message)) {
+        updateStatusMessage(QStringLiteral("%1，已写 D506=3，但 D1500 清零失败：%2")
+                                .arg(context, QString::fromStdString(error_message)),
+                            6000);
+        return;
+    }
+
+    updateStatusMessage(QStringLiteral("%1，已写 D506=3。").arg(context), 5000);
 }
 
 void GraspMainWindow::writePlcTestValues()
@@ -2066,37 +2044,6 @@ void GraspMainWindow::refreshRuntimeStrip()
             ? QStringLiteral("总耗时：%1 ms").arg(QString::number(current_result_.total_inference_ms, 'f', 1))
             : QStringLiteral("总耗时：--"));
 
-    if (work_summary_input_label_ && work_summary_target_label_ && work_summary_state_label_) {
-        QString input_text = QStringLiteral("输入：等待图像或相机");
-        if (input_mode_ == InputMode::Camera) {
-            input_text = workflow_.isCameraRunning() ? QStringLiteral("输入：相机实时流")
-                                                     : QStringLiteral("输入：相机待启动");
-        } else if (input_mode_ == InputMode::Image) {
-            const QString path = currentImagePath();
-            input_text = path.isEmpty() ? QStringLiteral("输入：图片模式")
-                                        : QStringLiteral("输入：%1").arg(QFileInfo(path).fileName());
-        }
-
-        QString target_text = QStringLiteral("主目标：暂无");
-        const int primary_index = current_result_.primary_index;
-        if (primary_index >= 0 && primary_index < static_cast<int>(current_result_.detections.size())) {
-            const auto& detection = current_result_.detections[primary_index];
-            target_text = QStringLiteral("主目标：#%1  X %2  Y %3  A %4°")
-                              .arg(primary_index + 1)
-                              .arg(FormatNumber(detection.center_x),
-                                   FormatNumber(detection.center_y),
-                                   FormatNumber(detection.angle_deg));
-            if (detection.head_type_code > 0) {
-                target_text += QStringLiteral("  D508 %1%2")
-                                   .arg(detection.head_type_code)
-                                   .arg(QString::fromStdString(detection.head_type_text));
-            }
-        }
-
-        work_summary_input_label_->setText(input_text);
-        work_summary_target_label_->setText(target_text);
-        work_summary_state_label_->setText(QStringLiteral("流程：%1").arg(state));
-    }
 }
 
 void GraspMainWindow::updateStatusMessage(const QString& message, int timeout_ms)
