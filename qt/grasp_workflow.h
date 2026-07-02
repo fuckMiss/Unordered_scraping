@@ -18,14 +18,15 @@ public:
     GraspWorkflow();
     ~GraspWorkflow();
 
-    bool loadModels(const std::string& obb_engine_path,
+    bool loadModels(const std::string& obb_model_path,
                     const OBBConfig& obb_config,
-                    const std::string& seg_engine_path,
+                    const std::string& seg_model_path,
                     const SEGConfig& seg_config,
                     std::string* error_message);
     bool areModelsLoaded() const;
     bool isObbModelLoaded() const;
     bool isSegModelLoaded() const;
+    std::string runtimeDeviceSummary() const;
     bool runImage(const cv::Mat& image, FrameInferenceResult& result, std::string* error_message);
 
     bool startCamera(std::function<void(const cv::Mat&, const FrameInferenceResult&)> on_frame,
@@ -41,9 +42,8 @@ private:
     std::unique_ptr<YOLOv11_SEG> seg_model_;
     OBBConfig obb_config_;
     SEGConfig seg_config_;
-    TrtLogger logger_;
-    std::string obb_engine_path_;
-    std::string seg_engine_path_;
+    std::string obb_model_path_;
+    std::string seg_model_path_;
 
     std::atomic<bool> camera_running_{ false };
     std::thread camera_thread_;

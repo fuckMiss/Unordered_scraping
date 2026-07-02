@@ -13,18 +13,18 @@ CMakeCache.txt
 cmake_install.cmake
 Makefile
 
-# Model weights and TensorRT engines
+# Model source weights and generated runtime formats
 /weights/*.engine
 /weights/*.onnx
 /weights/*.pt
 
 # Local runtime launchers and generated results
-/TankEye.desktop
 /logs/
 /test_results/
 /dist/
 /dist.zip
 /aqtinstall.log
+/kernel.errors.txt
 /obb_result_*
 /seg_result_*
 /test_screenshot_*

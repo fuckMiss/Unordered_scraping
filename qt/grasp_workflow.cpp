@@ -13,28 +13,28 @@ GraspWorkflow::~GraspWorkflow()
     stopCamera();
 }
 
-bool GraspWorkflow::loadModels(const string& obb_engine_path,
+bool GraspWorkflow::loadModels(const string& obb_model_path,
                                const OBBConfig& obb_config,
-                               const string& seg_engine_path,
+                               const string& seg_model_path,
                                const SEGConfig& seg_config,
                                string* error_message)
 {
     lock_guard<mutex> lock(model_mutex_);
 
     try {
-        if (!IsFile(obb_engine_path)) {
-            throw runtime_error("OBB engine file does not exist: " + obb_engine_path);
+        if (!IsFile(obb_model_path)) {
+            throw runtime_error("OBB model file does not exist: " + obb_model_path);
         }
-        if (!IsFile(seg_engine_path)) {
-            throw runtime_error("SEG engine file does not exist: " + seg_engine_path);
+        if (!IsFile(seg_model_path)) {
+            throw runtime_error("SEG model file does not exist: " + seg_model_path);
         }
 
         obb_config_ = obb_config;
         seg_config_ = seg_config;
-        obb_engine_path_ = obb_engine_path;
-        seg_engine_path_ = seg_engine_path;
-        obb_model_ = make_unique<YOLOv11_OBB>(obb_engine_path, logger_, obb_config_);
-        seg_model_ = make_unique<YOLOv11_SEG>(seg_engine_path, logger_, seg_config_);
+        obb_model_path_ = obb_model_path;
+        seg_model_path_ = seg_model_path;
+        obb_model_ = make_unique<YOLOv11_OBB>(obb_model_path, obb_config_);
+        seg_model_ = make_unique<YOLOv11_SEG>(seg_model_path, seg_config_);
         return true;
     } catch (const exception& e) {
         obb_model_.reset();
@@ -64,6 +64,28 @@ bool GraspWorkflow::isSegModelLoaded() const
     return static_cast<bool>(seg_model_);
 }
 
+string GraspWorkflow::runtimeDeviceSummary() const
+{
+    lock_guard<mutex> lock(model_mutex_);
+    if (!obb_model_ && !seg_model_) {
+        return "not loaded";
+    }
+
+    string summary;
+    if (obb_model_) {
+        summary += "OBB " + obb_model_->actualDevice();
+    } else {
+        summary += "OBB not loaded";
+    }
+    summary += " / ";
+    if (seg_model_) {
+        summary += "SEG " + seg_model_->actualDevice();
+    } else {
+        summary += "SEG not loaded";
+    }
+    return summary;
+}
+
 bool GraspWorkflow::runImage(const Mat& image, FrameInferenceResult& result, string* error_message)
 {
     return runFrame(image, result, error_message);
@@ -80,7 +102,7 @@ bool GraspWorkflow::startCamera(function<void(const Mat&, const FrameInferenceRe
     }
     if (!areModelsLoaded()) {
         if (on_error) {
-            on_error("请先同时加载 OBB 和 SEG engine。");
+            on_error("请先同时加载 OBB 和 SEG 模型。");
         }
         return false;
     }

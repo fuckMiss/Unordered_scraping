@@ -1,26 +1,12 @@
 #pragma once
 
 #include "common.h"
-#include "NvInfer.h"
 
 #include <algorithm>
 #include <opencv2/opencv.hpp>
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-inline std::string DimsToString(const nvinfer1::Dims& dims)
-{
-    std::string result = "[";
-    for (int i = 0; i < dims.nbDims; ++i) {
-        if (i > 0) {
-            result += ", ";
-        }
-        result += std::to_string(dims.d[i]);
-    }
-    result += "]";
-    return result;
-}
 
 inline std::vector<std::string> BuildDefaultClassNames(const std::vector<std::string>& default_names,
                                                        int num_classes)
@@ -63,45 +49,6 @@ inline void ValidateInputImage(cv::Mat& image, int max_image_size)
     const int64_t pixel_count = static_cast<int64_t>(image.cols) * static_cast<int64_t>(image.rows);
     if (pixel_count > static_cast<int64_t>(max_image_size)) {
         throw std::invalid_argument("Input image is larger than preprocess buffer limit");
-    }
-}
-
-inline void ValidateStaticTensorDims(const nvinfer1::Dims& dims, int expected_rank, const std::string& tensor_name)
-{
-    if (dims.nbDims != expected_rank) {
-        throw std::runtime_error(
-            "Unsupported " + tensor_name + " tensor rank: expected " + std::to_string(expected_rank) +
-            ", got " + std::to_string(dims.nbDims) + " " + DimsToString(dims));
-    }
-
-    for (int i = 0; i < dims.nbDims; ++i) {
-        if (dims.d[i] <= 0) {
-            throw std::runtime_error(
-                "Dynamic or invalid " + tensor_name + " tensor dimension at axis " + std::to_string(i) +
-                ": " + DimsToString(dims));
-        }
-    }
-}
-
-inline void ValidateBatchOneTensorDims(const nvinfer1::Dims& dims,
-                                       int expected_rank,
-                                       const std::string& tensor_name)
-{
-    ValidateStaticTensorDims(dims, expected_rank, tensor_name);
-    if (dims.d[0] != 1) {
-        throw std::runtime_error(
-            "Unsupported " + tensor_name + " batch size: expected 1, got " +
-            std::to_string(dims.d[0]) + " " + DimsToString(dims));
-    }
-}
-
-inline void ValidateBatchOneNchwInputDims(const nvinfer1::Dims& dims, const std::string& tensor_name)
-{
-    ValidateBatchOneTensorDims(dims, 4, tensor_name);
-    if (dims.d[1] != 3) {
-        throw std::runtime_error(
-            "Unsupported " + tensor_name + " channel count/layout: expected [1, 3, H, W], got " +
-            DimsToString(dims));
     }
 }
 

@@ -43,6 +43,7 @@ private:
 
     bool writeTargetToPlc(const PoseDetection& target, std::string* error_message);
     bool writeFloatRegister(int start_d_address, float value, std::string* error_message);
+    bool writeWordRegister(int start_d_address, uint16_t value, std::string* error_message);
     bool readFloatRegister(int start_d_address, float* value, std::string* error_message);
     bool readWordRegister(int start_d_address, uint16_t* value, std::string* error_message);
     bool transact(const QByteArray& request,
@@ -51,6 +52,7 @@ private:
                   std::string* error_message);
     QByteArray buildReadHoldingRegistersRequest(int start_d_address, int register_count);
     QByteArray buildWriteMultipleRegistersRequest(int start_d_address, float value);
+    QByteArray buildWriteSingleRegisterRequest(int start_d_address, uint16_t value);
     uint16_t nextTransactionId();
     float decodeFloat(const QByteArray& data, int offset) const;
     PlcWriteResult buildWriteResult(const FrameInferenceResult& result) const;

@@ -13,6 +13,7 @@ namespace {
 
 constexpr int kModbusUnitId = 1;
 constexpr int kReadHoldingRegisters = 0x03;
+constexpr int kWriteSingleRegister = 0x06;
 constexpr int kWriteMultipleRegisters = 0x10;
 
 constexpr int kAddressX = 500;
@@ -92,26 +93,38 @@ bool RobotController::readPhotoTrigger(bool* triggered, std::string* error_messa
         return false;
     }
 
-    float value = 0.0f;
-    if (!readFloatRegister(kAddressPhotoTrigger, &value, error_message)) {
-        return false;
+    uint16_t word_value = 0;
+    std::string word_error;
+    if (readWordRegister(kAddressPhotoTrigger, &word_value, &word_error)) {
+        if (word_value == 1) {
+            *triggered = true;
+            return true;
+        }
     }
-    if (std::fabs(value - 1.0f) < 0.001f) {
+
+    float value = 0.0f;
+    std::string float_error;
+    if (readFloatRegister(kAddressPhotoTrigger, &value, &float_error) &&
+        std::fabs(value - 1.0f) < 0.001f) {
         *triggered = true;
         return true;
     }
 
-    uint16_t word_value = 0;
-    if (!readWordRegister(kAddressPhotoTrigger, &word_value, error_message)) {
+    if (!word_error.empty() && !float_error.empty()) {
+        if (error_message != nullptr) {
+            *error_message = "trigger word read failed: " + word_error +
+                             "; trigger float read failed: " + float_error;
+        }
         return false;
     }
-    *triggered = word_value == 1;
+
+    *triggered = false;
     return true;
 }
 
 bool RobotController::clearPhotoTrigger(std::string* error_message)
 {
-    return writeFloatRegister(kAddressPhotoTrigger, 0.0f, error_message);
+    return writeWordRegister(kAddressPhotoTrigger, 0, error_message);
 }
 
 bool RobotController::writeFrameResult(const FrameInferenceResult& result, std::string* error_message)
@@ -189,6 +202,31 @@ bool RobotController::writeFloatRegister(int start_d_address, float value, std::
     if (function_code != kWriteMultipleRegisters) {
         if (error_message != nullptr) {
             *error_message = "unexpected write function code: " + std::to_string(function_code);
+        }
+        return false;
+    }
+    return true;
+}
+
+bool RobotController::writeWordRegister(int start_d_address, uint16_t value, std::string* error_message)
+{
+    QByteArray response;
+    const QByteArray request = buildWriteSingleRegisterRequest(start_d_address, value);
+    if (!transact(request, 12, &response, error_message)) {
+        return false;
+    }
+
+    const quint8 function_code = static_cast<quint8>(response.at(7));
+    if ((function_code & 0x80) != 0) {
+        if (error_message != nullptr) {
+            const int exception_code = response.size() > 8 ? static_cast<quint8>(response.at(8)) : -1;
+            *error_message = "PLC word write exception: " + std::to_string(exception_code);
+        }
+        return false;
+    }
+    if (function_code != kWriteSingleRegister) {
+        if (error_message != nullptr) {
+            *error_message = "unexpected word write function code: " + std::to_string(function_code);
         }
         return false;
     }
@@ -350,6 +388,21 @@ QByteArray RobotController::buildWriteMultipleRegistersRequest(int start_d_addre
     stream << static_cast<uint8_t>(4);
     stream << first_word;
     stream << second_word;
+    return request;
+}
+
+QByteArray RobotController::buildWriteSingleRegisterRequest(int start_d_address, uint16_t value)
+{
+    QByteArray request;
+    QDataStream stream(&request, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::BigEndian);
+    stream << nextTransactionId();
+    stream << static_cast<uint16_t>(0);
+    stream << static_cast<uint16_t>(6);
+    stream << static_cast<uint8_t>(kModbusUnitId);
+    stream << static_cast<uint8_t>(kWriteSingleRegister);
+    stream << static_cast<uint16_t>(start_d_address);
+    stream << value;
     return request;
 }
 

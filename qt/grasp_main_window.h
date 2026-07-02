@@ -1,8 +1,10 @@
-#pragma once
+﻿#pragma once
 
 #include "grasp_workflow.h"
 #include "robot_controller.h"
 
+#include <QFutureWatcher>
+#include <QList>
 #include <QMainWindow>
 #include <QPoint>
 #include <QStringList>
@@ -22,6 +24,7 @@ class QCloseEvent;
 class QEvent;
 class QShowEvent;
 class QTimer;
+class QString;
 
 class GraspMainWindow : public QMainWindow
 {
@@ -29,7 +32,7 @@ public:
     explicit GraspMainWindow(QWidget* parent = nullptr);
     ~GraspMainWindow() override;
 
-    void setInitialEnginePaths(const QString& obb_engine_path, const QString& seg_engine_path);
+    void setInitialModelPaths(const QString& obb_model_path, const QString& seg_model_path);
     void setShowAllDetections(bool show_all_detections);
 
 protected:
@@ -64,7 +67,6 @@ private:
     void buildResultSection(QVBoxLayout* side_layout);
     void buildStatusSection(QVBoxLayout* side_layout);
     void buildActionSection(QVBoxLayout* side_layout);
-    void buildWorkSummarySection(QVBoxLayout* side_layout);
     void buildTargetListSection(QVBoxLayout* side_layout);
     void applyStyles();
     void bindActions();
@@ -73,6 +75,7 @@ private:
     void toggleSidePanel();
     void applySidePanelState(bool expanded);
     void repositionSidePanelToggle();
+    void waitForBackgroundJobs();
 
     void openEngineeringSettings();
     void loadImage();
@@ -97,6 +100,12 @@ private:
     void renderCurrentFrame();
     void refreshInfoPanel();
     void refreshTargetTable();
+    QFrame* createTargetCard(QLabel*& title_label,
+                             QLabel*& x_label,
+                             QLabel*& y_label,
+                             QLabel*& angle_label,
+                             QLabel*& pick_status_label,
+                             QLabel*& head_type_label);
     void refreshDeviceStatus();
     void refreshRuntimeStrip();
     void updateStatusMessage(const QString& message, int timeout_ms = 0);
@@ -104,10 +113,15 @@ private:
     void showTargetListPage();
     void clearResults();
     void setEmptyPreviewMessage(const QString& message);
-    bool loadModelsFromPaths(const QString& obb_engine_path,
-                             const QString& seg_engine_path,
+    void setModelLoadingState(bool loading);
+    bool loadModelsFromPaths(const QString& obb_model_path,
+                             const QString& seg_model_path,
                              bool show_error_dialog,
                              bool notify_success);
+    void loadModelsFromPathsAsync(const QString& obb_model_path,
+                                  const QString& seg_model_path,
+                                  bool show_error_dialog,
+                                  bool notify_success);
     QString currentImagePath() const;
 
     QWidget* central_panel_ = nullptr;
@@ -150,6 +164,17 @@ private:
     QScrollArea* target_list_scroll_area_ = nullptr;
     QWidget* target_list_content_ = nullptr;
     QVBoxLayout* target_list_content_layout_ = nullptr;
+    QLabel* target_empty_label_ = nullptr;
+    struct TargetCard {
+        QFrame* card = nullptr;
+        QLabel* title_label = nullptr;
+        QLabel* x_label = nullptr;
+        QLabel* y_label = nullptr;
+        QLabel* angle_label = nullptr;
+        QLabel* pick_status_label = nullptr;
+        QLabel* head_type_label = nullptr;
+    };
+    QList<TargetCard> target_cards_;
     QLabel* camera_status_dot_ = nullptr;
     QLabel* camera_status_value_ = nullptr;
     QLabel* obb_status_dot_ = nullptr;
@@ -159,18 +184,15 @@ private:
     QLabel* x_value_label_ = nullptr;
     QLabel* y_value_label_ = nullptr;
     QLabel* angle_value_label_ = nullptr;
-    QLabel* work_summary_input_label_ = nullptr;
-    QLabel* work_summary_target_label_ = nullptr;
-    QLabel* work_summary_state_label_ = nullptr;
-
     GraspWorkflow workflow_;
     RobotController robot_controller_;
     InputMode input_mode_ = InputMode::Idle;
     AutoGrabState auto_grab_state_ = AutoGrabState::Idle;
     cv::Mat current_frame_;
     FrameInferenceResult current_result_;
-    QString obb_engine_path_;
-    QString seg_engine_path_;
+    QString obb_model_path_;
+    QString seg_model_path_;
+    QString current_image_path_;
     QStringList auto_grab_test_images_;
     int auto_grab_test_image_index_ = -1;
     bool show_all_detections_ = false;
@@ -179,6 +201,11 @@ private:
     bool plc_poll_busy_ = false;
     QTimer* plc_poll_timer_ = nullptr;
     bool initial_models_attempted_ = false;
+    bool models_loading_ = false;
+    bool image_detection_running_ = false;
+    bool close_after_model_load_ = false;
+    QFutureWatcher<QString>* model_load_watcher_ = nullptr;
+    QFutureWatcher<QString>* image_detection_watcher_ = nullptr;
     bool top_bar_dragging_ = false;
     QPoint top_bar_drag_offset_;
     QPoint top_bar_press_global_pos_;
@@ -191,3 +218,10 @@ private:
     QRect resize_start_geometry_;
     QPoint resize_start_global_pos_;
 };
+
+
+
+
+
+
+

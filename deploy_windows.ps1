@@ -1,13 +1,13 @@
-param(
+﻿param(
     [string]$Configuration = "Release",
-    [string]$BuildDir = "build_win_qt"
+    [string]$BuildDir = "build_win_unit"
 )
 
 $ErrorActionPreference = "Stop"
 
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $TargetDir = Join-Path $AppDir "$BuildDir\$Configuration"
-$AppExe = Join-Path $TargetDir "yolov11-tensorrt_qt_app.exe"
+$AppExe = Join-Path $TargetDir "tankeye-openvino_qt_app.exe"
 
 function Require-File($Path, $Name) {
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -42,47 +42,84 @@ $QtBin = Join-Path $QtRoot "bin"
 $WinDeployQt = Join-Path $QtBin "windeployqt.exe"
 Require-File $WinDeployQt "windeployqt"
 
-$TensorRtRoot = if ($env:TENSORRT_ROOT) { $env:TENSORRT_ROOT } else { "D:\Tensorrt\TensorRT-8.6.1.6" }
-$TensorRtLib = Join-Path $TensorRtRoot "lib"
-Require-Dir $TensorRtLib "TensorRT lib directory"
-
 $OpenCvRoot = if ($env:OpenCV_DIR) { $env:OpenCV_DIR } else { "D:\opencv\opencv-4.12.0\opencv\build" }
-$OpenCvBin = Join-Path $OpenCvRoot "x64\vc16\bin"
-Require-Dir $OpenCvBin "OpenCV bin directory"
+$OpenCvBinCandidates = @(
+    (Join-Path $OpenCvRoot "x64\vc16\bin"),
+    (Join-Path $OpenCvRoot "bin\Release"),
+    (Join-Path $OpenCvRoot "bin")
+)
+$OpenCvBin = $OpenCvBinCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($OpenCvBin)) {
+    throw "OpenCV bin directory not found. Checked: $($OpenCvBinCandidates -join '; ')"
+}
 
-$CudaRoot = if ($env:CUDA_PATH) { $env:CUDA_PATH } else { "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1" }
-$CudaBin = Join-Path $CudaRoot "bin"
-Require-Dir $CudaBin "CUDA bin directory"
+$OpenVinoRoots = New-Object System.Collections.Generic.List[string]
+if ($env:CONDA_PREFIX) {
+    $OpenVinoRoots.Add((Join-Path $env:CONDA_PREFIX "Lib\site-packages\openvino"))
+}
+if ($env:openvino_DIR) {
+    $OpenVinoRoots.Add((Split-Path -Parent $env:openvino_DIR))
+}
+if ($env:OpenVINO_DIR) {
+    $OpenVinoRoots.Add((Split-Path -Parent $env:OpenVINO_DIR))
+}
+if ($env:OPENVINO_ROOT) {
+    $OpenVinoRoots.Add($env:OPENVINO_ROOT)
+}
+$OpenVinoRoots.Add("D:\Anaconda\envs\cll_yolo\Lib\site-packages\openvino")
+$OpenVinoRoots.Add("D:\Anaconda3\envs\cll_yolo\Lib\site-packages\openvino")
+$OpenVinoRoots.Add("C:\Program Files (x86)\Intel\openvino")
 
-$env:Path = "$QtBin;$OpenCvBin;$TensorRtLib;$CudaBin;$env:Path"
+$OpenVinoBinCandidates = New-Object System.Collections.Generic.List[string]
+foreach ($Root in $OpenVinoRoots) {
+    if ([string]::IsNullOrWhiteSpace($Root)) {
+        continue
+    }
+    $OpenVinoBinCandidates.Add((Join-Path $Root "libs"))
+    $OpenVinoBinCandidates.Add($Root)
+    $OpenVinoBinCandidates.Add((Join-Path $Root "runtime\bin\intel64\Release"))
+    $OpenVinoBinCandidates.Add((Join-Path $Root "runtime\3rdparty\tbb\bin"))
+}
+$OpenVinoBin = $OpenVinoBinCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($OpenVinoBin)) {
+    throw "OpenVINO runtime bin/libs directory not found. Set CONDA_PREFIX, openvino_DIR, OpenVINO_DIR, OPENVINO_ROOT, or update deploy_windows.ps1."
+}
+
+$RuntimePaths = @($QtBin, $OpenCvBin, $OpenVinoBin) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -Unique
+$env:Path = (($RuntimePaths + @($env:Path)) -join ";")
 
 & $WinDeployQt --release --compiler-runtime --no-translations $AppExe
 if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
 
-$RuntimeFiles = @(
-    (Join-Path $OpenCvBin "opencv_world4120.dll"),
-    (Join-Path $TensorRtLib "nvinfer.dll"),
-    (Join-Path $TensorRtLib "nvinfer_plugin.dll"),
-    (Join-Path $TensorRtLib "nvonnxparser.dll"),
-    (Join-Path $TensorRtLib "nvparsers.dll"),
-    (Join-Path $TensorRtLib "nvinfer_builder_resource.dll"),
-    (Join-Path $TensorRtLib "nvinfer_dispatch.dll"),
-    (Join-Path $TensorRtLib "nvinfer_lean.dll"),
-    (Join-Path $TensorRtLib "nvinfer_vc_plugin.dll"),
-    (Join-Path $CudaBin "cudart64_12.dll"),
-    (Join-Path $CudaBin "cublas64_12.dll"),
-    (Join-Path $CudaBin "cublasLt64_12.dll"),
-    (Join-Path $CudaBin "cudnn64_8.dll")
-)
+$OpenCvDlls = Get-ChildItem -LiteralPath $OpenCvBin -Filter "opencv*.dll" -File
+if ($OpenCvDlls.Count -eq 0) {
+    throw "No OpenCV runtime DLLs found in: $OpenCvBin"
+}
+foreach ($Dll in $OpenCvDlls) {
+    Copy-IfExists $Dll.FullName $TargetDir
+}
 
-foreach ($File in $RuntimeFiles) {
-    Copy-IfExists $File $TargetDir
+Get-ChildItem -LiteralPath $OpenVinoBin -Filter "*.dll" -File | ForEach-Object {
+    Copy-IfExists $_.FullName $TargetDir
 }
 
 $AssetTargetDir = Join-Path $TargetDir "qt\assets"
 New-Item -ItemType Directory -Force -Path $AssetTargetDir | Out-Null
 Copy-IfExists (Join-Path $AppDir "qt\assets\app_logo_cutout.png") $AssetTargetDir
+Copy-IfExists (Join-Path $AppDir "qt\assets\app_icon.ico") $AssetTargetDir
+
+$WeightsTargetDir = Join-Path $TargetDir "weights"
+New-Item -ItemType Directory -Force -Path $WeightsTargetDir | Out-Null
+Copy-IfExists (Join-Path $AppDir "weights\best_obb.xml") $WeightsTargetDir
+Copy-IfExists (Join-Path $AppDir "weights\best_obb.bin") $WeightsTargetDir
+Copy-IfExists (Join-Path $AppDir "weights\best_seg.xml") $WeightsTargetDir
+Copy-IfExists (Join-Path $AppDir "weights\best_seg.bin") $WeightsTargetDir
+
+Copy-IfExists (Join-Path $AppDir "launch_tankeye.ps1") $TargetDir
+Copy-IfExists (Join-Path $AppDir "deploy_windows.ps1") $TargetDir
+Copy-IfExists (Join-Path $AppDir "README.md") $TargetDir
+Copy-IfExists (Join-Path $AppDir "README_zh.md") $TargetDir
 
 Write-Host "Windows runtime deployed to: $TargetDir"

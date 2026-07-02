@@ -1,4 +1,4 @@
-#include "frame_postprocess.h"
+﻿#include "frame_postprocess.h"
 
 #include "model_utils.h"
 
@@ -226,9 +226,9 @@ int ResolveHeadTypeCodeFromQuadrant(int quadrant)
 string ResolveHeadTypeText(int head_type_code)
 {
     switch (head_type_code) {
-    case 1: return "大上右";
+    case 1: return "大上左";
     case 2: return "小上左";
-    case 3: return "大上左";
+    case 3: return "大上右";
     case 4: return "小上右";
     default: return "未知";
     }
@@ -460,3 +460,4 @@ FrameInferenceResult BuildFrameInferenceResult(const vector<OBBDetection>& obb_o
     ResolvePrimaryDetection(result);
     return result;
 }
+

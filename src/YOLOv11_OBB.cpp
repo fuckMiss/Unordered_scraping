@@ -1,27 +1,15 @@
 #include "YOLOv11_OBB.h"
-#include "cuda_utils.h"
-#include "logging.h"
-#include "macros.h"
+
 #include "model_utils.h"
-#include "preprocess.h"
-#include "runtime_utils.h"
-#include "trt_utils.h"
+#include "openvino_utils.h"
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
 
-
-static Logger logger;
-
-// DOTA dataset class names (15 classes for OBB)
-// static const std::vector<std::string> OBB_CLASS_NAMES = {
-//     "plane",           "ship",              "storage tank",       "baseball diamond",
-//     "tennis court",    "swimming pool",     "ground track field", "harbor",
-//     "bridge",          "large vehicle",     "small vehicle",      "helicopter",
-//     "roundabout",      "soccer ball field", "basketball court"
-// };
 static const std::vector<std::string> OBB_CLASS_NAMES = {
     "LEFT", "RIGHT", "small"
 };
@@ -59,111 +47,38 @@ static float polygonArea(const std::vector<Point2f>& polygon) {
     return std::fabs(static_cast<float>(cv::contourArea(polygon)));
 }
 
-
-YOLOv11_OBB::YOLOv11_OBB(string model_path, nvinfer1::ILogger& logger, const OBBConfig& config)
+YOLOv11_OBB::YOLOv11_OBB(string model_path, const OBBConfig& config)
 {
     config_ = config;
-
-    try {
-        // Deserialize an engine
-        if (model_path.find(".onnx") == std::string::npos)
-        {
-            init(model_path, logger);
-        }
-        // Build an engine from an onnx model
-        else
-        {
-            build(model_path, logger);
-            saveEngine(model_path);
-            initializeEngineState();
-        }
-    } catch (...) {
-        cleanup();
-        throw;
-    }
+    init(model_path);
 }
 
-void YOLOv11_OBB::bindBuffers()
+void YOLOv11_OBB::init(const string& model_path)
 {
-#if NV_TENSORRT_MAJOR >= 10
-    if (!input_tensor_name.empty()) {
-        if (!context->setTensorAddress(input_tensor_name.c_str(), gpu_buffers[0])) {
-            throw std::runtime_error("Failed to bind OBB input tensor buffer");
-        }
-    }
-    if (!output_tensor_name.empty()) {
-        if (!context->setTensorAddress(output_tensor_name.c_str(), gpu_buffers[1])) {
-            throw std::runtime_error("Failed to bind OBB output tensor buffer");
-        }
-    }
-#endif
+    compiled_model_ = CompileModelWithGpuFallback(core_, model_path, &actual_device_);
+    infer_request_ = compiled_model_.create_infer_request();
+    initializeModelState();
 }
 
-void YOLOv11_OBB::init(std::string engine_path, nvinfer1::ILogger& logger)
+void YOLOv11_OBB::initializeModelState()
 {
-    LoadTensorRTEngine(engine_path, logger, runtime, engine, context);
-    initializeEngineState();
-}
-
-void YOLOv11_OBB::initializeEngineState()
-{
-    // Get input and output sizes of the model
-    nvinfer1::Dims input_dims{};
-    nvinfer1::Dims output_dims{};
-#if NV_TENSORRT_MAJOR < 10
-    if (engine->getNbBindings() < 2) {
-        throw std::runtime_error("OBB engine must expose at least 2 bindings");
+    if (compiled_model_.inputs().size() != 1 || compiled_model_.outputs().size() != 1) {
+        throw runtime_error("OBB model must expose exactly 1 input tensor and 1 output tensor");
     }
 
-    input_tensor_name.clear();
-    output_tensor_name.clear();
+    input_port_ = compiled_model_.input();
+    output_port_ = compiled_model_.output();
+    const ov::Shape input_shape = input_port_.get_shape();
+    const ov::Shape output_shape = output_port_.get_shape();
 
-    for (int i = 0; i < engine->getNbBindings(); ++i) {
-        const auto dims = engine->getBindingDimensions(i);
-        if (dims.nbDims == 4 && input_dims.nbDims == 0) {
-            input_binding_index = i;
-            input_dims = dims;
-        } else if (dims.nbDims == 3 && output_dims.nbDims == 0) {
-            output_binding_index = i;
-            output_dims = dims;
-        }
-    }
+    ValidateBatchOneNchwInputShape(input_shape, "OBB input");
+    ValidateBatchOneTensorShape(output_shape, 3, "OBB output");
 
-    ValidateBatchOneNchwInputDims(input_dims, "OBB input");
-    ValidateBatchOneTensorDims(output_dims, 3, "OBB output");
-#else
-    input_tensor_name.clear();
-    output_tensor_name.clear();
-    const int io_count = engine->getNbIOTensors();
-    int input_count = 0;
-    int output_count = 0;
-    for (int i = 0; i < io_count; ++i) {
-        const char* tensor_name = engine->getIOTensorName(i);
-        if (!tensor_name) {
-            continue;
-        }
-        if (engine->getTensorIOMode(tensor_name) == nvinfer1::TensorIOMode::kINPUT) {
-            input_tensor_name = tensor_name;
-            ++input_count;
-        } else if (engine->getTensorIOMode(tensor_name) == nvinfer1::TensorIOMode::kOUTPUT) {
-            output_tensor_name = tensor_name;
-            ++output_count;
-        }
-    }
-    if (input_count != 1 || output_count != 1 || input_tensor_name.empty() || output_tensor_name.empty()) {
-        throw std::runtime_error("OBB engine must expose exactly 1 input tensor and 1 output tensor");
-    }
-    input_dims = engine->getTensorShape(input_tensor_name.c_str());
-    output_dims = engine->getTensorShape(output_tensor_name.c_str());
-    ValidateBatchOneNchwInputDims(input_dims, "OBB input");
-    ValidateBatchOneTensorDims(output_dims, 3, "OBB output");
-#endif
+    runtime_.input_h = static_cast<int>(input_shape[2]);
+    runtime_.input_w = static_cast<int>(input_shape[3]);
 
-    runtime_.input_h = input_dims.d[2];
-    runtime_.input_w = input_dims.d[3];
-
-    const int candidate_a = output_dims.d[1];
-    const int candidate_b = output_dims.d[2];
+    const int candidate_a = static_cast<int>(output_shape[1]);
+    const int candidate_b = static_cast<int>(output_shape[2]);
     if (candidate_a > 5 && candidate_b > 5) {
         if (candidate_a < candidate_b) {
             runtime_.detection_attribute_size = candidate_a;
@@ -179,101 +94,77 @@ void YOLOv11_OBB::initializeEngineState()
         runtime_.detection_attribute_size = candidate_b;
         runtime_.num_detections = candidate_a;
     } else {
-        throw std::runtime_error("Invalid OBB output layout: " + DimsToString(output_dims));
+        throw runtime_error("Invalid OBB output layout: " + ShapeToString(output_shape));
     }
 
-    // Ultralytics OBB export layout: cx, cy, w, h, class_probs..., angle
     runtime_.num_classes = runtime_.detection_attribute_size - 5;
     if (runtime_.num_classes <= 0) {
-        throw std::runtime_error("Invalid OBB output layout: detection_attribute_size must be >= 6");
+        throw runtime_error("Invalid OBB output layout: detection_attribute_size must be >= 6");
     }
     if (config_.expected_num_classes > 0 && config_.expected_num_classes != runtime_.num_classes) {
-        std::ostringstream oss;
+        ostringstream oss;
         oss << "Configured num_classes (" << config_.expected_num_classes
-            << ") does not match engine output (" << runtime_.num_classes << ")";
-        throw std::runtime_error(oss.str());
+            << ") does not match model output (" << runtime_.num_classes << ")";
+        throw runtime_error(oss.str());
     }
     if (config_.class_names.empty()) {
         config_.class_names = buildDefaultClassNames(runtime_.num_classes);
     } else if (static_cast<int>(config_.class_names.size()) != runtime_.num_classes) {
-        std::ostringstream oss;
+        ostringstream oss;
         oss << "Configured class_names size (" << config_.class_names.size()
             << ") does not match num_classes (" << runtime_.num_classes << ")";
-        throw std::runtime_error(oss.str());
+        throw runtime_error(oss.str());
     }
-    runtime_.output_numel = static_cast<size_t>(runtime_.detection_attribute_size) * runtime_.num_detections;
 
-    printf("YOLOv11_OBB Engine Info:\n");
+    runtime_.output_numel = static_cast<size_t>(runtime_.detection_attribute_size) * runtime_.num_detections;
+    input_buffer_.assign(static_cast<size_t>(3) * runtime_.input_w * runtime_.input_h, 0.0f);
+    output_buffer_.assign(runtime_.output_numel, 0.0f);
+
+    printf("YOLOv11_OBB OpenVINO Model Info:\n");
+    printf("  Device: %s\n", actual_device_.c_str());
     printf("  Input: %dx%d\n", runtime_.input_w, runtime_.input_h);
     printf("  Output: %d x %d\n", runtime_.detection_attribute_size, runtime_.num_detections);
     printf("  Num classes: %d\n", runtime_.num_classes);
 
-    // Initialize input buffers
-    const size_t input_numel = static_cast<size_t>(3) * runtime_.input_w * runtime_.input_h;
-    cpu_output_buffer = new float[runtime_.output_numel];
-    CUDA_CHECK(cudaMalloc(&gpu_buffers[0], input_numel * sizeof(float)));
-    // Initialize output buffer
-    CUDA_CHECK(cudaMalloc(&gpu_buffers[1], runtime_.output_numel * sizeof(float)));
-    bindBuffers();
-    CUDA_CHECK(cudaMemset(gpu_buffers[0], 0, input_numel * sizeof(float)));
-    CUDA_CHECK(cudaMemset(gpu_buffers[1], 0, runtime_.output_numel * sizeof(float)));
-
-    cuda_preprocess_init(MAX_IMAGE_SIZE);
-    preprocess_initialized_ = true;
-
-    CUDA_CHECK(cudaStreamCreate(&stream));
-
     if (config_.enable_warmup) {
-        for (int i = 0; i < 10; i++) {
-            this->infer();
+        ov::Tensor input_tensor(ov::element::f32, input_port_.get_shape(), input_buffer_.data());
+        infer_request_.set_input_tensor(input_tensor);
+        for (int i = 0; i < 5; i++) {
+            infer_request_.infer();
         }
-        printf("model warmup 10 times\n");
+        printf("model warmup 5 times\n");
     }
 }
 
-YOLOv11_OBB::~YOLOv11_OBB()
+void YOLOv11_OBB::preprocess(Mat& image)
 {
-    cleanup();
-}
-
-void YOLOv11_OBB::preprocess(Mat& image) {
-    ValidateInputImage(image, MAX_IMAGE_SIZE);
-    runtime_.scale_ratio = std::min(runtime_.input_h / static_cast<float>(image.rows),
-                                    runtime_.input_w / static_cast<float>(image.cols));
-    runtime_.pad_x = (runtime_.input_w - runtime_.scale_ratio * image.cols) * 0.5f;
-    runtime_.pad_y = (runtime_.input_h - runtime_.scale_ratio * image.rows) * 0.5f;
-
-    // preprocess.cu uses shared staging buffers, so guard the full copy+kernel+sync section.
-    std::lock_guard<std::mutex> lock(cuda_preprocess_io_mutex());
-    cuda_preprocess(image.ptr(), image.cols, image.rows, gpu_buffers[0], runtime_.input_w, runtime_.input_h, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    input_buffer_ = BuildNchwLetterboxInput(image,
+                                            runtime_.input_w,
+                                            runtime_.input_h,
+                                            &runtime_.scale_ratio,
+                                            &runtime_.pad_x,
+                                            &runtime_.pad_y);
+    ov::Tensor input_tensor(ov::element::f32, input_port_.get_shape(), input_buffer_.data());
+    infer_request_.set_input_tensor(input_tensor);
 }
 
 void YOLOv11_OBB::infer()
 {
-#if NV_TENSORRT_MAJOR < 10
-    void* bindings[2]{};
-    bindings[input_binding_index] = gpu_buffers[0];
-    bindings[output_binding_index] = gpu_buffers[1];
-    if (!context->enqueueV2(bindings, stream, nullptr)) {
-        throw std::runtime_error("TensorRT enqueueV2 failed for OBB inference");
-    }
-#else
-    if (!this->context->enqueueV3(this->stream)) {
-        throw std::runtime_error("TensorRT enqueueV3 failed for OBB inference");
-    }
-#endif
+    infer_request_.infer();
 }
 
 void YOLOv11_OBB::postprocess(vector<OBBDetection>& output, int img_w, int img_h)
 {
-    // Memcpy from device output buffer to host output buffer
-    CUDA_CHECK(cudaMemcpyAsync(cpu_output_buffer, gpu_buffers[1], runtime_.output_numel * sizeof(float), cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    output_buffer_ = TensorToAttributeMajorVector(infer_request_.get_output_tensor(0),
+                                                  runtime_.detection_attribute_size,
+                                                  runtime_.num_detections);
+    if (output_buffer_.size() != runtime_.output_numel) {
+        throw runtime_error("OBB output size mismatch");
+    }
 
     output.clear();
 
-    const Mat det_output(runtime_.detection_attribute_size, runtime_.num_detections, CV_32F, cpu_output_buffer);
+    const Mat det_output(runtime_.detection_attribute_size, runtime_.num_detections, CV_32F, output_buffer_.data());
     const float inv_scale = runtime_.scale_ratio > 0.0f ? (1.0f / runtime_.scale_ratio) : 0.0f;
 
     for (int i = 0; i < det_output.cols; ++i) {
@@ -290,8 +181,6 @@ void YOLOv11_OBB::postprocess(vector<OBBDetection>& output, int img_w, int img_h
             float oh = det_output.at<float>(3, i);
             float angle = det_output.at<float>(angle_channel, i);
 
-            // Map coordinates back to original image
-            // Inverse of letterbox: subtract padding, then divide by scale
             cx = (cx - runtime_.pad_x) * inv_scale;
             cy = (cy - runtime_.pad_y) * inv_scale;
             ow *= inv_scale;
@@ -301,7 +190,6 @@ void YOLOv11_OBB::postprocess(vector<OBBDetection>& output, int img_w, int img_h
                 continue;
             }
 
-            // Regularize to the long-edge representation used by Ultralytics OBB.
             angle = normalizeAnglePi(angle);
             if (ow < oh) {
                 std::swap(ow, oh);
@@ -326,7 +214,7 @@ void YOLOv11_OBB::postprocess(vector<OBBDetection>& output, int img_w, int img_h
             output.push_back(std::move(det));
         }
     }
-    // Apply rotated NMS
+
     nmsRotated(output, config_.nms_threshold);
 }
 
@@ -384,29 +272,6 @@ void YOLOv11_OBB::nmsRotated(vector<OBBDetection>& detections, float nms_thresho
     detections = result;
 }
 
-void YOLOv11_OBB::build(std::string onnxPath, nvinfer1::ILogger& logger)
-{
-    BuildTensorRTFromOnnx(onnxPath, logger, config_.use_fp16, runtime, engine, context);
-}
-
-bool YOLOv11_OBB::saveEngine(const std::string& onnxpath)
-{
-    return SaveTensorRTEngine(engine, onnxpath);
-}
-
-void YOLOv11_OBB::cleanup() noexcept
-{
-    SafeDestroyCudaStream(stream);
-
-    for (float*& buffer : gpu_buffers) {
-        SafeCudaFree(buffer);
-    }
-
-    SafeDeleteArray(cpu_output_buffer);
-    SafeDestroyPreprocess(preprocess_initialized_);
-    SafeDestroyTensorRT(runtime, engine, context);
-}
-
 void YOLOv11_OBB::draw(Mat& image, const vector<OBBDetection>& output, const string& output_path)
 {
     Mat display = image.clone();
@@ -418,11 +283,9 @@ void YOLOv11_OBB::draw(Mat& image, const vector<OBBDetection>& output, const str
         int class_id = detection.class_id;
         float conf = detection.conf;
 
-        // Get class name and color
         const string class_name = GetClassName(config_.class_names, class_id);
         const cv::Scalar color = GetClassColor(class_id);
 
-        // Get corner points of rotated rectangle
         Point2f corners[4];
         if (detection.corners.size() == 4) {
             for (int j = 0; j < 4; ++j) corners[j] = detection.corners[j];
@@ -430,18 +293,15 @@ void YOLOv11_OBB::draw(Mat& image, const vector<OBBDetection>& output, const str
             rrect.points(corners);
         }
 
-        // Draw rotated rectangle
         for (int j = 0; j < 4; j++) {
             line(display, corners[j], corners[(j + 1) % 4], color, 2);
         }
 
-        // Draw class label and confidence
         string label = class_name + " " + to_string(conf).substr(0, 4);
         int baseLine = 0;
         Size labelSize = getTextSize(label, FONT_HERSHEY_SIMPLEX, 0.6, 1, &baseLine);
 
         Point labelOrigin(static_cast<int>(corners[0].x), static_cast<int>(corners[0].y) - 5);
-        // Ensure label doesn't go off-screen
         if (labelOrigin.y < labelSize.height + 5) {
             labelOrigin.y = static_cast<int>(corners[0].y) + labelSize.height + 10;
         }

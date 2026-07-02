@@ -1,14 +1,11 @@
-#pragma once
+﻿#pragma once
 
-#include "NvInfer.h"
-
-#include <cuda_runtime_api.h>
+#include <openvino/openvino.hpp>
 #include <opencv2/opencv.hpp>
 
 #include <string>
 #include <vector>
 
-using namespace nvinfer1;
 using namespace std;
 using namespace cv;
 
@@ -28,7 +25,7 @@ struct SEGConfig
     float mask_threshold = 0.5f;
     float mask_alpha = 0.45f;
     bool use_fp16 = false;
-    bool enable_warmup = true;
+    bool enable_warmup = false;
     vector<string> class_names;
 };
 
@@ -45,10 +42,6 @@ struct SEGRuntimeState
     int mask_h = 0;
     int mask_w = 0;
 
-    nvinfer1::DataType input_dtype = nvinfer1::DataType::kFLOAT;
-    nvinfer1::DataType det_dtype = nvinfer1::DataType::kFLOAT;
-    nvinfer1::DataType mask_dtype = nvinfer1::DataType::kFLOAT;
-
     float scale_ratio = 1.0f;
     float pad_x = 0.0f;
     float pad_y = 0.0f;
@@ -60,47 +53,35 @@ struct SEGRuntimeState
 class YOLOv11_SEG
 {
 public:
-    YOLOv11_SEG(string model_path, nvinfer1::ILogger& logger, const SEGConfig& config = {});
-    ~YOLOv11_SEG();
+    YOLOv11_SEG(string model_path, const SEGConfig& config = {});
 
     void preprocess(Mat& image);
     void infer();
     void postprocess(vector<SegDetection>& output, int img_w, int img_h);
     void draw(Mat& image, const vector<SegDetection>& output, const string& output_path = "seg_result.jpg");
     const vector<string>& getClassNames() const { return config_.class_names; }
+    const string& actualDevice() const { return actual_device_; }
 
 private:
-    void init(std::string engine_path, nvinfer1::ILogger& logger);
-    void initializeEngineState();
-    void bindBuffers();
-    void cleanup() noexcept;
-    void build(std::string onnxPath, nvinfer1::ILogger& logger);
-    bool saveEngine(const std::string& filename);
+    void init(const string& model_path);
+    void initializeModelState();
 
     Mat decodeMask(const vector<float>& coeffs, const Rect& box, int img_w, int img_h) const;
 
-    float* gpu_buffers[3]{};
-    float* cpu_det_output_buffer = nullptr;
-    float* cpu_mask_output_buffer = nullptr;
-    void* gpu_output_buffers[2]{};
-    void* cpu_det_raw_buffer = nullptr;
-    void* cpu_mask_raw_buffer = nullptr;
-
-    cudaStream_t stream{};
-    IRuntime* runtime = nullptr;
-    ICudaEngine* engine = nullptr;
-    IExecutionContext* context = nullptr;
-    bool preprocess_initialized_ = false;
+    ov::Core core_;
+    ov::CompiledModel compiled_model_;
+    ov::InferRequest infer_request_;
+    ov::Output<const ov::Node> input_port_;
+    ov::Output<const ov::Node> det_port_;
+    ov::Output<const ov::Node> mask_port_;
+    int det_output_index_ = 0;
+    int mask_output_index_ = 1;
+    vector<float> input_buffer_;
+    vector<float> det_output_buffer_;
+    vector<float> mask_output_buffer_;
+    string actual_device_;
 
     SEGConfig config_;
     SEGRuntimeState runtime_;
-
-    const int MAX_IMAGE_SIZE = 4096 * 4096;
-
-    std::string input_tensor_name;
-    std::string det_tensor_name;
-    std::string mask_tensor_name;
-    int input_binding_index = 0;
-    int det_binding_index = 1;
-    int mask_binding_index = 2;
 };
+

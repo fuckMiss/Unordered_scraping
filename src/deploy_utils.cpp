@@ -1,9 +1,4 @@
-#ifdef _WIN32
 #include <windows.h>
-#else
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
 
 #include "deploy_utils.h"
 
@@ -40,12 +35,8 @@ vector<string> LoadClassNames(const string& path) {
 }
 
 bool IsPathExist(const string& path) {
-#ifdef _WIN32
     DWORD fileAttributes = GetFileAttributesA(path.c_str());
     return (fileAttributes != INVALID_FILE_ATTRIBUTES);
-#else
-    return (access(path.c_str(), F_OK) == 0);
-#endif
 }
 
 bool IsFile(const string& path) {
@@ -53,13 +44,8 @@ bool IsFile(const string& path) {
         return false;
     }
 
-#ifdef _WIN32
     DWORD fileAttributes = GetFileAttributesA(path.c_str());
     return ((fileAttributes != INVALID_FILE_ATTRIBUTES) && ((fileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0));
-#else
-    struct stat buffer;
-    return (stat(path.c_str(), &buffer) == 0 && S_ISREG(buffer.st_mode));
-#endif
 }
 
 vector<string> CollectImagePaths(const string& path, bool& isVideo) {
@@ -101,21 +87,5 @@ vector<string> CollectImagePaths(const string& path, bool& isVideo) {
 }
 
 bool IsGuiAvailable() {
-#ifdef _WIN32
     return true;
-#else
-    const char* disable_gui = std::getenv("YOLOV11_NO_GUI");
-    if (disable_gui != nullptr && std::string(disable_gui) == "1") {
-        return false;
-    }
-
-    const char* display = std::getenv("DISPLAY");
-    return display != nullptr && display[0] != '\0';
-#endif
-}
-
-void TrtLogger::log(Severity severity, const char* msg) noexcept {
-    if (severity <= Severity::kWARNING) {
-        std::cout << msg << std::endl;
-    }
 }

@@ -3,6 +3,7 @@
 #include "frame_overlay.h"
 
 #include <QApplication>
+#include <QtConcurrent/QtConcurrent>
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDialog>
@@ -12,15 +13,19 @@
 #include <QFileInfo>
 #include <QFrame>
 #include <QGridLayout>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
+#include <QList>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPointer>
+#include <QScreen>
 #include <QTimer>
 #include <QPixmap>
 #include <QPushButton>
@@ -36,22 +41,68 @@
 #include <QWidget>
 
 #include <iostream>
+#include <memory>
 
 using namespace cv;
 using namespace std;
 
 namespace {
 
-constexpr int kSidebarMinWidth = 340;
-constexpr int kSidebarDefaultWidth = 360;
-constexpr int kSidebarMaxWidth = 420;
+constexpr int kSidebarMinWidth = 260;
+constexpr int kSidebarDefaultWidth = 285;
+constexpr int kSidebarMaxWidth = 320;
 constexpr int kSidebarToggleWidth = 24;
 constexpr int kSidebarToggleHeight = 84;
+constexpr int kDesignWidth = 1360;
+constexpr int kDesignHeight = 820;
+
+double UiScale()
+{
+    if (!QString::fromLocal8Bit(qgetenv("QT_SCALE_FACTOR")).trimmed().isEmpty()) {
+        return 1.0;
+    }
+
+    const QString override_scale = QString::fromLocal8Bit(qgetenv("TANKEYE_UI_SCALE")).trimmed();
+    if (!override_scale.isEmpty()) {
+        bool ok = false;
+        const double value = override_scale.toDouble(&ok);
+        if (ok && value > 0.0) {
+            return qBound(0.65, value, 1.20);
+        }
+    }
+
+    if (QScreen* screen = QGuiApplication::primaryScreen()) {
+        const QRect available = screen->availableGeometry();
+        const double width_scale = static_cast<double>(available.width()) / kDesignWidth;
+        const double height_scale = static_cast<double>(available.height()) / kDesignHeight;
+        double scale = qMin(width_scale, height_scale);
+        if (available.width() <= 1366 || available.height() <= 720) {
+            scale *= 0.88;
+        }
+        return qBound(0.65, scale, 1.0);
+    }
+    return 1.0;
+}
+
+int S(int value)
+{
+    return qMax(1, qRound(value * UiScale()));
+}
+
+QSize SS(int width, int height)
+{
+    return QSize(S(width), S(height));
+}
+
+QMargins SM(int left, int top, int right, int bottom)
+{
+    return QMargins(S(left), S(top), S(right), S(bottom));
+}
 
 void SetIndicator(QLabel* dot, QLabel* text, bool active, const QString& active_text, const QString& inactive_text)
 {
-    dot->setFixedSize(16, 16);
-    dot->setStyleSheet(QString("border-radius: 8px; background:%1;").arg(active ? "#86d779" : "#d46a6a"));
+    dot->setFixedSize(SS(16, 16));
+    dot->setStyleSheet(QString("border-radius: %1px; background:%2;").arg(S(8)).arg(active ? "#86d779" : "#d46a6a"));
     text->setText(active ? active_text : inactive_text);
 }
 
@@ -68,8 +119,8 @@ QFrame* CreateMetricCell(const QString& name, QLabel*& value_label, QWidget* par
     card->setObjectName("metricCell");
 
     auto* layout = new QVBoxLayout(card);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    layout->setContentsMargins(SM(10, 8, 10, 8));
+    layout->setSpacing(S(4));
 
     auto* name_label = new QLabel(name, card);
     name_label->setObjectName("metricName");
@@ -124,7 +175,7 @@ QHBoxLayout* CreatePathRow(QDialog* dialog, QLineEdit* path_edit, const QString&
 {
     auto* row = new QHBoxLayout();
     auto* title_label = new QLabel(title, dialog);
-    title_label->setMinimumWidth(90);
+    title_label->setMinimumWidth(S(90));
     auto* browse_button = new QPushButton(QStringLiteral("浏览"), dialog);
     row->addWidget(title_label);
     row->addWidget(path_edit, 1);
@@ -134,7 +185,7 @@ QHBoxLayout* CreatePathRow(QDialog* dialog, QLineEdit* path_edit, const QString&
         const QString path = QFileDialog::getOpenFileName(dialog,
                                                           dialog_title,
                                                           path_edit->text(),
-                                                          QStringLiteral("TensorRT Engine (*.engine);;All Files (*)"));
+                                                          QStringLiteral("OpenVINO/ONNX Model (*.xml *.onnx);;All Files (*)"));
         if (!path.isEmpty()) {
             path_edit->setText(path);
         }
@@ -290,14 +341,30 @@ QIcon CreateCloseIcon(const QSize& size, const QColor& color)
 
 QString BuildModelStatusText(const GraspWorkflow& workflow)
 {
-    return QStringLiteral("模型状态：OBB %1 / SEG %2")
+    return QStringLiteral("模型状态：OBB %1 / SEG %2 / 设备 %3")
         .arg(workflow.isObbModelLoaded() ? QStringLiteral("已加载") : QStringLiteral("未加载"))
-        .arg(workflow.isSegModelLoaded() ? QStringLiteral("已加载") : QStringLiteral("未加载"));
+        .arg(workflow.isSegModelLoaded() ? QStringLiteral("已加载") : QStringLiteral("未加载"))
+        .arg(QString::fromStdString(workflow.runtimeDeviceSummary()));
+}
+
+int SidebarMinWidth()
+{
+    return S(kSidebarMinWidth);
+}
+
+int SidebarDefaultWidth()
+{
+    return S(kSidebarDefaultWidth);
+}
+
+int SidebarMaxWidth()
+{
+    return S(kSidebarMaxWidth);
 }
 
 int ClampSidebarWidth(int width)
 {
-    return qBound(kSidebarMinWidth, width, kSidebarMaxWidth);
+    return qBound(SidebarMinWidth(), width, SidebarMaxWidth());
 }
 
 void ClearLayoutItems(QLayout* layout)
@@ -316,26 +383,6 @@ void ClearLayoutItems(QLayout* layout)
         }
         delete item;
     }
-}
-
-QFrame* CreateStaticMetricCell(const QString& name, const QString& value, QWidget* parent)
-{
-    auto* card = new QFrame(parent);
-    card->setObjectName("compactMetricCell");
-
-    auto* layout = new QVBoxLayout(card);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(3);
-
-    auto* name_label = new QLabel(name, card);
-    name_label->setObjectName("compactMetricName");
-    auto* value_label = new QLabel(value, card);
-    value_label->setObjectName("compactMetricValue");
-    value_label->setWordWrap(true);
-
-    layout->addWidget(name_label);
-    layout->addWidget(value_label);
-    return card;
 }
 
 Qt::Edges HitTestResizeEdges(const QWidget* window, const QPoint& global_pos, int margin)
@@ -426,19 +473,20 @@ GraspMainWindow::GraspMainWindow(QWidget* parent)
     refreshDeviceStatus();
     refreshRuntimeStrip();
     setEmptyPreviewMessage(QStringLiteral("请选择图片或打开相机"));
-    updateStatusMessage(QStringLiteral("界面已就绪，先在工程设置中同时加载 OBB 和 SEG engine。"));
+    updateStatusMessage(QStringLiteral("界面已就绪，可在工程设置中加载模型。"));
 }
 
 GraspMainWindow::~GraspMainWindow()
 {
     stopAutoGrabCycle(false);
     workflow_.stopCamera();
+    waitForBackgroundJobs();
 }
 
-void GraspMainWindow::setInitialEnginePaths(const QString& obb_engine_path, const QString& seg_engine_path)
+void GraspMainWindow::setInitialModelPaths(const QString& obb_model_path, const QString& seg_model_path)
 {
-    obb_engine_path_ = obb_engine_path;
-    seg_engine_path_ = seg_engine_path;
+    obb_model_path_ = obb_model_path;
+    seg_model_path_ = seg_model_path;
 }
 
 void GraspMainWindow::setShowAllDetections(bool show_all_detections)
@@ -607,6 +655,15 @@ void GraspMainWindow::closeEvent(QCloseEvent* event)
 {
     stopAutoGrabCycle(false);
     workflow_.stopCamera();
+
+    if (model_load_watcher_ && !model_load_watcher_->isFinished()) {
+        close_after_model_load_ = true;
+        hide();
+        event->ignore();
+        return;
+    }
+
+    waitForBackgroundJobs();
     QMainWindow::closeEvent(event);
 }
 
@@ -625,23 +682,21 @@ void GraspMainWindow::showEvent(QShowEvent* event)
     syncWindowControlButtons();
     repositionSidePanelToggle();
 
-    if (initial_models_attempted_) {
-        return;
+    if (!initial_models_attempted_) {
+        initial_models_attempted_ = true;
+        if (!obb_model_path_.trimmed().isEmpty() && !seg_model_path_.trimmed().isEmpty()) {
+            QTimer::singleShot(0, this, [this]() {
+                loadModelsFromPathsAsync(obb_model_path_, seg_model_path_, false, true);
+            });
+        }
     }
-    initial_models_attempted_ = true;
-
-    if (obb_engine_path_.trimmed().isEmpty() || seg_engine_path_.trimmed().isEmpty()) {
-        return;
-    }
-
-    loadModelsFromPaths(obb_engine_path_, seg_engine_path_, true, true);
 }
 
 void GraspMainWindow::setupUi()
 {
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-    resize(1360, 820);
-    setMinimumSize(1080, 680);
+    resize(SS(1360, 820));
+    setMinimumSize(SS(1080, 680));
     setWindowTitle(QStringLiteral("截止阀无序抓取上料视觉检测系统"));
     setWindowIcon(QIcon(DefaultLogoPath()));
 
@@ -651,14 +706,14 @@ void GraspMainWindow::setupUi()
     central_panel_->installEventFilter(this);
 
     auto* root_layout = new QVBoxLayout(central_panel_);
-    root_layout->setContentsMargins(8, 8, 8, 10);
-    root_layout->setSpacing(8);
+    root_layout->setContentsMargins(SM(8, 8, 8, 10));
+    root_layout->setSpacing(S(8));
 
     buildTopBar(root_layout);
 
     main_splitter_ = new QSplitter(Qt::Horizontal, this);
     main_splitter_->setChildrenCollapsible(false);
-    main_splitter_->setHandleWidth(8);
+    main_splitter_->setHandleWidth(S(8));
     root_layout->addWidget(main_splitter_, 1);
 
     buildDisplayPanel(main_splitter_);
@@ -669,11 +724,11 @@ void GraspMainWindow::setupUi()
     sidebar_toggle_button_ = new QToolButton(central_panel_);
     sidebar_toggle_button_->setObjectName("sideRailToggleButton");
     sidebar_toggle_button_->setCursor(Qt::PointingHandCursor);
-    sidebar_toggle_button_->setFixedSize(kSidebarToggleWidth, kSidebarToggleHeight);
+    sidebar_toggle_button_->setFixedSize(SS(kSidebarToggleWidth, kSidebarToggleHeight));
     sidebar_toggle_button_->setToolButtonStyle(Qt::ToolButtonTextOnly);
     sidebar_toggle_button_->raise();
 
-    expanded_sidebar_width_ = ClampSidebarWidth(kSidebarDefaultWidth);
+    expanded_sidebar_width_ = ClampSidebarWidth(SidebarDefaultWidth());
     side_panel_expanded_ = true;
     syncSidePanelToggleButton();
     main_splitter_->setSizes({ qMax(0, width() - expanded_sidebar_width_), expanded_sidebar_width_ });
@@ -684,33 +739,33 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
 {
     top_bar_ = new QFrame(this);
     top_bar_->setObjectName("topBar");
-    top_bar_->setFixedHeight(56);
+    top_bar_->setFixedHeight(S(56));
     top_bar_->setCursor(Qt::OpenHandCursor);
     top_bar_->installEventFilter(this);
 
     auto* top_layout = new QGridLayout(top_bar_);
-    top_layout->setContentsMargins(14, 6, 14, 6);
-    top_layout->setHorizontalSpacing(10);
+    top_layout->setContentsMargins(SM(14, 6, 14, 6));
+    top_layout->setHorizontalSpacing(S(10));
     top_layout->setVerticalSpacing(0);
 
     auto* left_widget = new QWidget(top_bar_);
     auto* left_layout = new QHBoxLayout(left_widget);
     left_layout->setContentsMargins(0, 0, 0, 0);
-    left_layout->setSpacing(10);
+    left_layout->setSpacing(S(10));
     left_widget->setAttribute(Qt::WA_TransparentForMouseEvents);
 
     logo_label_ = new QLabel(top_bar_);
     logo_label_->setObjectName("logoLabel");
-    logo_label_->setFixedSize(50, 42);
+    logo_label_->setFixedSize(SS(50, 42));
     logo_label_->setAlignment(Qt::AlignCenter);
     const QPixmap logo_pixmap(DefaultLogoPath());
     if (!logo_pixmap.isNull()) {
-        logo_label_->setPixmap(logo_pixmap.scaled(42, 34, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        logo_label_->setPixmap(logo_pixmap.scaled(SS(42, 34), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     } else {
         logo_label_->setText(QStringLiteral("L"));
     }
 
-    brand_label_ = new QLabel(QStringLiteral("TankEye1.1"), top_bar_);
+    brand_label_ = new QLabel(QStringLiteral("TankEye-Iris"), top_bar_);
     brand_label_->setObjectName("brandLabel");
 
     left_layout->addWidget(logo_label_);
@@ -725,10 +780,10 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
     auto* right_widget = new QWidget(top_bar_);
     auto* right_layout = new QHBoxLayout(right_widget);
     right_layout->setContentsMargins(0, 0, 0, 0);
-    right_layout->setSpacing(6);
+    right_layout->setSpacing(S(6));
 
-    const QSize icon_size(18, 18);
-    const QSize button_size(34, 34);
+    const QSize icon_size = SS(18, 18);
+    const QSize button_size = SS(34, 34);
     const QColor icon_color(QStringLiteral("#f0e9e1"));
     const auto init_button = [icon_size, button_size](QToolButton* button,
                                                       const QString& tooltip,
@@ -762,7 +817,7 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
 
     right_layout->addWidget(user_button_);
     right_layout->addWidget(settings_icon_button_);
-    right_layout->addSpacing(2);
+    right_layout->addSpacing(S(2));
     right_layout->addWidget(minimize_window_button_);
     right_layout->addWidget(maximize_window_button_);
     right_layout->addWidget(close_window_button_);
@@ -785,13 +840,13 @@ void GraspMainWindow::buildDisplayPanel(QSplitter* splitter)
     display_panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     auto* display_layout = new QVBoxLayout(display_panel);
-    display_layout->setContentsMargins(16, 12, 16, 16);
-    display_layout->setSpacing(12);
+    display_layout->setContentsMargins(SM(16, 12, 16, 16));
+    display_layout->setSpacing(S(12));
 
     buildRuntimeStrip(display_layout);
 
     image_label_ = new QLabel(this);
-    image_label_->setMinimumSize(480, 320);
+    image_label_->setMinimumSize(SS(480, 320));
     image_label_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     image_label_->setAlignment(Qt::AlignCenter);
     image_label_->setObjectName("imageViewport");
@@ -805,8 +860,8 @@ void GraspMainWindow::buildRuntimeStrip(QVBoxLayout* display_layout)
     auto* runtime_bar = new QFrame(this);
     runtime_bar->setObjectName("runtimeBar");
     auto* runtime_layout = new QHBoxLayout(runtime_bar);
-    runtime_layout->setContentsMargins(10, 8, 10, 8);
-    runtime_layout->setSpacing(8);
+    runtime_layout->setContentsMargins(SM(10, 8, 10, 8));
+    runtime_layout->setSpacing(S(8));
 
     runtime_mode_label_ = CreateRuntimeBadge("runtimeBadge");
     runtime_state_label_ = CreateRuntimeBadge("runtimeStateBadge");
@@ -830,12 +885,12 @@ void GraspMainWindow::buildSidePanel(QSplitter* splitter)
 {
     side_panel_ = new QFrame(this);
     side_panel_->setObjectName("sidePanel");
-    side_panel_->setMinimumWidth(kSidebarMinWidth);
-    side_panel_->setMaximumWidth(kSidebarMaxWidth);
+    side_panel_->setMinimumWidth(SidebarMinWidth());
+    side_panel_->setMaximumWidth(SidebarMaxWidth());
     side_panel_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
 
     auto* side_layout = new QVBoxLayout(side_panel_);
-    side_layout->setContentsMargins(16, 16, 16, 16);
+    side_layout->setContentsMargins(SM(8, 8, 8, 8));
     side_layout->setSpacing(0);
 
     side_pages_ = new QStackedWidget(side_panel_);
@@ -843,17 +898,17 @@ void GraspMainWindow::buildSidePanel(QSplitter* splitter)
     detail_page_ = new QWidget(side_pages_);
     auto* detail_layout = new QVBoxLayout(detail_page_);
     detail_layout->setContentsMargins(0, 0, 0, 0);
-    detail_layout->setSpacing(14);
+    detail_layout->setSpacing(S(6));
     buildResultSection(detail_layout);
     buildStatusSection(detail_layout);
     buildActionSection(detail_layout);
-    buildWorkSummarySection(detail_layout);
+    detail_layout->addStretch();
     side_pages_->addWidget(detail_page_);
 
     target_list_page_ = new QWidget(side_pages_);
     auto* target_list_layout = new QVBoxLayout(target_list_page_);
     target_list_layout->setContentsMargins(0, 0, 0, 0);
-    target_list_layout->setSpacing(14);
+    target_list_layout->setSpacing(S(6));
     buildTargetListSection(target_list_layout);
     side_pages_->addWidget(target_list_page_);
 
@@ -870,22 +925,21 @@ void GraspMainWindow::buildResultSection(QVBoxLayout* side_layout)
     auto* overview_card = new QFrame(this);
     overview_card->setObjectName("heroInfoCard");
     auto* overview_layout = new QVBoxLayout(overview_card);
-    overview_layout->setContentsMargins(14, 14, 14, 14);
-    overview_layout->setSpacing(12);
+    overview_layout->setContentsMargins(SM(9, 9, 9, 9));
+    overview_layout->setSpacing(S(6));
     overview_layout->addWidget(CreateGroupCaption(QStringLiteral("当前主目标"), overview_card));
 
-    auto* metrics = new QHBoxLayout();
-    metrics->setSpacing(8);
-    metrics->addWidget(CreateMetricCell(QStringLiteral("X"), x_value_label_, overview_card));
-    metrics->addWidget(CreateMetricCell(QStringLiteral("Y"), y_value_label_, overview_card));
-    metrics->addWidget(CreateMetricCell(QStringLiteral("角度"), angle_value_label_, overview_card));
+    auto* metrics = new QGridLayout();
+    metrics->setHorizontalSpacing(S(6));
+    metrics->setVerticalSpacing(S(6));
+    metrics->addWidget(CreateMetricCell(QStringLiteral("X"), x_value_label_, overview_card), 0, 0);
+    metrics->addWidget(CreateMetricCell(QStringLiteral("Y"), y_value_label_, overview_card), 0, 1);
+    metrics->addWidget(CreateMetricCell(QStringLiteral("角度"), angle_value_label_, overview_card), 1, 0);
+    metrics->addWidget(CreateMetricCell(QStringLiteral("D506"), pick_status_value_label_, overview_card), 1, 1);
+    metrics->addWidget(CreateMetricCell(QStringLiteral("D508"), head_type_value_label_, overview_card), 2, 0, 1, 2);
+    metrics->setColumnStretch(0, 1);
+    metrics->setColumnStretch(1, 1);
     overview_layout->addLayout(metrics);
-
-    auto* plc_metrics = new QHBoxLayout();
-    plc_metrics->setSpacing(8);
-    plc_metrics->addWidget(CreateMetricCell(QStringLiteral("D506"), pick_status_value_label_, overview_card));
-    plc_metrics->addWidget(CreateMetricCell(QStringLiteral("D508"), head_type_value_label_, overview_card));
-    overview_layout->addLayout(plc_metrics);
 
     side_layout->addWidget(overview_card);
 }
@@ -897,8 +951,8 @@ void GraspMainWindow::buildStatusSection(QVBoxLayout* side_layout)
     auto* status_card = new QFrame(this);
     status_card->setObjectName("infoCard");
     auto* status_layout = new QVBoxLayout(status_card);
-    status_layout->setContentsMargins(12, 12, 12, 12);
-    status_layout->setSpacing(8);
+    status_layout->setContentsMargins(SM(8, 8, 8, 8));
+    status_layout->setSpacing(S(5));
 
     camera_status_dot_ = new QLabel(this);
     camera_status_value_ = new QLabel(this);
@@ -911,8 +965,8 @@ void GraspMainWindow::buildStatusSection(QVBoxLayout* side_layout)
         auto* container = new QFrame(this);
         container->setObjectName("statusStackItem");
         auto* layout = new QHBoxLayout(container);
-        layout->setContentsMargins(10, 8, 10, 8);
-        layout->setSpacing(8);
+        layout->setContentsMargins(SM(7, 5, 7, 5));
+        layout->setSpacing(S(5));
         auto* label = new QLabel(name, container);
         label->setObjectName("statusStackName");
         layout->addWidget(label);
@@ -941,21 +995,33 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     start_button_ = new QPushButton(QStringLiteral("开始检测"), this);
     auto_grab_button_ = new QPushButton(QStringLiteral("自动抓取"), this);
     plc_link_button_ = new QPushButton(QStringLiteral("PLC联动"), this);
-    plc_test_button_ = new QPushButton(QStringLiteral("PLC测试写入"), this);
+    plc_test_button_ = new QPushButton(QStringLiteral("PLC测试"), this);
     stop_button_ = new QPushButton(QStringLiteral("停止检测"), this);
     display_mode_button_ = new QPushButton(QStringLiteral("全显"), this);
-    target_list_button_ = new QPushButton(QStringLiteral("多目标列表"), this);
+    target_list_button_ = new QPushButton(QStringLiteral("目标列表"), this);
     engineering_button_ = new QPushButton(QStringLiteral("工程设置"), this);
-    load_image_button_->setMinimumHeight(40);
-    open_camera_button_->setMinimumHeight(40);
-    start_button_->setMinimumHeight(46);
-    auto_grab_button_->setMinimumHeight(46);
-    plc_link_button_->setMinimumHeight(40);
-    plc_test_button_->setMinimumHeight(40);
-    stop_button_->setMinimumHeight(46);
-    display_mode_button_->setMinimumHeight(36);
-    target_list_button_->setMinimumHeight(36);
-    engineering_button_->setMinimumHeight(36);
+
+    const QList<QPushButton*> action_buttons = {
+        load_image_button_, open_camera_button_, start_button_, auto_grab_button_, plc_link_button_,
+        plc_test_button_, stop_button_, display_mode_button_, target_list_button_, engineering_button_
+    };
+    for (QPushButton* button : action_buttons) {
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        button->setMinimumWidth(0);
+    }
+
+    const int primary_button_height = S(32);
+    const int secondary_button_height = S(28);
+    load_image_button_->setMinimumHeight(primary_button_height);
+    open_camera_button_->setMinimumHeight(primary_button_height);
+    start_button_->setMinimumHeight(primary_button_height);
+    auto_grab_button_->setMinimumHeight(primary_button_height);
+    plc_link_button_->setMinimumHeight(primary_button_height);
+    plc_test_button_->setMinimumHeight(primary_button_height);
+    stop_button_->setMinimumHeight(primary_button_height);
+    display_mode_button_->setMinimumHeight(secondary_button_height);
+    target_list_button_->setMinimumHeight(secondary_button_height);
+    engineering_button_->setMinimumHeight(secondary_button_height);
     display_mode_button_->setObjectName("secondaryActionButton");
     target_list_button_->setObjectName("secondaryActionButton");
     engineering_button_->setObjectName("secondaryActionButton");
@@ -963,13 +1029,13 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     auto* input_group = new QFrame(this);
     input_group->setObjectName("controlGroupCard");
     auto* input_layout = new QVBoxLayout(input_group);
-    input_layout->setContentsMargins(12, 12, 12, 12);
-    input_layout->setSpacing(8);
+    input_layout->setContentsMargins(SM(8, 8, 8, 8));
+    input_layout->setSpacing(S(5));
     input_layout->addWidget(CreateGroupCaption(QStringLiteral("输入来源"), input_group));
     input_layout->addWidget(image_path_label_);
     auto* input_buttons = new QGridLayout();
-    input_buttons->setHorizontalSpacing(8);
-    input_buttons->setVerticalSpacing(8);
+    input_buttons->setHorizontalSpacing(S(5));
+    input_buttons->setVerticalSpacing(S(5));
     input_buttons->addWidget(load_image_button_, 0, 0);
     input_buttons->addWidget(open_camera_button_, 0, 1);
     input_layout->addLayout(input_buttons);
@@ -977,69 +1043,45 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     auto* detect_group = new QFrame(this);
     detect_group->setObjectName("controlGroupCard");
     auto* detect_layout = new QVBoxLayout(detect_group);
-    detect_layout->setContentsMargins(12, 12, 12, 12);
-    detect_layout->setSpacing(8);
+    detect_layout->setContentsMargins(SM(8, 8, 8, 8));
+    detect_layout->setSpacing(S(5));
     detect_layout->addWidget(CreateGroupCaption(QStringLiteral("检测控制"), detect_group));
+
     auto* detect_buttons = new QGridLayout();
-    detect_buttons->setHorizontalSpacing(8);
-    detect_buttons->setVerticalSpacing(8);
+    detect_buttons->setHorizontalSpacing(S(5));
+    detect_buttons->setVerticalSpacing(S(5));
     detect_buttons->addWidget(start_button_, 0, 0);
     detect_buttons->addWidget(auto_grab_button_, 0, 1);
     detect_buttons->addWidget(plc_link_button_, 1, 0);
     detect_buttons->addWidget(plc_test_button_, 1, 1);
     detect_buttons->addWidget(stop_button_, 2, 0, 1, 2);
+    detect_buttons->setColumnStretch(0, 1);
+    detect_buttons->setColumnStretch(1, 1);
     detect_layout->addLayout(detect_buttons);
-    auto* manage_buttons = new QHBoxLayout();
-    manage_buttons->setSpacing(8);
-    manage_buttons->addStretch();
-    manage_buttons->addWidget(display_mode_button_, 0);
-    manage_buttons->addWidget(target_list_button_, 0);
-    manage_buttons->addWidget(engineering_button_, 0);
+
+    auto* manage_buttons = new QGridLayout();
+    manage_buttons->setHorizontalSpacing(S(5));
+    manage_buttons->setVerticalSpacing(S(5));
+    manage_buttons->setSpacing(S(5));
+    manage_buttons->addWidget(display_mode_button_, 0, 0);
+    manage_buttons->addWidget(target_list_button_, 0, 1);
+    manage_buttons->addWidget(engineering_button_, 0, 2);
+    manage_buttons->setColumnStretch(0, 1);
+    manage_buttons->setColumnStretch(1, 1);
+    manage_buttons->setColumnStretch(2, 1);
     detect_layout->addLayout(manage_buttons);
 
     side_layout->addWidget(input_group);
     side_layout->addWidget(detect_group);
 }
 
-void GraspMainWindow::buildWorkSummarySection(QVBoxLayout* side_layout)
-{
-    auto* summary_card = new QFrame(this);
-    summary_card->setObjectName("workSummaryCard");
-    auto* summary_layout = new QVBoxLayout(summary_card);
-    summary_layout->setContentsMargins(12, 12, 12, 12);
-    summary_layout->setSpacing(8);
-
-    auto* title = new QLabel(QStringLiteral("作业摘要"), summary_card);
-    title->setObjectName("summaryTitle");
-    summary_layout->addWidget(title);
-
-    work_summary_input_label_ = new QLabel(summary_card);
-    work_summary_target_label_ = new QLabel(summary_card);
-    work_summary_state_label_ = new QLabel(summary_card);
-
-    const auto init_summary_label = [](QLabel* label) {
-        label->setObjectName("summaryLine");
-        label->setWordWrap(true);
-    };
-    init_summary_label(work_summary_input_label_);
-    init_summary_label(work_summary_target_label_);
-    init_summary_label(work_summary_state_label_);
-
-    summary_layout->addWidget(work_summary_input_label_);
-    summary_layout->addWidget(work_summary_target_label_);
-    summary_layout->addWidget(work_summary_state_label_);
-    summary_layout->addStretch(1);
-
-    side_layout->addWidget(summary_card, 1);
-}
-
 void GraspMainWindow::buildTargetListSection(QVBoxLayout* side_layout)
 {
     auto* header_layout = new QHBoxLayout();
-    header_layout->setSpacing(8);
+    header_layout->setSpacing(S(8));
 
     target_list_back_button_ = new QPushButton(QStringLiteral("返回"), this);
-    target_list_back_button_->setMinimumHeight(36);
+    target_list_back_button_->setMinimumHeight(S(36));
     target_list_back_button_->setObjectName("secondaryActionButton");
     header_layout->addWidget(target_list_back_button_, 0, Qt::AlignLeft);
     header_layout->addWidget(CreateSectionTitle(QStringLiteral("多目标列表")), 1);
@@ -1056,7 +1098,7 @@ void GraspMainWindow::buildTargetListSection(QVBoxLayout* side_layout)
     target_list_content_->setObjectName("targetListScrollContent");
     target_list_content_layout_ = new QVBoxLayout(target_list_content_);
     target_list_content_layout_->setContentsMargins(0, 0, 0, 0);
-    target_list_content_layout_->setSpacing(10);
+    target_list_content_layout_->setSpacing(S(10));
     target_list_scroll_area_->setWidget(target_list_content_);
 
     side_layout->addWidget(target_list_scroll_area_, 1);
@@ -1064,74 +1106,79 @@ void GraspMainWindow::buildTargetListSection(QVBoxLayout* side_layout)
 
 void GraspMainWindow::applyStyles()
 {
-    setStyleSheet(
+    const QString style = QString(
         "QMainWindow { background: #0b1118; }"
         "#topBar { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #2c2827, stop:1 #2a2e31);"
-        " border: 1px solid #373b3f; border-radius: 14px; }"
+        " border: 1px solid #373b3f; border-radius: %1px; }"
         "#displayPanel { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #111b25, stop:0.55 #0d141d, stop:1 #162433);"
-        " border: 1px solid #294055; border-radius: 24px; }"
+        " border: 1px solid #294055; border-radius: %2px; }"
         "#sidePanel { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #172330, stop:1 #101821);"
-        " border: 1px solid #2a3f53; border-radius: 24px; }"
-        "#runtimeBar { background: rgba(255,255,255,0.04); border: 1px solid #2d4458; border-radius: 14px; }"
-        "#imageViewport { background: #060b10; border-radius: 22px; border: 1px solid #34506a; color: #d7e0e8;"
-        " font-size: 22px; font-weight: 600; }"
+        " border: 1px solid #2a3f53; border-radius: %3px; }"
+        "#runtimeBar { background: rgba(255,255,255,0.04); border: 1px solid #2d4458; border-radius: %4px; }"
+        "#imageViewport { background: #060b10; border-radius: %5px; border: 1px solid #34506a; color: #d7e0e8;"
+        " font-size: %6px; font-weight: 600; }"
         "#logoLabel { background: transparent; border: none; padding: 0px; }"
-        "#brandLabel { color: #ece4dc; font-size: 17px; font-weight: 500; }"
-        "#titleLabel { color: #f3eee8; font-size: 20px; font-weight: 800; }"
-        "#sectionTitle { color: #eef5fb; font-size: 18px; font-weight: 700; padding-top: 2px; }"
-        "#infoCard { background: rgba(255,255,255,0.05); border: 1px solid #2f465b; border-radius: 16px; }"
-        "#heroInfoCard { background: rgba(255,255,255,0.06); border: 1px solid #355167; border-radius: 18px; }"
-        "#heroSideCard { background: rgba(255,255,255,0.03); border: 1px solid #30495f; border-radius: 14px; }"
-        "#groupCaption { color: #8fa9bc; font-size: 12px; font-weight: 600; }"
-        "#heroPrimaryValue { color: #f5f9fd; font-size: 24px; font-weight: 800; }"
-        "#heroStateValue { color: #f0f7ff; font-size: 18px; font-weight: 700; }"
-        "#heroAssistValue { color: #c4d4e1; font-size: 15px; font-weight: 600; }"
-        "#metricCell { background: rgba(255,255,255,0.04); border: 1px solid #365066; border-radius: 12px; }"
-        "#metricName { color: #96acc0; font-size: 12px; }"
-        "#metricValue { color: #f4f8fc; font-size: 20px; font-weight: 700; }"
-        "#compactMetricCell { background: rgba(255,255,255,0.035); border: 1px solid #30495f; border-radius: 12px; }"
-        "#compactMetricName { color: #8ea3b4; font-size: 11px; }"
-        "#compactMetricValue { color: #eef6fc; font-size: 16px; font-weight: 700; }"
-        "#runtimeBadge { background: rgba(255,255,255,0.05); color: #c4d4e1; border: 1px solid #2e4a60; border-radius: 10px; padding: 4px 10px; font-size: 12px; }"
-        "#runtimeStateBadge { background: rgba(34,115,178,0.18); color: #eef7ff; border: 1px solid #4b8fc5; border-radius: 10px; padding: 4px 12px; font-size: 12px; font-weight: 700; }"
-        "#statusPill { background: rgba(255,255,255,0.03); border: 1px solid #2d4458; border-radius: 12px; }"
-        "#statusStackItem { background: rgba(255,255,255,0.03); border: 1px solid #30495f; border-radius: 12px; }"
-        "#statusStackName { color: #dbe7f1; font-size: 14px; font-weight: 600; }"
-        "#controlGroupCard { background: rgba(255,255,255,0.04); border: 1px solid #30495f; border-radius: 16px; }"
-        "#workSummaryCard { background: rgba(19,31,42,0.78); border: 1px solid #2c465d; border-radius: 16px; }"
-        "#summaryTitle { color: #eef5fb; font-size: 15px; font-weight: 700; }"
-        "#summaryLine { color: #a9bdcc; background: rgba(255,255,255,0.025); border: 1px solid #2b4256;"
-        " border-radius: 10px; padding: 7px 9px; font-size: 12px; }"
-        "#pathHintLabel { color: #9eb2c3; background: rgba(255,255,255,0.025); border: 1px solid #2b4256; border-radius: 10px; padding: 8px 10px; font-size: 12px; }"
+        "#brandLabel { color: #ece4dc; font-size: %7px; font-weight: 500; }"
+        "#titleLabel { color: #f3eee8; font-size: %8px; font-weight: 800; }"
+        "#sectionTitle { color: #eef5fb; font-size: %9px; font-weight: 700; padding-top: %10px; }"
+        "#infoCard { background: rgba(255,255,255,0.045); border: 1px solid #2f465b; border-radius: %11px; }"
+        "#heroInfoCard { background: rgba(74,101,125,0.34); border: 1px solid #4f7392; border-radius: %12px; }"
+        "#heroSideCard { background: rgba(255,255,255,0.03); border: 1px solid #30495f; border-radius: %13px; }"
+        "#groupCaption { color: #8fa9bc; font-size: %14px; font-weight: 600; }"
+        "#heroPrimaryValue { color: #f5f9fd; font-size: %15px; font-weight: 800; }"
+        "#heroStateValue { color: #f0f7ff; font-size: %16px; font-weight: 700; }"
+        "#heroAssistValue { color: #c4d4e1; font-size: %17px; font-weight: 600; }"
+        "#metricCell { background: rgba(10,18,27,0.34); border: 1px solid #456982; border-radius: %18px; }"
+        "#metricName { color: #96acc0; font-size: %19px; }"
+        "#metricValue { color: #f4f8fc; font-size: %20px; font-weight: 700; }"
+        "#compactMetricCell { background: rgba(255,255,255,0.035); border: 1px solid #30495f; border-radius: %21px; }"
+        "#compactMetricName { color: #8ea3b4; font-size: %22px; }"
+        "#compactMetricValue { color: #eef6fc; font-size: %23px; font-weight: 700; }"
+        "#runtimeBadge { background: rgba(255,255,255,0.05); color: #c4d4e1; border: 1px solid #2e4a60; border-radius: %24px; padding: %25px %26px; font-size: %27px; }"
+        "#runtimeStateBadge { background: rgba(34,115,178,0.18); color: #eef7ff; border: 1px solid #4b8fc5; border-radius: %28px; padding: %29px %30px; font-size: %31px; font-weight: 700; }"
+        "#statusPill { background: rgba(255,255,255,0.03); border: 1px solid #2d4458; border-radius: %32px; }"
+        "#statusStackItem { background: rgba(255,255,255,0.025); border: 1px solid #30495f; border-radius: %33px; }"
+        "#statusStackName { color: #dbe7f1; font-size: %34px; font-weight: 600; }"
+        "#controlGroupCard { background: rgba(255,255,255,0.035); border: 1px solid #30495f; border-radius: %35px; }"
+        "#pathHintLabel { color: #9eb2c3; background: rgba(255,255,255,0.025); border: 1px solid #2b4256; border-radius: %36px; padding: %37px %38px; font-size: %39px; }"
         "#targetListScrollArea, #targetListScrollContent { background: transparent; border: none; }"
         "QLabel { color: #b7c7d6; }"
-        "QLineEdit { background: rgba(255,255,255,0.06); color: #f3f8fc; border: 1px solid #395268; border-radius: 10px; padding: 8px 10px; }"
-        "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1d9bf0, stop:1 #1367c8); color: white; border: none; border-radius: 12px; padding: 11px 14px;"
+        "QLineEdit { background: rgba(255,255,255,0.06); color: #f3f8fc; border: 1px solid #395268; border-radius: %40px; padding: %41px %42px; }"
+        "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1d9bf0, stop:1 #1367c8); color: white; border: none; border-radius: %43px; padding: %44px %45px;"
         " font-weight: 600; }"
         "QPushButton:hover { background: #1578cb; }"
         "QPushButton:disabled { background: #516576; color: #c9d6e1; }"
         "QPushButton#secondaryActionButton { background: rgba(255,255,255,0.06); color: #ecf4fa; border: 1px solid #36546b; }"
         "QPushButton#secondaryActionButton:hover { background: rgba(255,255,255,0.12); }"
-        "QToolButton { color: #d6e6f3; background: rgba(255,255,255,0.03); border: 1px solid #2d4458; border-radius: 10px; padding: 8px 10px; text-align: left; }"
+        "QToolButton { color: #d6e6f3; background: rgba(255,255,255,0.03); border: 1px solid #2d4458; border-radius: %46px; padding: %47px %48px; text-align: left; }"
         "QToolButton:checked { background: rgba(34,115,178,0.18); border-color: #4b8fc5; }"
         "QToolButton[topBarButton=\"true\"], QToolButton[windowButton=\"true\"] {"
-        " background: transparent; border: 1px solid transparent; border-radius: 17px; padding: 0px; }"
+        " background: transparent; border: 1px solid transparent; border-radius: %49px; padding: 0px; }"
         "QToolButton[topBarButton=\"true\"]:hover, QToolButton[windowButton=\"true\"]:hover {"
         " background: rgba(255,255,255,0.08); border-color: rgba(236,228,220,0.20); }"
         "QToolButton[topBarButton=\"true\"]:pressed, QToolButton[windowButton=\"true\"]:pressed {"
         " background: rgba(255,255,255,0.14); }"
         "QToolButton[closeWindowButton=\"true\"] {"
-        " background: transparent; border: 1px solid transparent; border-radius: 17px; padding: 0px; }"
+        " background: transparent; border: 1px solid transparent; border-radius: %50px; padding: 0px; }"
         "QToolButton[closeWindowButton=\"true\"]:hover {"
         " background: #d65757; border-color: #ea7d7d; }"
         "QToolButton[closeWindowButton=\"true\"]:pressed {"
         " background: #b53f3f; }"
         "#sideRailToggleButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #2269bf, stop:1 #164b88);"
-        " color: #f1f7ff; border: 1px solid #4788d5; border-top-left-radius: 12px; border-bottom-left-radius: 12px;"
-        " border-top-right-radius: 6px; border-bottom-right-radius: 6px; font-size: 16px; font-weight: 800; padding: 0px; }"
+        " color: #f1f7ff; border: 1px solid #4788d5; border-top-left-radius: %51px; border-bottom-left-radius: %52px;"
+        " border-top-right-radius: %53px; border-bottom-right-radius: %54px; font-size: %55px; font-weight: 800; padding: 0px; }"
         "#sideRailToggleButton:hover { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #2b78d4, stop:1 #1a589f); }"
         "QSplitter::handle { background: transparent; }"
-        "QSplitter::handle:hover { background: rgba(61, 119, 174, 0.25); }");
+        "QSplitter::handle:hover { background: rgba(61, 119, 174, 0.25); }")
+        .arg(S(12)).arg(S(18)).arg(S(18)).arg(S(10)).arg(S(16)).arg(S(16))
+        .arg(S(15)).arg(S(18)).arg(S(14)).arg(S(1)).arg(S(11)).arg(S(12)).arg(S(10))
+        .arg(S(10)).arg(S(15)).arg(S(12)).arg(S(10)).arg(S(8)).arg(S(9)).arg(S(12))
+        .arg(S(8)).arg(S(8)).arg(S(11)).arg(S(8)).arg(S(2)).arg(S(6)).arg(S(9))
+        .arg(S(8)).arg(S(2)).arg(S(6)).arg(S(9)).arg(S(8)).arg(S(8)).arg(S(10))
+        .arg(S(10)).arg(S(8)).arg(S(3)).arg(S(5)).arg(S(9)).arg(S(7)).arg(S(4))
+        .arg(S(7)).arg(S(8)).arg(S(4)).arg(S(6)).arg(S(8)).arg(S(4)).arg(S(6))
+        .arg(S(17)).arg(S(17)).arg(S(12)).arg(S(12)).arg(S(6)).arg(S(6)).arg(S(16));
+    setStyleSheet(style);
 }
 
 void GraspMainWindow::bindActions()
@@ -1226,8 +1273,8 @@ void GraspMainWindow::applySidePanelState(bool expanded)
 
     if (expanded) {
         expanded_sidebar_width_ = ClampSidebarWidth(expanded_sidebar_width_);
-        side_panel_->setMinimumWidth(kSidebarMinWidth);
-        side_panel_->setMaximumWidth(kSidebarMaxWidth);
+        side_panel_->setMinimumWidth(SidebarMinWidth());
+        side_panel_->setMaximumWidth(SidebarMaxWidth());
         side_panel_->show();
         if (main_splitter_->handle(1)) {
             main_splitter_->handle(1)->show();
@@ -1257,57 +1304,162 @@ void GraspMainWindow::repositionSidePanelToggle()
         return;
     }
 
-    const int x = qMax(0, central_panel_->width() - sidebar_toggle_button_->width() - 2);
-    const int y = qMax(70, (central_panel_->height() - sidebar_toggle_button_->height()) / 2);
+    const int x = qMax(0, central_panel_->width() - sidebar_toggle_button_->width() - S(2));
+    const int y = qMax(S(70), (central_panel_->height() - sidebar_toggle_button_->height()) / 2);
     sidebar_toggle_button_->move(x, y);
     sidebar_toggle_button_->raise();
+}
+
+void GraspMainWindow::waitForBackgroundJobs()
+{
+    if (model_load_watcher_ && !model_load_watcher_->isFinished()) {
+        model_load_watcher_->waitForFinished();
+    }
+    if (image_detection_watcher_ && !image_detection_watcher_->isFinished()) {
+        image_detection_watcher_->waitForFinished();
+    }
 }
 
 void GraspMainWindow::openEngineeringSettings()
 {
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("工程设置"));
-    dialog.setModal(true);
-    dialog.resize(760, 220);
-    dialog.setStyleSheet(
+    dialog.setWindowModality(Qt::WindowModal);
+    dialog.setWindowFlags(dialog.windowFlags() | Qt::Dialog | Qt::WindowStaysOnTopHint);
+    dialog.resize(SS(760, 220));
+    dialog.setStyleSheet(QString(
         "QDialog { background: #f4f6f8; }"
         "QLabel { color: #111111; }"
-        "QLineEdit { background: #ffffff; color: #111111; border: 1px solid #9aa9b7; border-radius: 10px; padding: 8px 10px; }"
-        "QPushButton { background: #ffffff; color: #111111; border: 1px solid #9aa9b7; border-radius: 10px; padding: 9px 14px; font-weight: 600; }"
-        "QPushButton:hover { background: #e9eef3; }");
+        "QLineEdit { background: #ffffff; color: #111111; border: 1px solid #9aa9b7; border-radius: %1px; padding: %2px %3px; }"
+        "QPushButton { background: #ffffff; color: #111111; border: 1px solid #9aa9b7; border-radius: %4px; padding: %5px %6px; font-weight: 600; }"
+        "QPushButton:hover { background: #e9eef3; }")
+        .arg(S(10)).arg(S(8)).arg(S(10)).arg(S(10)).arg(S(9)).arg(S(14)));
 
     auto* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(16, 16, 16, 16);
-    layout->setSpacing(12);
+    layout->setContentsMargins(SM(16, 16, 16, 16));
+    layout->setSpacing(S(12));
 
-    auto* obb_path_edit = new QLineEdit(obb_engine_path_, &dialog);
-    obb_path_edit->setPlaceholderText(QStringLiteral("选择 OBB engine 文件"));
-    auto* seg_path_edit = new QLineEdit(seg_engine_path_, &dialog);
-    seg_path_edit->setPlaceholderText(QStringLiteral("选择 SEG engine 文件"));
+    auto* obb_path_edit = new QLineEdit(obb_model_path_, &dialog);
+    obb_path_edit->setPlaceholderText(QStringLiteral("选择 OBB OpenVINO XML 或 ONNX 文件"));
+    auto* seg_path_edit = new QLineEdit(seg_model_path_, &dialog);
+    seg_path_edit->setPlaceholderText(QStringLiteral("选择 SEG OpenVINO XML 或 ONNX 文件"));
 
-    auto* status_label = new QLabel(BuildModelStatusText(workflow_), &dialog);
+    auto* status_label = new QLabel(models_loading_
+                                        ? QStringLiteral("模型正在后台加载，请稍候...")
+                                        : BuildModelStatusText(workflow_),
+                                    &dialog);
     auto* load_button = new QPushButton(QStringLiteral("加载双模型"), &dialog);
+    load_button->setEnabled(!models_loading_);
+    if (models_loading_) {
+        load_button->setText(QStringLiteral("加载中..."));
+    }
+    const QPointer<QDialog> safe_dialog(&dialog);
 
-    layout->addLayout(CreatePathRow(&dialog, obb_path_edit, QStringLiteral("OBB Engine"), QStringLiteral("选择 OBB Engine")));
-    layout->addLayout(CreatePathRow(&dialog, seg_path_edit, QStringLiteral("SEG Engine"), QStringLiteral("选择 SEG Engine")));
+    layout->addLayout(CreatePathRow(&dialog, obb_path_edit, QStringLiteral("OBB 模型"), QStringLiteral("选择 OBB 模型")));
+    layout->addLayout(CreatePathRow(&dialog, seg_path_edit, QStringLiteral("SEG 模型"), QStringLiteral("选择 SEG 模型")));
 
     auto* bottom_row = new QHBoxLayout();
     bottom_row->addWidget(status_label, 1);
     bottom_row->addWidget(load_button);
     layout->addLayout(bottom_row);
 
-    connect(load_button, &QPushButton::clicked, &dialog, [&]() {
-        const QString obb_path = obb_path_edit->text().trimmed();
-        const QString seg_path = seg_path_edit->text().trimmed();
-        if (!loadModelsFromPaths(obb_path, seg_path, true, true)) {
-            status_label->setText(BuildModelStatusText(workflow_));
+    connect(load_button, &QPushButton::clicked, &dialog, [this, safe_dialog, obb_path_edit, seg_path_edit, status_label, load_button]() {
+        if (models_loading_) {
             return;
         }
 
-        status_label->setText(BuildModelStatusText(workflow_));
-        dialog.accept();
+        const QString obb_path = obb_path_edit->text().trimmed();
+        const QString seg_path = seg_path_edit->text().trimmed();
+        if (obb_path.isEmpty() || seg_path.isEmpty()) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("缺少模型"),
+                                 QStringLiteral("请同时选择 OBB 和 SEG 模型文件。"));
+            return;
+        }
+
+        workflow_.stopCamera();
+        stopAutoGrabCycle(false);
+        setModelLoadingState(true);
+        status_label->setText(QStringLiteral("模型加载中，请稍候..."));
+        load_button->setText(QStringLiteral("加载中..."));
+        load_button->setEnabled(false);
+        updateStatusMessage(QStringLiteral("模型加载中..."));
+
+        auto* watcher = new QFutureWatcher<QString>(this);
+        model_load_watcher_ = watcher;
+        const QPointer<QLabel> safe_status_label(status_label);
+        const QPointer<QPushButton> safe_load_button(load_button);
+
+        connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, obb_path, seg_path, safe_dialog, safe_status_label, safe_load_button]() {
+            const QString error_message = watcher->result();
+            const bool ok = error_message.isEmpty();
+            if (model_load_watcher_ == watcher) {
+                model_load_watcher_ = nullptr;
+            }
+            watcher->deleteLater();
+            setModelLoadingState(false);
+
+            if (safe_load_button) {
+                safe_load_button->setText(QStringLiteral("加载双模型"));
+                safe_load_button->setEnabled(true);
+            }
+
+            if (ok) {
+                obb_model_path_ = obb_path;
+                seg_model_path_ = seg_path;
+                const QString status = BuildModelStatusText(workflow_);
+                if (safe_status_label) {
+                    safe_status_label->setText(status);
+                }
+                updateStatusMessage(QStringLiteral("OBB 和 SEG 模型已加载，OpenVINO 设备：%1")
+                                        .arg(QString::fromStdString(workflow_.runtimeDeviceSummary())),
+                                    5000);
+            } else {
+                if (safe_status_label) {
+                    safe_status_label->setText(QStringLiteral("模型加载失败"));
+                }
+                const QString message = error_message.isEmpty()
+                                            ? QStringLiteral("请检查日志中的 OpenVINO 错误信息。")
+                                            : error_message;
+                updateStatusMessage(QStringLiteral("双模型加载失败，请检查模型路径和 OpenVINO 运行环境。"), 5000);
+                QWidget* message_parent = safe_dialog
+                                              ? static_cast<QWidget*>(safe_dialog.data())
+                                              : static_cast<QWidget*>(this);
+                QMessageBox::critical(message_parent, QStringLiteral("模型加载失败"), message);
+            }
+
+            refreshDeviceStatus();
+            refreshRuntimeStrip();
+            if (close_after_model_load_) {
+                close_after_model_load_ = false;
+                close();
+            }
+        });
+
+        watcher->setFuture(QtConcurrent::run([this, obb_path, seg_path]() -> QString {
+            OBBConfig obb_config;
+            SEGConfig seg_config;
+            obb_config.enable_warmup = true;
+            seg_config.enable_warmup = true;
+            std::string error_message;
+            const bool ok = workflow_.loadModels(obb_path.toStdString(),
+                                                 obb_config,
+                                                 seg_path.toStdString(),
+                                                 seg_config,
+                                                 &error_message);
+            if (!ok) {
+                std::cerr << "[OpenVINO] background model load failed: " << error_message << std::endl;
+                return QString::fromStdString(error_message);
+            }
+            return QString();
+        }));
     });
 
+    const QPoint center = geometry().center() - QRect(QPoint(0, 0), dialog.size()).center();
+    dialog.move(center);
+    dialog.show();
+    dialog.raise();
+    dialog.activateWindow();
     dialog.exec();
 }
 
@@ -1334,7 +1486,7 @@ void GraspMainWindow::openCamera()
     if (!workflow_.areModelsLoaded()) {
         QMessageBox::warning(this,
                              QStringLiteral("模型未加载"),
-                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG engine。"));
+                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG 模型。"));
         refreshDeviceStatus();
         refreshRuntimeStrip();
         return;
@@ -1377,10 +1529,15 @@ void GraspMainWindow::startDetection()
 {
     stopAutoGrabCycle(false);
 
+    if (image_detection_running_) {
+        updateStatusMessage(QStringLiteral("图片检测中，请稍候..."), 2000);
+        return;
+    }
+
     if (!workflow_.areModelsLoaded()) {
         QMessageBox::warning(this,
                              QStringLiteral("模型未加载"),
-                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG engine。"));
+                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG 模型。"));
         return;
     }
 
@@ -1396,17 +1553,47 @@ void GraspMainWindow::startDetection()
         return;
     }
 
-    FrameInferenceResult result;
-    string error_message;
-    if (!workflow_.runImage(current_frame_, result, &error_message)) {
-        QMessageBox::critical(this, QStringLiteral("检测失败"), QString::fromStdString(error_message));
-        return;
-    }
+    image_detection_running_ = true;
+    refreshDeviceStatus();
+    refreshRuntimeStrip();
+    updateStatusMessage(QStringLiteral("图片检测中..."));
 
-    setFrameAndResult(current_frame_, result);
-    writeCurrentResultToPlc(QStringLiteral("图片联合检测"), false);
+    const auto frame = std::make_shared<Mat>(current_frame_.clone());
+    const auto result = std::make_shared<FrameInferenceResult>();
+    auto* watcher = new QFutureWatcher<QString>(this);
+    image_detection_watcher_ = watcher;
+
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, frame, result]() {
+        const QString error_message = watcher->result();
+        if (image_detection_watcher_ == watcher) {
+            image_detection_watcher_ = nullptr;
+        }
+        watcher->deleteLater();
+        image_detection_running_ = false;
+
+        if (!error_message.isEmpty()) {
+            refreshDeviceStatus();
+            refreshRuntimeStrip();
+            updateStatusMessage(QStringLiteral("图片检测失败。"), 5000);
+            QMessageBox::critical(this, QStringLiteral("检测失败"), error_message);
+            return;
+        }
+
+        setFrameAndResult(*frame, *result);
+        writeCurrentResultToPlc(QStringLiteral("图片联合检测"), false);
+        refreshDeviceStatus();
+        refreshRuntimeStrip();
+        updateStatusMessage(QStringLiteral("图片检测完成。"), 3000);
+    });
+
+    watcher->setFuture(QtConcurrent::run([this, frame, result]() -> QString {
+        std::string error_message;
+        if (!workflow_.runImage(*frame, *result, &error_message)) {
+            return QString::fromStdString(error_message);
+        }
+        return QString();
+    }));
 }
-
 void GraspMainWindow::stopDetection()
 {
     stopAutoGrabCycle();
@@ -1440,7 +1627,7 @@ void GraspMainWindow::togglePlcLinkMode()
     if (!workflow_.areModelsLoaded()) {
         QMessageBox::warning(this,
                              QStringLiteral("模型未加载"),
-                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG engine。"));
+                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG 模型。"));
         return;
     }
 
@@ -1562,7 +1749,7 @@ void GraspMainWindow::startAutoGrabCycle()
         cout << "[AutoGrab] rejected: models are not loaded" << endl;
         QMessageBox::warning(this,
                              QStringLiteral("模型未加载"),
-                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG engine。"));
+                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG 模型。"));
         return;
     }
 
@@ -1583,7 +1770,7 @@ void GraspMainWindow::startAutoGrabCycle()
             return;
         }
     } else {
-        const QString current_path = image_path_label_->text().trimmed();
+        const QString current_path = currentImagePath();
         auto_grab_test_image_index_ = auto_grab_test_images_.indexOf(current_path);
         cout << "[AutoGrab] input mode: image, current path=" << current_path.toStdString()
              << ", test index=" << auto_grab_test_image_index_ << endl;
@@ -1605,7 +1792,7 @@ void GraspMainWindow::runOneAutoGrabCycle()
         stopAutoGrabCycle();
         QMessageBox::warning(this,
                              QStringLiteral("模型未加载"),
-                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG engine。"));
+                             QStringLiteral("请先在工程设置中同时加载 OBB 和 SEG 模型。"));
         return;
     }
 
@@ -1628,7 +1815,7 @@ void GraspMainWindow::runOneAutoGrabCycle()
     refreshDeviceStatus();
     refreshRuntimeStrip();
     updateStatusMessage(QStringLiteral("自动检测中"));
-    cout << "[AutoGrab] detecting frame: " << image_path_label_->text().trimmed().toStdString() << endl;
+    cout << "[AutoGrab] detecting frame: " << currentImagePath().toStdString() << endl;
 
     FrameInferenceResult result;
     string error_message;
@@ -1683,7 +1870,7 @@ void GraspMainWindow::onRobotReturnedHome()
     if (input_mode_ == InputMode::Image) {
         const bool advanced = advanceAutoGrabTestImage();
         cout << "[AutoGrab] test image advance: " << (advanced ? "yes" : "no")
-             << ", current=" << image_path_label_->text().trimmed().toStdString() << endl;
+             << ", current=" << currentImagePath().toStdString() << endl;
         if (!advanced) {
             finishAutoGrabCycle(QStringLiteral("图片序列已处理完，自动抓取流程结束"));
             return;
@@ -1768,11 +1955,13 @@ void GraspMainWindow::setFrameAndResult(const Mat& frame, const FrameInferenceRe
     current_frame_ = frame.clone();
     current_result_ = result;
 
-    renderCurrentFrame();
-    refreshInfoPanel();
-    refreshTargetTable();
-    refreshDeviceStatus();
-    refreshRuntimeStrip();
+    QTimer::singleShot(0, this, [this]() {
+        renderCurrentFrame();
+        refreshInfoPanel();
+        refreshTargetTable();
+        refreshDeviceStatus();
+        refreshRuntimeStrip();
+    });
 }
 
 bool GraspMainWindow::loadImageFromPath(const QString& path, bool notify)
@@ -1784,7 +1973,6 @@ bool GraspMainWindow::loadImageFromPath(const QString& path, bool notify)
 
     workflow_.stopCamera();
     input_mode_ = InputMode::Image;
-    image_path_label_->setText(path);
 
     Mat image = imread(path.toStdString());
     if (image.empty()) {
@@ -1796,6 +1984,9 @@ bool GraspMainWindow::loadImageFromPath(const QString& path, bool notify)
     }
 
     current_frame_ = image;
+    current_image_path_ = QFileInfo(path).absoluteFilePath();
+    image_path_label_->setText(QFileInfo(path).fileName());
+    image_path_label_->setToolTip(current_image_path_);
     cout << "[Image] loaded: " << path.toStdString()
          << " (" << image.cols << "x" << image.rows << ")" << endl;
     clearResults();
@@ -1815,7 +2006,7 @@ bool GraspMainWindow::advanceAutoGrabTestImage()
         return false;
     }
 
-    const QString current_path = image_path_label_->text().trimmed();
+    const QString current_path = currentImagePath();
     int current_index = auto_grab_test_image_index_;
     if (current_index < 0) {
         current_index = auto_grab_test_images_.indexOf(current_path);
@@ -1888,98 +2079,128 @@ void GraspMainWindow::refreshInfoPanel()
                                         : QStringLiteral("--"));
 }
 
+QFrame* GraspMainWindow::createTargetCard(QLabel*& title_label,
+                                          QLabel*& x_label,
+                                          QLabel*& y_label,
+                                          QLabel*& angle_label,
+                                          QLabel*& pick_status_label,
+                                          QLabel*& head_type_label)
+{
+    auto* card = new QFrame(target_list_content_);
+    card->setObjectName("infoCard");
+
+    auto* card_layout = new QVBoxLayout(card);
+    card_layout->setContentsMargins(SM(12, 12, 12, 12));
+    card_layout->setSpacing(S(8));
+
+    title_label = new QLabel(card);
+    title_label->setObjectName("statusStackName");
+    card_layout->addWidget(title_label);
+
+    auto* metrics_layout = new QHBoxLayout();
+    metrics_layout->setSpacing(S(8));
+
+    auto create_metric = [card, metrics_layout](const QString& name, QLabel*& value_label) {
+        auto* metric_card = new QFrame(card);
+        metric_card->setObjectName("compactMetricCell");
+
+        auto* metric_layout = new QVBoxLayout(metric_card);
+        metric_layout->setContentsMargins(SM(10, 8, 10, 8));
+        metric_layout->setSpacing(S(3));
+
+        auto* name_label = new QLabel(name, metric_card);
+        name_label->setObjectName("compactMetricName");
+        value_label = new QLabel(QStringLiteral("--"), metric_card);
+        value_label->setObjectName("compactMetricValue");
+        value_label->setWordWrap(true);
+
+        metric_layout->addWidget(name_label);
+        metric_layout->addWidget(value_label);
+        metrics_layout->addWidget(metric_card);
+    };
+
+    create_metric(QStringLiteral("X"), x_label);
+    create_metric(QStringLiteral("Y"), y_label);
+    create_metric(QStringLiteral("角度"), angle_label);
+    create_metric(QStringLiteral("D506"), pick_status_label);
+    create_metric(QStringLiteral("D508"), head_type_label);
+
+    card_layout->addLayout(metrics_layout);
+    return card;
+}
+
 void GraspMainWindow::refreshTargetTable()
 {
     if (!target_list_content_layout_ || !target_list_content_) {
         return;
     }
 
-    ClearLayoutItems(target_list_content_layout_);
+    if (!target_empty_label_) {
+        target_empty_label_ = new QLabel(QStringLiteral("当前无检测结果"), target_list_content_);
+        target_empty_label_->setObjectName("pathHintLabel");
+        target_empty_label_->setWordWrap(true);
+        target_list_content_layout_->addWidget(target_empty_label_);
+    }
 
-    if (!show_all_detections_) {
+    QList<int> visible_indices;
+    if (show_all_detections_) {
+        for (int i = 0; i < static_cast<int>(current_result_.detections.size()); ++i) {
+            visible_indices.append(i);
+        }
+    } else {
         const int primary_index = current_result_.primary_index;
-        if (primary_index < 0 || primary_index >= static_cast<int>(current_result_.detections.size())) {
-            auto* empty_card = new QLabel(QStringLiteral("当前无检测结果"), target_list_content_);
-            empty_card->setObjectName("pathHintLabel");
-            empty_card->setWordWrap(true);
-            target_list_content_layout_->addWidget(empty_card);
-            target_list_content_layout_->addStretch();
-            return;
+        if (primary_index >= 0 && primary_index < static_cast<int>(current_result_.detections.size())) {
+            visible_indices.append(primary_index);
+        }
+    }
+
+    const int required_cards = visible_indices.size();
+    while (target_cards_.size() < required_cards) {
+        TargetCard target_card;
+        target_card.card = createTargetCard(target_card.title_label,
+                                            target_card.x_label,
+                                            target_card.y_label,
+                                            target_card.angle_label,
+                                            target_card.pick_status_label,
+                                            target_card.head_type_label);
+        int insert_index = target_list_content_layout_->count();
+        if (insert_index > 0 &&
+            target_list_content_layout_->itemAt(insert_index - 1)->spacerItem() != nullptr) {
+            --insert_index;
+        }
+        target_list_content_layout_->insertWidget(insert_index, target_card.card);
+        target_cards_.append(target_card);
+    }
+
+    target_empty_label_->setVisible(required_cards == 0);
+    for (int i = 0; i < target_cards_.size(); ++i) {
+        TargetCard& target_card = target_cards_[i];
+        const bool visible = i < required_cards;
+        target_card.card->setVisible(visible);
+        if (!visible) {
+            continue;
         }
 
-        const auto& detection = current_result_.detections[primary_index];
-        auto* card = new QFrame(target_list_content_);
-        card->setObjectName("infoCard");
-        auto* card_layout = new QVBoxLayout(card);
-        card_layout->setContentsMargins(12, 12, 12, 12);
-        card_layout->setSpacing(8);
+        const int detection_index = visible_indices[i];
+        const auto& detection = current_result_.detections[detection_index];
+        target_card.title_label->setText(show_all_detections_
+                                             ? QStringLiteral("序号 %1").arg(detection_index + 1)
+                                             : QStringLiteral("主目标"));
+        target_card.x_label->setText(FormatNumber(detection.center_x));
+        target_card.y_label->setText(FormatNumber(detection.center_y));
+        target_card.angle_label->setText(FormatNumber(detection.angle_deg) + QStringLiteral(" deg"));
+        target_card.pick_status_label->setText(QString::number(detection.pick_status_code));
+        target_card.head_type_label->setText(detection.head_type_code > 0
+                                                 ? QStringLiteral("%1 %2")
+                                                       .arg(detection.head_type_code)
+                                                       .arg(QString::fromStdString(detection.head_type_text))
+                                                 : QStringLiteral("--"));
+    }
 
-        auto* title_label = new QLabel(QStringLiteral("主目标"), card);
-        title_label->setObjectName("statusStackName");
-        card_layout->addWidget(title_label);
-
-        auto* metrics_layout = new QHBoxLayout();
-        metrics_layout->setSpacing(8);
-        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("X"), FormatNumber(detection.center_x), card));
-        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("Y"), FormatNumber(detection.center_y), card));
-        metrics_layout->addWidget(
-            CreateStaticMetricCell(QStringLiteral("角度"), FormatNumber(detection.angle_deg) + QStringLiteral(" deg"), card));
-        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("D506"), QString::number(detection.pick_status_code), card));
-        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("D508"),
-                                                         detection.head_type_code > 0
-                                                             ? QStringLiteral("%1 %2")
-                                                                   .arg(detection.head_type_code)
-                                                                   .arg(QString::fromStdString(detection.head_type_text))
-                                                             : QStringLiteral("--"),
-                                                         card));
-        card_layout->addLayout(metrics_layout);
-
-        target_list_content_layout_->addWidget(card);
+    if (target_list_content_layout_->count() == 0 ||
+        target_list_content_layout_->itemAt(target_list_content_layout_->count() - 1)->spacerItem() == nullptr) {
         target_list_content_layout_->addStretch();
-        return;
     }
-
-    if (current_result_.detections.empty()) {
-        auto* empty_card = new QLabel(QStringLiteral("当前无检测结果"), target_list_content_);
-        empty_card->setObjectName("pathHintLabel");
-        empty_card->setWordWrap(true);
-        target_list_content_layout_->addWidget(empty_card);
-        target_list_content_layout_->addStretch();
-        return;
-    }
-
-    for (int i = 0; i < static_cast<int>(current_result_.detections.size()); ++i) {
-        const auto& detection = current_result_.detections[i];
-        auto* card = new QFrame(target_list_content_);
-        card->setObjectName("infoCard");
-        auto* card_layout = new QVBoxLayout(card);
-        card_layout->setContentsMargins(12, 12, 12, 12);
-        card_layout->setSpacing(8);
-
-        auto* title_label = new QLabel(QStringLiteral("序号 %1").arg(i + 1), card);
-        title_label->setObjectName("statusStackName");
-        card_layout->addWidget(title_label);
-
-        auto* metrics_layout = new QHBoxLayout();
-        metrics_layout->setSpacing(8);
-        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("X"), FormatNumber(detection.center_x), card));
-        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("Y"), FormatNumber(detection.center_y), card));
-        metrics_layout->addWidget(
-            CreateStaticMetricCell(QStringLiteral("角度"), FormatNumber(detection.angle_deg) + QStringLiteral(" deg"), card));
-        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("D506"), QString::number(detection.pick_status_code), card));
-        metrics_layout->addWidget(CreateStaticMetricCell(QStringLiteral("D508"),
-                                                         detection.head_type_code > 0
-                                                             ? QStringLiteral("%1 %2")
-                                                                   .arg(detection.head_type_code)
-                                                                   .arg(QString::fromStdString(detection.head_type_text))
-                                                             : QStringLiteral("--"),
-                                                         card));
-        card_layout->addLayout(metrics_layout);
-
-        target_list_content_layout_->addWidget(card);
-    }
-
-    target_list_content_layout_->addStretch();
 }
 
 void GraspMainWindow::showDetailPage()
@@ -1998,15 +2219,54 @@ void GraspMainWindow::showTargetListPage()
 
 void GraspMainWindow::refreshDeviceStatus()
 {
-    SetIndicator(camera_status_dot_, camera_status_value_, workflow_.isCameraRunning(),
-                 QStringLiteral("在线"), QStringLiteral("待机"));
-    SetIndicator(obb_status_dot_, obb_status_value_, workflow_.isObbModelLoaded(),
-                 QStringLiteral("已加载"), QStringLiteral("未加载"));
-    SetIndicator(seg_status_dot_, seg_status_value_, workflow_.isSegModelLoaded(),
-                 QStringLiteral("已加载"), QStringLiteral("未加载"));
     if (display_mode_button_) {
         display_mode_button_->setText(show_all_detections_ ? QStringLiteral("全显") : QStringLiteral("隐藏"));
     }
+
+    if (models_loading_) {
+        SetIndicator(camera_status_dot_, camera_status_value_, workflow_.isCameraRunning(),
+                     QStringLiteral("在线"), QStringLiteral("待机"));
+        SetIndicator(obb_status_dot_, obb_status_value_, false,
+                     QStringLiteral("加载中"), QStringLiteral("加载中"));
+        SetIndicator(seg_status_dot_, seg_status_value_, false,
+                     QStringLiteral("加载中"), QStringLiteral("加载中"));
+        start_button_->setEnabled(false);
+        auto_grab_button_->setEnabled(false);
+        plc_link_button_->setText(plc_link_active_ ? QStringLiteral("停止PLC联动") : QStringLiteral("PLC联动"));
+        plc_link_button_->setEnabled(false);
+        plc_test_button_->setEnabled(true);
+        stop_button_->setEnabled(workflow_.isCameraRunning() || auto_grab_active_ || plc_link_active_ || robot_controller_.isBusy());
+        return;
+    }
+
+    if (image_detection_running_) {
+        SetIndicator(camera_status_dot_, camera_status_value_, workflow_.isCameraRunning(),
+                     QStringLiteral("在线"), QStringLiteral("待机"));
+        SetIndicator(obb_status_dot_, obb_status_value_, true,
+                     QStringLiteral("检测中"), QStringLiteral("检测中"));
+        SetIndicator(seg_status_dot_, seg_status_value_, true,
+                     QStringLiteral("检测中"), QStringLiteral("检测中"));
+        start_button_->setEnabled(false);
+        auto_grab_button_->setEnabled(false);
+        plc_link_button_->setText(plc_link_active_ ? QStringLiteral("停止PLC联动") : QStringLiteral("PLC联动"));
+        plc_link_button_->setEnabled(false);
+        plc_test_button_->setEnabled(true);
+        stop_button_->setEnabled(true);
+        return;
+    }
+
+    const QString runtime_device = QString::fromStdString(workflow_.runtimeDeviceSummary());
+    const QString obb_device = runtime_device.section('/', 0, 0).trimmed();
+    const QString seg_device = runtime_device.section('/', 1, 1).trimmed();
+
+    SetIndicator(camera_status_dot_, camera_status_value_, workflow_.isCameraRunning(),
+                 QStringLiteral("在线"), QStringLiteral("待机"));
+    SetIndicator(obb_status_dot_, obb_status_value_, workflow_.isObbModelLoaded(),
+                 QStringLiteral("已加载 %1").arg(obb_device),
+                 QStringLiteral("未加载"));
+    SetIndicator(seg_status_dot_, seg_status_value_, workflow_.isSegModelLoaded(),
+                 QStringLiteral("已加载 %1").arg(seg_device),
+                 QStringLiteral("未加载"));
 
     const bool has_input = !current_frame_.empty() || input_mode_ == InputMode::Camera;
     start_button_->setEnabled(workflow_.areModelsLoaded() && has_input);
@@ -2023,6 +2283,26 @@ void GraspMainWindow::refreshRuntimeStrip()
                                                           : (input_mode_ == InputMode::Image ? QStringLiteral("图片")
                                                                                              : QStringLiteral("待机"));
     runtime_mode_label_->setText(QStringLiteral("模式：%1").arg(mode));
+
+    if (models_loading_) {
+        runtime_state_label_->setText(QStringLiteral("状态：模型加载中"));
+        runtime_state_label_->setToolTip(QStringLiteral("OpenVINO 正在后台加载模型"));
+        runtime_obb_count_label_->setText(QStringLiteral("OBB：--"));
+        runtime_seg_count_label_->setText(QStringLiteral("SEG：--"));
+        runtime_stage_time_label_->setText(QStringLiteral("阶段耗时：--"));
+        runtime_total_time_label_->setText(QStringLiteral("总耗时：--"));
+        return;
+    }
+
+    if (image_detection_running_) {
+        runtime_state_label_->setText(QStringLiteral("状态：图片检测中"));
+        runtime_state_label_->setToolTip(QStringLiteral("OpenVINO 正在后台执行图片检测"));
+        runtime_obb_count_label_->setText(QStringLiteral("OBB：--"));
+        runtime_seg_count_label_->setText(QStringLiteral("SEG：--"));
+        runtime_stage_time_label_->setText(QStringLiteral("阶段耗时：--"));
+        runtime_total_time_label_->setText(QStringLiteral("总耗时：--"));
+        return;
+    }
 
     QString state = QStringLiteral("待机");
     if (auto_grab_state_ == AutoGrabState::Detecting) {
@@ -2051,7 +2331,9 @@ void GraspMainWindow::refreshRuntimeStrip()
         state = QStringLiteral("等待图像输入");
     }
 
+    const QString runtime_device = QString::fromStdString(workflow_.runtimeDeviceSummary());
     runtime_state_label_->setText(QStringLiteral("状态：%1").arg(state));
+    runtime_state_label_->setToolTip(QStringLiteral("OpenVINO 实际设备：%1").arg(runtime_device));
     runtime_obb_count_label_->setText(QStringLiteral("OBB：%1").arg(current_result_.detections.size()));
     runtime_seg_count_label_->setText(QStringLiteral("SEG：%1").arg(current_result_.segments.size()));
 
@@ -2066,37 +2348,6 @@ void GraspMainWindow::refreshRuntimeStrip()
             ? QStringLiteral("总耗时：%1 ms").arg(QString::number(current_result_.total_inference_ms, 'f', 1))
             : QStringLiteral("总耗时：--"));
 
-    if (work_summary_input_label_ && work_summary_target_label_ && work_summary_state_label_) {
-        QString input_text = QStringLiteral("输入：等待图像或相机");
-        if (input_mode_ == InputMode::Camera) {
-            input_text = workflow_.isCameraRunning() ? QStringLiteral("输入：相机实时流")
-                                                     : QStringLiteral("输入：相机待启动");
-        } else if (input_mode_ == InputMode::Image) {
-            const QString path = currentImagePath();
-            input_text = path.isEmpty() ? QStringLiteral("输入：图片模式")
-                                        : QStringLiteral("输入：%1").arg(QFileInfo(path).fileName());
-        }
-
-        QString target_text = QStringLiteral("主目标：暂无");
-        const int primary_index = current_result_.primary_index;
-        if (primary_index >= 0 && primary_index < static_cast<int>(current_result_.detections.size())) {
-            const auto& detection = current_result_.detections[primary_index];
-            target_text = QStringLiteral("主目标：#%1  X %2  Y %3  A %4°")
-                              .arg(primary_index + 1)
-                              .arg(FormatNumber(detection.center_x),
-                                   FormatNumber(detection.center_y),
-                                   FormatNumber(detection.angle_deg));
-            if (detection.head_type_code > 0) {
-                target_text += QStringLiteral("  D508 %1%2")
-                                   .arg(detection.head_type_code)
-                                   .arg(QString::fromStdString(detection.head_type_text));
-            }
-        }
-
-        work_summary_input_label_->setText(input_text);
-        work_summary_target_label_->setText(target_text);
-        work_summary_state_label_->setText(QStringLiteral("流程：%1").arg(state));
-    }
 }
 
 void GraspMainWindow::updateStatusMessage(const QString& message, int timeout_ms)
@@ -2120,18 +2371,25 @@ void GraspMainWindow::setEmptyPreviewMessage(const QString& message)
     refreshRuntimeStrip();
 }
 
-bool GraspMainWindow::loadModelsFromPaths(const QString& obb_engine_path,
-                                          const QString& seg_engine_path,
+void GraspMainWindow::setModelLoadingState(bool loading)
+{
+    models_loading_ = loading;
+    refreshDeviceStatus();
+    refreshRuntimeStrip();
+}
+
+bool GraspMainWindow::loadModelsFromPaths(const QString& obb_model_path,
+                                          const QString& seg_model_path,
                                           bool show_error_dialog,
                                           bool notify_success)
 {
-    const QString trimmed_obb_path = obb_engine_path.trimmed();
-    const QString trimmed_seg_path = seg_engine_path.trimmed();
+    const QString trimmed_obb_path = obb_model_path.trimmed();
+    const QString trimmed_seg_path = seg_model_path.trimmed();
     if (trimmed_obb_path.isEmpty() || trimmed_seg_path.isEmpty()) {
         if (show_error_dialog) {
             QMessageBox::warning(this,
                                  QStringLiteral("缺少模型"),
-                                 QStringLiteral("请同时选择 OBB 和 SEG engine 文件。"));
+                                 QStringLiteral("请同时选择 OBB 和 SEG 模型文件。"));
         }
         refreshDeviceStatus();
         refreshRuntimeStrip();
@@ -2143,6 +2401,8 @@ bool GraspMainWindow::loadModelsFromPaths(const QString& obb_engine_path,
 
     OBBConfig obb_config;
     SEGConfig seg_config;
+    obb_config.enable_warmup = true;
+    seg_config.enable_warmup = true;
     string error_message;
     if (!workflow_.loadModels(trimmed_obb_path.toStdString(),
                               obb_config,
@@ -2154,28 +2414,121 @@ bool GraspMainWindow::loadModelsFromPaths(const QString& obb_engine_path,
         if (show_error_dialog) {
             QMessageBox::critical(this, QStringLiteral("模型加载失败"), QString::fromStdString(error_message));
         }
-        updateStatusMessage(QStringLiteral("双模型加载失败，请检查 engine 路径。"), 5000);
+        updateStatusMessage(QStringLiteral("双模型加载失败，请检查模型路径和 OpenVINO 运行环境。"), 5000);
         return false;
     }
 
-    obb_engine_path_ = trimmed_obb_path;
-    seg_engine_path_ = trimmed_seg_path;
+    obb_model_path_ = trimmed_obb_path;
+    seg_model_path_ = trimmed_seg_path;
     refreshDeviceStatus();
     refreshRuntimeStrip();
     if (notify_success) {
-        updateStatusMessage(QStringLiteral("OBB 和 SEG 模型已加载，可以开始联合检测。"), 5000);
+        updateStatusMessage(QStringLiteral("OBB 和 SEG 模型已加载，OpenVINO 设备：%1")
+                                .arg(QString::fromStdString(workflow_.runtimeDeviceSummary())),
+                            5000);
     }
     return true;
 }
 
+void GraspMainWindow::loadModelsFromPathsAsync(const QString& obb_model_path,
+                                               const QString& seg_model_path,
+                                               bool show_error_dialog,
+                                               bool notify_success)
+{
+    if (models_loading_) {
+        return;
+    }
+
+    const QString trimmed_obb_path = obb_model_path.trimmed();
+    const QString trimmed_seg_path = seg_model_path.trimmed();
+    if (trimmed_obb_path.isEmpty() || trimmed_seg_path.isEmpty()) {
+        if (show_error_dialog) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("缺少模型"),
+                                 QStringLiteral("请同时选择 OBB 和 SEG 模型文件。"));
+        }
+        return;
+    }
+
+    workflow_.stopCamera();
+    stopAutoGrabCycle(false);
+    setModelLoadingState(true);
+    updateStatusMessage(QStringLiteral("正在加载启动参数中的 OBB 和 SEG 模型..."));
+
+    auto* watcher = new QFutureWatcher<QString>(this);
+    model_load_watcher_ = watcher;
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, trimmed_obb_path, trimmed_seg_path, show_error_dialog, notify_success]() {
+        const QString error_message = watcher->result();
+        const bool ok = error_message.isEmpty();
+        if (model_load_watcher_ == watcher) {
+            model_load_watcher_ = nullptr;
+        }
+        watcher->deleteLater();
+        setModelLoadingState(false);
+
+        if (ok) {
+            obb_model_path_ = trimmed_obb_path;
+            seg_model_path_ = trimmed_seg_path;
+            if (notify_success) {
+                updateStatusMessage(QStringLiteral("启动模型已加载，OpenVINO 设备：%1")
+                                        .arg(QString::fromStdString(workflow_.runtimeDeviceSummary())),
+                                    5000);
+            }
+        } else {
+            if (show_error_dialog) {
+                QMessageBox::critical(this, QStringLiteral("模型加载失败"), error_message);
+            }
+            updateStatusMessage(QStringLiteral("启动模型加载失败，请检查模型路径和 OpenVINO 运行环境。"), 6000);
+        }
+
+        refreshDeviceStatus();
+        refreshRuntimeStrip();
+        if (close_after_model_load_) {
+            close_after_model_load_ = false;
+            close();
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run([this, trimmed_obb_path, trimmed_seg_path]() -> QString {
+        OBBConfig obb_config;
+        SEGConfig seg_config;
+        obb_config.enable_warmup = true;
+        seg_config.enable_warmup = true;
+        std::string error_message;
+        const bool ok = workflow_.loadModels(trimmed_obb_path.toStdString(),
+                                             obb_config,
+                                             trimmed_seg_path.toStdString(),
+                                             seg_config,
+                                             &error_message);
+        if (!ok) {
+            std::cerr << "[OpenVINO] startup model load failed: " << error_message << std::endl;
+            return QString::fromStdString(error_message);
+        }
+        return QString();
+    }));
+}
+
 QString GraspMainWindow::currentImagePath() const
 {
-    const QString path = image_path_label_->text().trimmed();
+    const QString path = current_image_path_.trimmed();
     if (!path.isEmpty()) {
         const QFileInfo info(path);
         if (info.exists()) {
-            return info.isDir() ? info.absoluteFilePath() : info.absolutePath();
+            return info.absoluteFilePath();
         }
     }
     return QStringLiteral("./asset");
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

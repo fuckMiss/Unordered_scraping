@@ -13,16 +13,15 @@ int main(int argc, char** argv)
     try {
         if (argc < 3) {
             cerr << "Usage: " << argv[0]
-                 << " <engine_file> <image/video/folder> [--num-classes=N] [--conf=T] [--nms=T] [--labels=PATH] [--fp16] [--no-warmup]"
+                 << " <openvino_model.xml|onnx_file> <image/video/folder> [--num-classes=N] [--conf=T] [--nms=T] [--labels=PATH] [--fp16] [--no-warmup]"
                  << endl;
             return -1;
         }
 
-        const string engine_file_path{ argv[1] };
+        const string model_file_path{ argv[1] };
         const string path{ argv[2] };
         OBBConfig config;
         const bool show_gui = IsGuiAvailable();
-        TrtLogger logger;
 
         for (int i = 3; i < argc; ++i) {
             string arg = argv[i];
@@ -48,7 +47,7 @@ int main(int argc, char** argv)
         bool isVideo{ false };
         imagePathList = CollectImagePaths(path, isVideo);
 
-        YOLOv11_OBB model(engine_file_path, logger, config);
+        YOLOv11_OBB model(model_file_path, config);
 
         if (isVideo) {
             VideoCapture cap(path);

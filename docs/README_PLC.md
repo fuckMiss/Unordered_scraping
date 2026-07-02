@@ -1,70 +1,72 @@
-# PLC 通信说明
+# PLC Interface
 
-这份文档只说明当前代码里的 PLC 联动行为。
+TankEye-Iris writes grasp results to a PLC through Modbus TCP.
 
-## 通信方式
+## Connection
 
-- 协议：Modbus TCP
-- 默认地址：`192.168.3.205:502`
-- 实现位置：`qt/robot_controller.cpp`
+- Protocol: Modbus TCP
+- Default endpoint: `192.168.3.205:502`
+- Implementation: `qt/robot_controller.cpp`
 
-## 寄存器映射
+## Register Map
 
-当前代码写入的是连续的 32 位浮点数，地址如下：
-
-- `D500`：`X`
-- `D502`：`Y`
-- `D504`：`角度`
-- `D506`：`抓取状态`
-- `D508`：`头型编号`
-- `D1500`：触发位
-
-## 写入内容
-
-`writeFrameResult()` 会把当前主目标写入 PLC：
-
-- `X / Y / Angle`：浮点数
-- `pick_status`：抓取状态码
-- `head_type`：头型编号
-
-`writePlcTestValues()` 会写入一组测试值：
-
-- `D500 = 123.4`
-- `D502 = 56.7`
-- `D504 = 90.0`
-- `D506 = 1.0`
-- `D508 = 4.0`
-
-## 触发流程
-
-PLC 联动开启后，界面会轮询 `D1500`：
+Current code writes consecutive 32-bit floating-point values:
 
 ```text
-D1500 = 1 -> 读取触发 -> 跑一次检测 -> 写回 D500/D502/D504/D506/D508 -> 清零 D1500
+D500   center_x
+D502   center_y
+D504   angle_deg
+D506   pick_status
+D508   head_type
+D1500  trigger word
 ```
 
-如果当前没有相机帧，会直接写一个空结果，通常是 `D506 = 3`。
+## Written Values
 
-## 抓取状态码
+`writeFrameResult()` writes the current primary target:
 
-当前后处理里使用的状态码是：
+- `center_x`
+- `center_y`
+- `angle_deg`
+- `pick_status`
+- `head_type`
 
-- `1`：可抓取
-- `2`：多目标可抓取
-- `3`：不可抓取
+`writePlcTestValues()` writes fixed test values:
 
-## 故障处理
+```text
+D500 = 123.4
+D502 = 56.7
+D504 = 90.0
+D506 = 1.0
+D508 = 4.0
+```
 
-代码里已经对这些情况做了基本保护：
+## Trigger Flow
 
-- 连接超时
-- 发送失败
-- 响应太短
-- Modbus exception
+When PLC link mode is enabled, the UI polls `D1500`.
 
-## 说明
+```text
+D1500 = 1
+-> read trigger
+-> run one detection
+-> write D500/D502/D504/D506/D508
+-> clear D1500
+```
 
-- 当前实现里，PLC 读写是同步阻塞式的
-- `D1500` 读到 `1` 后会被清零
-- 如果 PLC 字地址、数据类型或字序不同，需要同步改 `qt/robot_controller.*`
+If there is no usable camera frame, the app writes an empty result. In the current logic this usually means `D506 = 3`.
 
+## Pick Status
+
+Current post-processing uses:
+
+```text
+1  pickable
+2  multiple pickable targets
+3  not pickable
+```
+
+## Notes
+
+- PLC read/write calls are synchronous in the current implementation.
+- `D1500` is cleared after a trigger is processed.
+- If PLC register addresses, data type, or word order changes, update `qt/robot_controller.*`.
