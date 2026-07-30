@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "plc": {
+    "host": "192.168.3.205",
+    "port": 502,
+    "unit_id": 1,
+    "connect_timeout_ms": 1500,
+    "response_timeout_ms": 1500,
+    "float_word_order": "low_word_first",
+    "registers": {
+      "photo_trigger": 1500,
+      "front_back": 500,
+      "left_right": 502,
+      "angle": 504,
+      "pick_status": 506,
+      "head_type": 508
+    }
+  },
+  "machine_limits": {
+    "enabled": true,
+    "roi_margin": 5.0,
+    "front_back": {
+      "lower": 0.0,
+      "upper": 0.0
+    },
+    "left_right": {
+      "lower": 0.0,
+      "upper": 0.0
+    },
+    "angle": {
+      "lower": 0.0,
+      "upper": 0.0
+    }
+  },
+  "axis_mapping": {
+    "front_back_axis": "machine_y",
+    "front_back_offset": 0.0,
+    "left_right_offset": 0.0
+  },
+  "angle_calibration": {
+    "offset_deg": 0.0,
+    "direction": "forward",
+    "range_mode": "zero_to_360"
+  },
+  "camera": {
+    "ip": "",
+    "exposure_us": 0.0
+  }
+}
