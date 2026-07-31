@@ -217,6 +217,10 @@ if (-not (Test-Path -LiteralPath $ConfigSource)) {
     $ConfigSource = Join-Path $AppDir "config\tankeye.json"
 }
 Copy-File $ConfigSource (Join-Path $StagingDir "config")
+$AdminAuthKeySource = Join-Path $AppDir "config\admin_auth.key"
+if (Test-Path -LiteralPath $AdminAuthKeySource) {
+    Copy-File $AdminAuthKeySource (Join-Path $StagingDir "config")
+}
 
 function Test-ValidCoordinateProfile($ProfilePath) {
     try {

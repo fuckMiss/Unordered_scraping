@@ -28,6 +28,7 @@ class QScrollArea;
 class QStackedWidget;
 class QToolButton;
 class QHBoxLayout;
+class QGridLayout;
 class QSplitter;
 class QVBoxLayout;
 class QResizeEvent;
@@ -103,6 +104,22 @@ private:
 
     void openEngineeringSettings();
     void showRuntimeLogs();
+    void handleUserButtonClicked();
+    void showCreateAdminAccountDialog();
+    void showAdminLoginDialog();
+    bool showAdminResetDialog();
+    bool hasAdminAccount() const;
+    QString adminUsername() const;
+    bool setAdminCredentials(const QString& username, const QString& password, QString* error_message);
+    bool changeAdminCredentials(const QString& current_password,
+                                const QString& username,
+                                const QString& new_password,
+                                QString* error_message);
+    bool validateAdminCredentials(const QString& username, const QString& password) const;
+    QString rememberedAdminPassword() const;
+    void saveRememberedAdminPassword(bool remember, const QString& password);
+    void setAdminMode(bool enabled);
+    void refreshAdminModeUi();
     void loadImage();
     void openCamera();
     void closeCamera();
@@ -206,6 +223,8 @@ private:
     QPushButton* engineering_button_ = nullptr;
     QPushButton* target_list_button_ = nullptr;
     QPushButton* runtime_log_button_ = nullptr;
+    QFrame* function_group_ = nullptr;
+    QGridLayout* function_layout_ = nullptr;
     QPushButton* target_list_back_button_ = nullptr;
     QToolButton* user_button_ = nullptr;
     QToolButton* settings_icon_button_ = nullptr;
@@ -257,6 +276,7 @@ private:
     double obb_nms_threshold_ = 0.3;
     double seg_conf_threshold_ = 0.3;
     double seg_nms_threshold_ = 0.4;
+    bool admin_mode_ = false;
     double angle_offset_deg_ = 0.0;
     double center_ray_offset_px_ = 10.0;
     bool show_plc_center_debug_ = false;

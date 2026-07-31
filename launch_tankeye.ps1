@@ -141,6 +141,16 @@ if (-not (Test-Path -LiteralPath $OpenVinoCacheDir)) {
     New-Item -ItemType Directory -Force -Path $OpenVinoCacheDir | Out-Null
 }
 $env:TANKEYE_OPENVINO_CACHE_DIR = $OpenVinoCacheDir
+$AdminAuthKeyCandidates = @(
+    (Join-Path $TargetDir "config\admin_auth.key"),
+    (Join-Path $AppDir "config\admin_auth.key")
+)
+$AdminAuthKey = $AdminAuthKeyCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if ($AdminAuthKey) {
+    $env:TANKEYE_ADMIN_AUTH_KEY_FILE = $AdminAuthKey
+} else {
+    Remove-Item Env:\TANKEYE_ADMIN_AUTH_KEY_FILE -ErrorAction SilentlyContinue
+}
 $env:TANKEYE_WINDOW_MODE = $WindowMode
 $env:TANKEYE_WINDOW_WIDTH = [string]$WindowWidth
 $env:TANKEYE_WINDOW_HEIGHT = [string]$WindowHeight
@@ -207,6 +217,7 @@ Write-Host "[TankEye] UI scale: $(if ($UiScale -gt 0) { $UiScale } else { "AUTO 
 Write-Host "[TankEye] Postprocess debug: $(if ($env:TANKEYE_DEBUG_POSTPROCESS -eq "1") { "ON" } else { "OFF" })"
 Write-Host "[TankEye] Log: $LogFile"
 Write-Host "[TankEye] OpenVINO cache: $OpenVinoCacheDir"
+Write-Host "[TankEye] Admin auth key: $(if ($AdminAuthKey) { $AdminAuthKey } else { "development default" })"
 Write-Host "[TankEye] Runtime PATH entries:"
 foreach ($PathItem in $RuntimePaths) {
     Write-Host "  $PathItem"

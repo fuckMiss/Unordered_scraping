@@ -3,25 +3,32 @@
 #include "engineering_settings_dialog_controller.h"
 #include "engineering_settings_dialog_helpers.h"
 #include "engineering_settings_service.h"
+#include "admin_auth_helpers.h"
 #include "frame_overlay.h"
 #include "frame_processing_service.h"
 #include "plc_trigger_coordinator.h"
 #include "runtime_status_presenter.h"
 
 #include <QApplication>
+#include <QClipboard>
 #include <QtConcurrent/QtConcurrent>
+#include <QCheckBox>
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QComboBox>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDateTimeEdit>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QFrame>
+#include <QGraphicsOpacityEffect>
 #include <QGridLayout>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -35,10 +42,13 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPropertyAnimation>
 #include <QScreen>
+#include <QSettings>
 #include <QTimer>
 #include <QPixmap>
 #include <QPushButton>
+#include <QRandomGenerator>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QSizePolicy>
@@ -79,6 +89,35 @@ constexpr int kDensityBaseHeight = 720;
 
 double g_responsive_ui_scale = 1.0;
 double g_sidebar_compact_scale = 1.0;
+
+constexpr int kAdminSaltBytes = 16;
+
+QByteArray RandomSalt()
+{
+    QByteArray salt;
+    salt.resize(kAdminSaltBytes);
+    for (int i = 0; i < salt.size(); ++i) {
+        salt[i] = static_cast<char>(QRandomGenerator::global()->bounded(256));
+    }
+    return salt;
+}
+
+QString HashAdminPassword(const QString& password, const QByteArray& salt)
+{
+    QByteArray payload = salt;
+    payload.append(password.toUtf8());
+    return QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha256).toHex());
+}
+
+QString EncodeRememberedPassword(const QString& password)
+{
+    return QString::fromLatin1(password.toUtf8().toBase64());
+}
+
+QString DecodeRememberedPassword(const QString& encoded)
+{
+    return QString::fromUtf8(QByteArray::fromBase64(encoded.toLatin1()));
+}
 
 double MsSince(const std::chrono::steady_clock::time_point& start,
                const std::chrono::steady_clock::time_point& end)
@@ -231,6 +270,66 @@ QFrame* CreateKeyValueRow(const QString& name, QLabel*& value_label, QWidget* pa
     layout->addWidget(key_cell);
     layout->addWidget(value_cell);
     return row;
+}
+
+QString AdminAuthDialogStyle()
+{
+    return QString(
+               "QDialog { background: #101720; }"
+               "QLabel { color: #edf4fb; font-size: %1px; }"
+               "QLabel#authHintLabel { color: #a7b9c9; font-size: %2px; }"
+               "QLineEdit { background: #f8fafc; color: #10202d; border: 1px solid #6e86a0; border-radius: %3px; padding: %4px %5px; font-size: %1px; min-height: %6px; selection-background-color: #2c7be5; }"
+               "QLineEdit[readOnly=\"true\"] { background: #dce6ef; color: #243444; }"
+               "QPushButton { background: #1f79db; color: #ffffff; border: 1px solid #5b97e2; border-radius: %3px; padding: %4px %5px; font-size: %1px; font-weight: 600; min-height: %6px; }"
+               "QPushButton:hover { background: #2f87e5; }"
+               "QPushButton#secondaryAuthButton { background: #2a3440; color: #eef4fb; border: 1px solid #556679; }"
+               "QPushButton#secondaryAuthButton:hover { background: #344150; }"
+               "QCheckBox { color: #edf4fb; font-size: %2px; spacing: %7px; }"
+               "QLabel#authCopyToast { color: #9be7b0; font-size: %2px; font-weight: 600; }"
+               "QToolButton#passwordEyeButton { background: transparent; border: none; padding: 0px; }"
+               "QToolButton#passwordEyeButton:hover { background: transparent; }")
+        .arg(S(15))
+        .arg(S(13))
+        .arg(S(8))
+        .arg(S(8))
+        .arg(S(10))
+        .arg(S(32))
+        .arg(S(8));
+}
+
+QLabel* CreateAuthFormLabel(const QString& text, QWidget* parent)
+{
+    auto* label = new QLabel(text, parent);
+    label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    label->setMinimumWidth(S(104));
+    return label;
+}
+
+void ShowCopyToast(QLabel* toast)
+{
+    if (!toast) {
+        return;
+    }
+
+    auto* effect = qobject_cast<QGraphicsOpacityEffect*>(toast->graphicsEffect());
+    if (!effect) {
+        effect = new QGraphicsOpacityEffect(toast);
+        toast->setGraphicsEffect(effect);
+    }
+    effect->setOpacity(1.0);
+    toast->setVisible(true);
+
+    auto* animation = new QPropertyAnimation(effect, "opacity", toast);
+    animation->setDuration(1200);
+    animation->setStartValue(1.0);
+    animation->setEndValue(0.0);
+    animation->setEasingCurve(QEasingCurve::OutCubic);
+    QObject::connect(animation, &QPropertyAnimation::finished, toast, [toast]() {
+        toast->setVisible(false);
+    });
+    QTimer::singleShot(650, toast, [animation]() {
+        animation->start(QAbstractAnimation::DeleteWhenStopped);
+    });
 }
 
 void SetValueText(QLabel* label, const QString& text)
@@ -962,6 +1061,7 @@ void GraspMainWindow::setupUi()
     refreshSidebarCompactMetrics();
     applyStyles();
     refreshActionButtonMetrics();
+    refreshAdminModeUi();
     repositionSidePanelToggle();
     applyResponsiveLayout(true);
 }
@@ -1016,6 +1116,7 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
     auto* right_layout = new QHBoxLayout(top_right_controls_);
     right_layout->setContentsMargins(0, 0, 0, 0);
     right_layout->setSpacing(S(6));
+    right_layout->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     const QSize icon_size = TSS(18, 18);
     const QSize button_size = TSS(34, 34);
@@ -1057,8 +1158,8 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
     right_layout->addWidget(maximize_window_button_);
     right_layout->addWidget(close_window_button_);
 
+    top_layout->addWidget(title_label_, 0, 0, 1, 3, Qt::AlignCenter);
     top_layout->addWidget(left_widget, 0, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    top_layout->addWidget(title_label_, 0, 1);
     top_layout->addWidget(top_right_controls_, 0, 2, Qt::AlignRight | Qt::AlignVCenter);
     top_layout->setColumnStretch(0, 1);
     top_layout->setColumnStretch(1, 1);
@@ -1335,22 +1436,17 @@ void GraspMainWindow::buildFunctionSection(QVBoxLayout* side_layout)
 {
     side_layout->addWidget(CreateSectionTitle(QStringLiteral("功能入口")));
 
-    auto* function_group = new QFrame(this);
-    function_group->setObjectName("controlGroupCard");
-    function_group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    auto* function_layout = new QGridLayout(function_group);
-    function_layout->setContentsMargins(SCM(6, 6, 6, 6));
-    function_layout->setHorizontalSpacing(SC(6));
-    function_layout->setVerticalSpacing(SC(6));
+    function_group_ = new QFrame(this);
+    function_group_->setObjectName("controlGroupCard");
+    function_group_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    function_layout_ = new QGridLayout(function_group_);
+    function_layout_->setContentsMargins(SCM(6, 6, 6, 6));
+    function_layout_->setHorizontalSpacing(SC(6));
+    function_layout_->setVerticalSpacing(SC(6));
+    function_layout_->setColumnStretch(0, 1);
+    function_layout_->setColumnStretch(1, 1);
 
-    function_layout->addWidget(display_mode_button_, 0, 0);
-    function_layout->addWidget(target_list_button_, 0, 1);
-    function_layout->addWidget(engineering_button_, 1, 0);
-    function_layout->addWidget(runtime_log_button_, 1, 1);
-    function_layout->setColumnStretch(0, 1);
-    function_layout->setColumnStretch(1, 1);
-
-    side_layout->addWidget(function_group);
+    side_layout->addWidget(function_group_);
 }
 
 void GraspMainWindow::buildTargetListSection(QVBoxLayout* side_layout)
@@ -1603,8 +1699,10 @@ void GraspMainWindow::refreshTopBarMetrics()
     if (top_right_controls_) {
         if (auto* right_layout = qobject_cast<QHBoxLayout*>(top_right_controls_->layout())) {
             right_layout->setSpacing(TS(6));
+            right_layout->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         }
-        const int controls_width = button_size.width() * 5 + TS(6) * 4 + TS(2);
+        constexpr int kReservedTopButtonCount = 5;
+        const int controls_width = button_size.width() * kReservedTopButtonCount + TS(6) * (kReservedTopButtonCount - 1) + TS(2);
         top_right_controls_->setMinimumWidth(controls_width);
         top_right_controls_->setMaximumWidth(controls_width);
         if (auto* top_layout = qobject_cast<QGridLayout*>(top_bar_->layout())) {
@@ -1612,6 +1710,8 @@ void GraspMainWindow::refreshTopBarMetrics()
             top_layout->setColumnStretch(0, 1);
             top_layout->setColumnStretch(1, 1);
             top_layout->setColumnStretch(2, 0);
+            top_layout->setAlignment(title_label_, Qt::AlignCenter);
+            top_layout->setAlignment(top_right_controls_, Qt::AlignRight | Qt::AlignVCenter);
         }
     }
     if (user_button_) {
@@ -1646,6 +1746,9 @@ void GraspMainWindow::refreshActionButtonMetrics()
         if (button) {
             button->setMinimumHeight(SC(34));
         }
+    }
+    if (!admin_mode_ && target_list_button_) {
+        target_list_button_->setMinimumHeight(SC(78));
     }
 }
 
@@ -1723,6 +1826,463 @@ void GraspMainWindow::logHighDpiMetrics(const QString& context) const
          << endl;
 }
 
+bool GraspMainWindow::hasAdminAccount() const
+{
+    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
+    settings.beginGroup(QStringLiteral("admin_auth"));
+    const bool result = !settings.value(QStringLiteral("username")).toString().trimmed().isEmpty() &&
+                        !settings.value(QStringLiteral("password_hash")).toString().trimmed().isEmpty() &&
+                        !settings.value(QStringLiteral("salt")).toString().trimmed().isEmpty();
+    settings.endGroup();
+    return result;
+}
+
+QString GraspMainWindow::adminUsername() const
+{
+    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
+    settings.beginGroup(QStringLiteral("admin_auth"));
+    const QString username = settings.value(QStringLiteral("username")).toString().trimmed();
+    settings.endGroup();
+    return username;
+}
+
+bool GraspMainWindow::setAdminCredentials(const QString& username, const QString& password, QString* error_message)
+{
+    const QString trimmed_username = username.trimmed();
+    if (trimmed_username.isEmpty()) {
+        if (error_message) {
+            *error_message = QStringLiteral("管理员账号不能为空。");
+        }
+        return false;
+    }
+    if (password.size() < 4) {
+        if (error_message) {
+            *error_message = QStringLiteral("管理员密码至少需要 4 位。");
+        }
+        return false;
+    }
+
+    const QByteArray salt = RandomSalt();
+    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
+    settings.beginGroup(QStringLiteral("admin_auth"));
+    settings.setValue(QStringLiteral("username"), trimmed_username);
+    settings.setValue(QStringLiteral("salt"), QString::fromLatin1(salt.toBase64()));
+    settings.setValue(QStringLiteral("password_hash"), HashAdminPassword(password, salt));
+    settings.endGroup();
+    settings.sync();
+    return true;
+}
+
+bool GraspMainWindow::changeAdminCredentials(const QString& current_password,
+                                             const QString& username,
+                                             const QString& new_password,
+                                             QString* error_message)
+{
+    if (hasAdminAccount() && !validateAdminCredentials(adminUsername(), current_password)) {
+        if (error_message) {
+            *error_message = QStringLiteral("当前密码不正确。");
+        }
+        return false;
+    }
+    return setAdminCredentials(username, new_password, error_message);
+}
+
+bool GraspMainWindow::validateAdminCredentials(const QString& username, const QString& password) const
+{
+    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
+    settings.beginGroup(QStringLiteral("admin_auth"));
+    const QString saved_username = settings.value(QStringLiteral("username")).toString().trimmed();
+    const QByteArray salt = QByteArray::fromBase64(settings.value(QStringLiteral("salt")).toString().toLatin1());
+    const QString saved_hash = settings.value(QStringLiteral("password_hash")).toString();
+    settings.endGroup();
+    if (saved_username.isEmpty() || saved_hash.isEmpty() || salt.isEmpty()) {
+        return false;
+    }
+    return username.trimmed() == saved_username && HashAdminPassword(password, salt) == saved_hash;
+}
+
+QString GraspMainWindow::rememberedAdminPassword() const
+{
+    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
+    settings.beginGroup(QStringLiteral("admin_auth"));
+    const bool remember = settings.value(QStringLiteral("remember_password"), false).toBool();
+    const QString encoded = settings.value(QStringLiteral("remembered_password")).toString();
+    settings.endGroup();
+    return remember ? DecodeRememberedPassword(encoded) : QString();
+}
+
+void GraspMainWindow::saveRememberedAdminPassword(bool remember, const QString& password)
+{
+    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
+    settings.beginGroup(QStringLiteral("admin_auth"));
+    settings.setValue(QStringLiteral("remember_password"), remember);
+    if (remember) {
+        settings.setValue(QStringLiteral("remembered_password"), EncodeRememberedPassword(password));
+    } else {
+        settings.remove(QStringLiteral("remembered_password"));
+    }
+    settings.endGroup();
+    settings.sync();
+}
+
+void GraspMainWindow::setAdminMode(bool enabled)
+{
+    if (admin_mode_ == enabled) {
+        refreshAdminModeUi();
+        return;
+    }
+
+    admin_mode_ = enabled;
+    if (!admin_mode_ && engineering_settings_dialog_) {
+        engineering_settings_dialog_->close();
+    }
+    refreshAdminModeUi();
+    updateStatusMessage(admin_mode_ ? QStringLiteral("已进入管理员模式。")
+                                    : QStringLiteral("已退出管理员模式。"),
+                        3000);
+}
+
+void GraspMainWindow::refreshAdminModeUi()
+{
+    if (!function_layout_ || !target_list_button_) {
+        return;
+    }
+
+    while (QLayoutItem* item = function_layout_->takeAt(0)) {
+        delete item;
+    }
+
+    if (settings_icon_button_) {
+        settings_icon_button_->setVisible(admin_mode_);
+    }
+    if (user_button_) {
+        user_button_->setToolTip(admin_mode_ ? QStringLiteral("退出管理员模式")
+                                             : QStringLiteral("管理员登录"));
+    }
+
+    if (admin_mode_) {
+        display_mode_button_->setVisible(true);
+        engineering_button_->setVisible(true);
+        runtime_log_button_->setVisible(true);
+        target_list_button_->setVisible(true);
+        target_list_button_->setMinimumHeight(SC(34));
+
+        function_layout_->addWidget(display_mode_button_, 0, 0);
+        function_layout_->addWidget(target_list_button_, 0, 1);
+        function_layout_->addWidget(engineering_button_, 1, 0);
+        function_layout_->addWidget(runtime_log_button_, 1, 1);
+    } else {
+        display_mode_button_->setVisible(false);
+        engineering_button_->setVisible(false);
+        runtime_log_button_->setVisible(false);
+        target_list_button_->setVisible(true);
+        target_list_button_->setMinimumHeight(SC(78));
+        function_layout_->addWidget(target_list_button_, 0, 0, 2, 2);
+    }
+
+    refreshActionButtonMetrics();
+    if (!admin_mode_) {
+        target_list_button_->setMinimumHeight(SC(78));
+    }
+    refreshTopBarMetrics();
+}
+
+void GraspMainWindow::showCreateAdminAccountDialog()
+{
+    const QString machine_code = AdminAuthMachineCode();
+    QString auth_secret_warning;
+    const QString auth_secret = AdminAuthSecret(&auth_secret_warning);
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("创建管理员账号"));
+    dialog.setWindowFlags(Qt::Window | Qt::Dialog);
+    dialog.setStyleSheet(AdminAuthDialogStyle());
+
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(SM(18, 18, 18, 18));
+    layout->setSpacing(S(12));
+
+    auto* hint_label = new QLabel(QStringLiteral("首次授权：把机器码发给工程师，拿到授权码后才能创建管理员。"), &dialog);
+    hint_label->setObjectName("authHintLabel");
+    hint_label->setWordWrap(true);
+    layout->addWidget(hint_label);
+
+    auto* auth_grid = new QGridLayout();
+    auth_grid->setHorizontalSpacing(S(8));
+    auth_grid->setVerticalSpacing(S(10));
+    auth_grid->setColumnStretch(0, 0);
+    auth_grid->setColumnStretch(1, 1);
+    auth_grid->setColumnStretch(2, 0);
+
+    auto* machine_code_edit = new QLineEdit(machine_code, &dialog);
+    machine_code_edit->setReadOnly(true);
+    machine_code_edit->setCursorPosition(0);
+    auto* copy_machine_button = new QPushButton(QStringLiteral("复制"), &dialog);
+    copy_machine_button->setObjectName("secondaryAuthButton");
+    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("机 器 码："), &dialog), 0, 0);
+    auth_grid->addWidget(machine_code_edit, 0, 1);
+    auth_grid->addWidget(copy_machine_button, 0, 2);
+
+    auto* auth_code_edit = new QLineEdit(&dialog);
+    auth_code_edit->setPlaceholderText(QStringLiteral("请输入工程师提供的授权码"));
+    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("授 权 码："), &dialog), 1, 0);
+    auth_grid->addWidget(auth_code_edit, 1, 1);
+
+    auto* username_edit = new QLineEdit(&dialog);
+    auto* password_edit = new QLineEdit(&dialog);
+    auto* confirm_edit = new QLineEdit(&dialog);
+    password_edit->setPlaceholderText(QStringLiteral("设置管理员密码"));
+    confirm_edit->setPlaceholderText(QStringLiteral("再次输入密码"));
+    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("账      号："), &dialog), 2, 0);
+    auth_grid->addWidget(username_edit, 2, 1);
+    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("密      码："), &dialog), 3, 0);
+    auth_grid->addWidget(password_edit, 3, 1);
+    auth_grid->addWidget(CreatePasswordVisibilityButton(password_edit, &dialog), 3, 2);
+    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("确认密码："), &dialog), 4, 0);
+    auth_grid->addWidget(confirm_edit, 4, 1);
+    auth_grid->addWidget(CreatePasswordVisibilityButton(confirm_edit, &dialog), 4, 2);
+    layout->addLayout(auth_grid);
+
+    auto* copy_toast = new QLabel(QStringLiteral("机器码已复制"), &dialog);
+    copy_toast->setObjectName("authCopyToast");
+    copy_toast->setVisible(false);
+    layout->addWidget(copy_toast, 0, Qt::AlignRight);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("创建并登录"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    layout->addWidget(buttons);
+
+    connect(copy_machine_button, &QPushButton::clicked, &dialog, [machine_code_edit, copy_toast]() {
+        QApplication::clipboard()->setText(machine_code_edit->text());
+        ShowCopyToast(copy_toast);
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+        if (auth_code_edit->text().trimmed().isEmpty()) {
+            QMessageBox::warning(&dialog, QStringLiteral("创建失败"), QStringLiteral("请输入授权码。"));
+            return;
+        }
+        if (password_edit->text() != confirm_edit->text()) {
+            QMessageBox::warning(&dialog, QStringLiteral("创建失败"), QStringLiteral("两次输入的密码不一致。"));
+            return;
+        }
+        if (!VerifyAdminAuthCode(machine_code_edit->text(), auth_code_edit->text(), auth_secret, QStringLiteral("INIT"))) {
+            QString message = QStringLiteral("授权码无效。");
+            if (!auth_secret_warning.isEmpty()) {
+                message += QStringLiteral("\n\n当前为开发默认密钥，测试授权码应为：%1")
+                               .arg(BuildAdminAuthCode(machine_code_edit->text(), auth_secret, QStringLiteral("INIT")));
+            }
+            QMessageBox::warning(&dialog, QStringLiteral("创建失败"), message);
+            return;
+        }
+        QString error;
+        if (!setAdminCredentials(username_edit->text(), password_edit->text(), &error)) {
+            QMessageBox::warning(&dialog, QStringLiteral("创建失败"), error);
+            return;
+        }
+        saveRememberedAdminPassword(false, QString());
+        dialog.accept();
+    });
+
+    if (dialog.exec() == QDialog::Accepted) {
+        setAdminMode(true);
+    }
+}
+
+void GraspMainWindow::showAdminLoginDialog()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("管理员登录"));
+    dialog.setWindowFlags(Qt::Window | Qt::Dialog);
+    dialog.setStyleSheet(AdminAuthDialogStyle());
+
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(SM(18, 18, 18, 18));
+    layout->setSpacing(S(12));
+
+    auto* hint_label = new QLabel(QStringLiteral("管理员模式用于调试入口；普通模式下只保留目标列表。"), &dialog);
+    hint_label->setObjectName("authHintLabel");
+    hint_label->setWordWrap(true);
+    layout->addWidget(hint_label);
+
+    auto* form = new QGridLayout();
+    form->setHorizontalSpacing(S(8));
+    form->setVerticalSpacing(S(10));
+    form->setColumnStretch(0, 0);
+    form->setColumnStretch(1, 1);
+    form->setColumnStretch(2, 0);
+    auto* username_edit = new QLineEdit(adminUsername(), &dialog);
+    auto* password_edit = new QLineEdit(rememberedAdminPassword(), &dialog);
+    auto* remember_check = new QCheckBox(QStringLiteral("记住密码"), &dialog);
+    remember_check->setChecked(!password_edit->text().isEmpty());
+    form->addWidget(CreateAuthFormLabel(QStringLiteral("账      号："), &dialog), 0, 0);
+    form->addWidget(username_edit, 0, 1);
+    form->addWidget(CreateAuthFormLabel(QStringLiteral("密      码："), &dialog), 1, 0);
+    form->addWidget(password_edit, 1, 1);
+    form->addWidget(CreatePasswordVisibilityButton(password_edit, &dialog), 1, 2);
+    form->addWidget(remember_check, 2, 1);
+    layout->addLayout(form);
+
+    auto* button_row = new QHBoxLayout();
+    button_row->setSpacing(S(8));
+    auto* reset_button = new QPushButton(QStringLiteral("忘记密码"), &dialog);
+    reset_button->setObjectName("secondaryAuthButton");
+    auto* login_button = new QPushButton(QStringLiteral("登录"), &dialog);
+    auto* cancel_button = new QPushButton(QStringLiteral("取消"), &dialog);
+    cancel_button->setObjectName("secondaryAuthButton");
+    button_row->addWidget(reset_button, 0, Qt::AlignLeft);
+    button_row->addStretch(1);
+    button_row->addWidget(login_button);
+    button_row->addWidget(cancel_button);
+    layout->addLayout(button_row);
+
+    connect(reset_button, &QPushButton::clicked, &dialog, [this, &dialog]() {
+        if (showAdminResetDialog()) {
+            dialog.accept();
+        }
+    });
+    connect(cancel_button, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(login_button, &QPushButton::clicked, &dialog, [&]() {
+        if (!validateAdminCredentials(username_edit->text(), password_edit->text())) {
+            QMessageBox::warning(&dialog, QStringLiteral("登录失败"), QStringLiteral("管理员账号或密码错误。"));
+            return;
+        }
+        saveRememberedAdminPassword(remember_check->isChecked(), password_edit->text());
+        dialog.accept();
+    });
+
+    if (dialog.exec() == QDialog::Accepted) {
+        setAdminMode(true);
+    }
+}
+
+bool GraspMainWindow::showAdminResetDialog()
+{
+    const QString machine_code = AdminAuthMachineCode();
+    QString auth_secret_warning;
+    const QString auth_secret = AdminAuthSecret(&auth_secret_warning);
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("重置管理员"));
+    dialog.setWindowFlags(Qt::Window | Qt::Dialog);
+    dialog.setStyleSheet(AdminAuthDialogStyle());
+
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(SM(18, 18, 18, 18));
+    layout->setSpacing(S(12));
+
+    auto* hint_label = new QLabel(QStringLiteral("忘记密码时，使用机器码和重置码重新设置管理员账号。"), &dialog);
+    hint_label->setObjectName("authHintLabel");
+    hint_label->setWordWrap(true);
+    layout->addWidget(hint_label);
+
+    auto* reset_grid = new QGridLayout();
+    reset_grid->setHorizontalSpacing(S(8));
+    reset_grid->setVerticalSpacing(S(10));
+    reset_grid->setColumnStretch(0, 0);
+    reset_grid->setColumnStretch(1, 1);
+    reset_grid->setColumnStretch(2, 0);
+
+    auto* machine_code_edit = new QLineEdit(machine_code, &dialog);
+    machine_code_edit->setReadOnly(true);
+    machine_code_edit->setCursorPosition(0);
+    auto* copy_machine_button = new QPushButton(QStringLiteral("复制"), &dialog);
+    copy_machine_button->setObjectName("secondaryAuthButton");
+    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("机 器 码："), &dialog), 0, 0);
+    reset_grid->addWidget(machine_code_edit, 0, 1);
+    reset_grid->addWidget(copy_machine_button, 0, 2);
+
+    auto* reset_code_edit = new QLineEdit(&dialog);
+    reset_code_edit->setPlaceholderText(QStringLiteral("请输入维护重置码"));
+    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("重置码："), &dialog), 1, 0);
+    reset_grid->addWidget(reset_code_edit, 1, 1);
+
+    auto* username_edit = new QLineEdit(adminUsername(), &dialog);
+    auto* password_edit = new QLineEdit(&dialog);
+    auto* confirm_edit = new QLineEdit(&dialog);
+    password_edit->setPlaceholderText(QStringLiteral("新管理员密码"));
+    confirm_edit->setPlaceholderText(QStringLiteral("再次输入新密码"));
+    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("账      号："), &dialog), 2, 0);
+    reset_grid->addWidget(username_edit, 2, 1);
+    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("密      码："), &dialog), 3, 0);
+    reset_grid->addWidget(password_edit, 3, 1);
+    reset_grid->addWidget(CreatePasswordVisibilityButton(password_edit, &dialog), 3, 2);
+    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("确认密码："), &dialog), 4, 0);
+    reset_grid->addWidget(confirm_edit, 4, 1);
+    reset_grid->addWidget(CreatePasswordVisibilityButton(confirm_edit, &dialog), 4, 2);
+    layout->addLayout(reset_grid);
+
+    auto* copy_toast = new QLabel(QStringLiteral("机器码已复制"), &dialog);
+    copy_toast->setObjectName("authCopyToast");
+    copy_toast->setVisible(false);
+    layout->addWidget(copy_toast, 0, Qt::AlignRight);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("重置并登录"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    layout->addWidget(buttons);
+
+    connect(copy_machine_button, &QPushButton::clicked, &dialog, [machine_code_edit, copy_toast]() {
+        QApplication::clipboard()->setText(machine_code_edit->text());
+        ShowCopyToast(copy_toast);
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+        if (reset_code_edit->text().trimmed().isEmpty()) {
+            QMessageBox::warning(&dialog, QStringLiteral("重置失败"), QStringLiteral("请输入重置码。"));
+            return;
+        }
+        if (password_edit->text() != confirm_edit->text()) {
+            QMessageBox::warning(&dialog, QStringLiteral("重置失败"), QStringLiteral("两次输入的新密码不一致。"));
+            return;
+        }
+        if (!VerifyAdminAuthCode(machine_code_edit->text(), reset_code_edit->text(), auth_secret, QStringLiteral("RESET"))) {
+            QString message = QStringLiteral("重置码无效。");
+            if (!auth_secret_warning.isEmpty()) {
+                message += QStringLiteral("\n\n当前为开发默认密钥，测试重置码应为：%1")
+                               .arg(BuildAdminAuthCode(machine_code_edit->text(), auth_secret, QStringLiteral("RESET")));
+            }
+            QMessageBox::warning(&dialog, QStringLiteral("重置失败"), message);
+            return;
+        }
+        QString error;
+        if (!setAdminCredentials(username_edit->text(), password_edit->text(), &error)) {
+            QMessageBox::warning(&dialog, QStringLiteral("重置失败"), error);
+            return;
+        }
+        saveRememberedAdminPassword(false, QString());
+        dialog.accept();
+    });
+
+    if (dialog.exec() == QDialog::Accepted) {
+        setAdminMode(true);
+        return true;
+    }
+    return false;
+}
+
+void GraspMainWindow::handleUserButtonClicked()
+{
+    if (admin_mode_) {
+        const auto result = QMessageBox::question(this,
+                                                  QStringLiteral("管理员模式"),
+                                                  QStringLiteral("是否退出管理员模式？"),
+                                                  QMessageBox::Yes | QMessageBox::No,
+                                                  QMessageBox::No);
+        if (result == QMessageBox::Yes) {
+            setAdminMode(false);
+        }
+        return;
+    }
+
+    if (hasAdminAccount()) {
+        showAdminLoginDialog();
+    } else {
+        showCreateAdminAccountDialog();
+    }
+}
+
 void GraspMainWindow::bindActions()
 {
     connect(load_image_button_, &QPushButton::clicked, this, [this]() { loadImage(); });
@@ -1736,7 +2296,7 @@ void GraspMainWindow::bindActions()
     connect(target_list_back_button_, &QPushButton::clicked, this, [this]() { showDetailPage(); });
     connect(engineering_button_, &QPushButton::clicked, this, [this]() { openEngineeringSettings(); });
     connect(runtime_log_button_, &QPushButton::clicked, this, [this]() { showRuntimeLogs(); });
-    connect(user_button_, &QToolButton::clicked, this, [this]() { updateStatusMessage(QStringLiteral("用户中心待接入。"), 3000); });
+    connect(user_button_, &QToolButton::clicked, this, [this]() { handleUserButtonClicked(); });
     connect(settings_icon_button_, &QToolButton::clicked, this, [this]() { openEngineeringSettings(); });
     connect(minimize_window_button_, &QToolButton::clicked, this, [this]() { showMinimized(); });
     connect(maximize_window_button_, &QToolButton::clicked, this, [this]() {
@@ -1895,6 +2455,16 @@ void GraspMainWindow::startPlcPollingState()
 
 void GraspMainWindow::openEngineeringSettings()
 {
+    if (!admin_mode_) {
+        if (hasAdminAccount()) {
+            showAdminLoginDialog();
+        } else {
+            showCreateAdminAccountDialog();
+        }
+        if (!admin_mode_) {
+            return;
+        }
+    }
     if (engineering_settings_dialog_controller_) {
         engineering_settings_dialog_controller_->show();
     }

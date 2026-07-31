@@ -2,6 +2,7 @@
 
 #include "grasp_main_window.h"
 
+#include "admin_auth_helpers.h"
 #include "calibration_profile_store.h"
 #include "engineering_settings_dialog_helpers.h"
 #include "engineering_settings_service.h"
@@ -13,6 +14,7 @@
 #include <QDoubleSpinBox>
 #include <QFrame>
 #include <QFutureWatcher>
+#include <QFormLayout>
 #include <QGridLayout>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -133,6 +135,7 @@ void EngineeringSettingsDialogController::show()
         "QCheckBox::indicator { width: %11px; height: %11px; }"
         "QPushButton { background: #ffffff; color: #111111; border: 1px solid #9aa9b7; border-radius: %3px; padding: %7px %12px; font-size: %1px; font-weight: 600; min-height: %6px; }"
         "QPushButton:hover { background: #e9eef3; }"
+        "QFrame#settingsCard { background: #ffffff; border: 1px solid #d5dde5; border-radius: %3px; }"
         "QFrame#collapsibleSection { background: transparent; border: none; }"
         "QToolButton#collapsibleHeader { background: transparent; color: #111111; border: none; padding: %7px 0px; font-size: %2px; font-weight: 700; text-align: left; }"
         "QToolButton#collapsibleHeader:hover { background: transparent; }")
@@ -175,6 +178,7 @@ void EngineeringSettingsDialogController::show()
     const bool debug_expanded = ui_settings.value(QStringLiteral("debug_expanded"), false).toBool();
     const bool limits_expanded = ui_settings.value(QStringLiteral("limits_expanded"), false).toBool();
     const bool coordinate_expanded = ui_settings.value(QStringLiteral("coordinate_expanded"), false).toBool();
+    const bool admin_expanded = ui_settings.value(QStringLiteral("admin_expanded"), false).toBool();
     ui_settings.endGroup();
 
     auto* obb_path_edit = new QLineEdit(owner->obb_model_path_, dialog);
@@ -223,12 +227,12 @@ void EngineeringSettingsDialogController::show()
     angle_direction_combo->addItem(QStringLiteral("正向"), false);
     angle_direction_combo->addItem(QStringLiteral("反向"), true);
     angle_direction_combo->setCurrentIndex(owner->angle_reverse_direction_ ? 1 : 0);
-    angle_direction_combo->setFixedWidth(S(120));
+    angle_direction_combo->setFixedWidth(S(170));
     auto* angle_range_combo = new QComboBox(dialog);
     angle_range_combo->addItem(QStringLiteral("0~360"), static_cast<int>(AngleRangeMode::ZeroTo360));
     angle_range_combo->addItem(QStringLiteral("-180~180"), static_cast<int>(AngleRangeMode::Signed180));
     angle_range_combo->setCurrentIndex(owner->angle_range_mode_ == AngleRangeMode::Signed180 ? 1 : 0);
-    angle_range_combo->setFixedWidth(S(130));
+    angle_range_combo->setFixedWidth(S(170));
     auto* axis_mapping_combo = new QComboBox(dialog);
     axis_mapping_combo->addItem(QStringLiteral("前后=机械Y，左右=机械X"),
                                 static_cast<int>(AxisMappingMode::FrontBackMachineY));
@@ -246,6 +250,11 @@ void EngineeringSettingsDialogController::show()
     auto* angle_reference_target_spin = CreateAngleReferenceSpinBox(dialog, 0.0);
     auto* center_ray_offset_spin = CreateCenterRayOffsetSpinBox(dialog, owner->center_ray_offset_px_);
     center_ray_offset_spin->setToolTip(QStringLiteral("沿当前 OBB 射线方向平移中心点；影响显示、坐标转换和 PLC 坐标。"));
+    const int angle_control_width = S(170);
+    angle_reference_current_spin->setFixedWidth(angle_control_width);
+    angle_reference_target_spin->setFixedWidth(angle_control_width);
+    angle_offset_spin->setFixedWidth(angle_control_width);
+    center_ray_offset_spin->setFixedWidth(angle_control_width);
     auto* show_plc_center_debug_check = new QCheckBox(QStringLiteral("显示PLC中心点偏移"), dialog);
     show_plc_center_debug_check->setChecked(owner->show_plc_center_debug_);
     show_plc_center_debug_check->setToolTip(QStringLiteral("只在可抓主目标上显示原始 OBB 中心和实际写入 PLC 前使用的偏移后中心。"));
@@ -257,27 +266,76 @@ void EngineeringSettingsDialogController::show()
     postprocess_debug_logging_check->setToolTip(QStringLiteral("在日志中输出 [PostprocessDebug] 明细，用于排查目标为何可抓或不可抓。"));
     auto* capture_current_angle_button = new QPushButton(QStringLiteral("取当前角度"), dialog);
     auto* calculate_angle_offset_button = new QPushButton(QStringLiteral("计算校准"), dialog);
+
+    auto* admin_content = new QWidget(dialog);
+    auto* admin_layout = new QVBoxLayout(admin_content);
+    admin_layout->setContentsMargins(0, 0, 0, 0);
+    admin_layout->setSpacing(S(8));
+    auto* admin_card = new QFrame(admin_content);
+    admin_card->setObjectName("settingsCard");
+    auto* admin_card_layout = new QVBoxLayout(admin_card);
+    admin_card_layout->setContentsMargins(SM(12, 12, 12, 12));
+    admin_card_layout->setSpacing(S(8));
+    auto* admin_form = new QFormLayout();
+    admin_form->setHorizontalSpacing(S(12));
+    admin_form->setVerticalSpacing(S(8));
+    auto* admin_current_password_edit = new QLineEdit(admin_card);
+    auto* admin_username_edit = new QLineEdit(owner->adminUsername(), admin_card);
+    auto* admin_new_password_edit = new QLineEdit(admin_card);
+    auto* admin_confirm_password_edit = new QLineEdit(admin_card);
+    admin_form->addRow(QStringLiteral("当前密码"), CreatePasswordFieldWithVisibilityButton(admin_current_password_edit, admin_card));
+    admin_form->addRow(QStringLiteral("管理员账号"), admin_username_edit);
+    admin_form->addRow(QStringLiteral("新密码"), CreatePasswordFieldWithVisibilityButton(admin_new_password_edit, admin_card));
+    admin_form->addRow(QStringLiteral("确认新密码"), CreatePasswordFieldWithVisibilityButton(admin_confirm_password_edit, admin_card));
+    admin_card_layout->addLayout(admin_form);
+    auto* save_admin_button = new QPushButton(QStringLiteral("保存管理员账号"), admin_card);
+    auto* admin_button_row = new QHBoxLayout();
+    admin_button_row->addStretch(1);
+    admin_button_row->addWidget(save_admin_button);
+    admin_card_layout->addLayout(admin_button_row);
+    admin_layout->addWidget(admin_card);
     auto* angle_debug_grid = new QGridLayout();
     angle_debug_grid->setHorizontalSpacing(S(10));
     angle_debug_grid->setVerticalSpacing(S(10));
     angle_debug_grid->setColumnMinimumWidth(0, S(120));
-    angle_debug_grid->setColumnMinimumWidth(1, S(170));
-    angle_debug_grid->setColumnMinimumWidth(2, S(140));
+    angle_debug_grid->setColumnMinimumWidth(1, angle_control_width);
+    angle_debug_grid->setColumnMinimumWidth(2, S(120));
+    angle_debug_grid->setColumnStretch(0, 0);
+    angle_debug_grid->setColumnStretch(1, 0);
+    angle_debug_grid->setColumnStretch(2, 0);
     angle_debug_grid->setColumnStretch(3, 1);
-    angle_debug_grid->addWidget(new QLabel(QStringLiteral("当前显示角度"), dialog), 0, 0);
-    angle_debug_grid->addWidget(angle_reference_current_spin, 0, 1, Qt::AlignLeft);
+    auto create_angle_label = [dialog]() {
+        auto* label = new QLabel(dialog);
+        label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        label->setMinimumWidth(S(120));
+        return label;
+    };
+    auto* current_angle_label = create_angle_label();
+    current_angle_label->setText(QStringLiteral("当前显示角度："));
+    angle_debug_grid->addWidget(current_angle_label, 0, 0);
+    angle_debug_grid->addWidget(angle_reference_current_spin, 0, 1);
     angle_debug_grid->addWidget(capture_current_angle_button, 0, 2, Qt::AlignLeft);
-    angle_debug_grid->addWidget(new QLabel(QStringLiteral("机器目标角度"), dialog), 1, 0);
-    angle_debug_grid->addWidget(angle_reference_target_spin, 1, 1, Qt::AlignLeft);
+    auto* target_angle_label = create_angle_label();
+    target_angle_label->setText(QStringLiteral("机器目标角度："));
+    angle_debug_grid->addWidget(target_angle_label, 1, 0);
+    angle_debug_grid->addWidget(angle_reference_target_spin, 1, 1);
     angle_debug_grid->addWidget(calculate_angle_offset_button, 1, 2, Qt::AlignLeft);
-    angle_debug_grid->addWidget(new QLabel(QStringLiteral("角度偏移"), dialog), 2, 0);
-    angle_debug_grid->addWidget(angle_offset_spin, 2, 1, Qt::AlignLeft);
-    angle_debug_grid->addWidget(new QLabel(QStringLiteral("正向/反向"), dialog), 3, 0);
-    angle_debug_grid->addWidget(angle_direction_combo, 3, 1, Qt::AlignLeft);
-    angle_debug_grid->addWidget(new QLabel(QStringLiteral("角度范围"), dialog), 4, 0);
-    angle_debug_grid->addWidget(angle_range_combo, 4, 1, Qt::AlignLeft);
-    angle_debug_grid->addWidget(new QLabel(QStringLiteral("中心偏移"), dialog), 5, 0);
-    angle_debug_grid->addWidget(center_ray_offset_spin, 5, 1, Qt::AlignLeft);
+    auto* offset_label = create_angle_label();
+    offset_label->setText(QStringLiteral("角度偏移："));
+    angle_debug_grid->addWidget(offset_label, 2, 0);
+    angle_debug_grid->addWidget(angle_offset_spin, 2, 1);
+    auto* direction_label = create_angle_label();
+    direction_label->setText(QStringLiteral("正向/反向："));
+    angle_debug_grid->addWidget(direction_label, 3, 0);
+    angle_debug_grid->addWidget(angle_direction_combo, 3, 1);
+    auto* range_label = create_angle_label();
+    range_label->setText(QStringLiteral("角度范围："));
+    angle_debug_grid->addWidget(range_label, 4, 0);
+    angle_debug_grid->addWidget(angle_range_combo, 4, 1);
+    auto* center_offset_label = create_angle_label();
+    center_offset_label->setText(QStringLiteral("中心偏移："));
+    angle_debug_grid->addWidget(center_offset_label, 5, 0);
+    angle_debug_grid->addWidget(center_ray_offset_spin, 5, 1);
     angle_debug_grid->addWidget(show_plc_center_debug_check, 6, 1, 1, 2, Qt::AlignLeft);
     auto* axis_mapping_row = new QGridLayout();
     axis_mapping_row->setHorizontalSpacing(S(10));
@@ -521,6 +579,12 @@ void EngineeringSettingsDialogController::show()
     QObject::connect(model_state_timer, &QTimer::timeout, dialog, refresh_model_state);
     model_state_timer->start();
 
+    scroll_layout->addWidget(CreateCollapsibleSection(dialog,
+                                                      QStringLiteral("管理员账户"),
+                                                      admin_content,
+                                                      admin_expanded,
+                                                      QStringLiteral("admin_expanded")));
+
     auto* basic_content = new QWidget(dialog);
     auto* basic_content_layout = new QVBoxLayout(basic_content);
     basic_content_layout->setContentsMargins(0, 0, 0, 0);
@@ -698,6 +762,37 @@ void EngineeringSettingsDialogController::show()
                                 .arg(QString::number(current_display_angle, 'f', 2))
                                 .arg(QString::number(final_angle, 'f', 2)),
                             7000);
+    });
+
+    QObject::connect(save_admin_button, &QPushButton::clicked, dialog, [owner,
+                                                               admin_current_password_edit,
+                                                               admin_username_edit,
+                                                               admin_new_password_edit,
+                                                               admin_confirm_password_edit]() {
+        if (admin_new_password_edit->text() != admin_confirm_password_edit->text()) {
+            QMessageBox::warning(owner,
+                                 QStringLiteral("保存失败"),
+                                 QStringLiteral("两次输入的新密码不一致。"));
+            return;
+        }
+
+        QString error_message;
+        if (!owner->changeAdminCredentials(admin_current_password_edit->text(),
+                                           admin_username_edit->text(),
+                                           admin_new_password_edit->text(),
+                                           &error_message)) {
+            QMessageBox::warning(owner, QStringLiteral("保存失败"), error_message);
+            return;
+        }
+
+        owner->saveRememberedAdminPassword(false, QString());
+        admin_current_password_edit->clear();
+        admin_new_password_edit->clear();
+        admin_confirm_password_edit->clear();
+        owner->updateStatusMessage(QStringLiteral("管理员账号已更新，请使用新密码登录。"), 5000);
+        QMessageBox::information(owner,
+                                 QStringLiteral("保存成功"),
+                                 QStringLiteral("管理员账号已更新。"));
     });
 
     QObject::connect(auto_exposure_button, &QPushButton::clicked, dialog, [owner,

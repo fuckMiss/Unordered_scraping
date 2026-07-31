@@ -42,6 +42,7 @@ __pycache__/
 calibration_output/
 calibration_profiles/
 kernel.errors.txt
+config/admin_auth.key
 
 # Large/private sample captures
 samples/Data/

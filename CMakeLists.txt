@@ -334,6 +334,8 @@ if(BUILD_QT_APP)
         app/qt/hardware/robot_controller.h
         app/qt/ui/grasp_main_window.cpp
         app/qt/ui/grasp_main_window.h
+        app/qt/ui/admin_auth_helpers.cpp
+        app/qt/ui/admin_auth_helpers.h
         app/qt/ui/engineering_settings_dialog.cpp
         app/qt/ui/engineering_settings_dialog_controller.h
         app/qt/ui/runtime_status_presenter.cpp
@@ -388,5 +390,17 @@ if(BUILD_QT_APP)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/config/tankeye.json"
             "$<TARGET_FILE_DIR:${PROJECT_NAME}_qt_app>/config/tankeye.json"
+    )
+
+    add_executable(tankeye-admin-auth-code
+        app/qt/tools/admin_auth_code_tool.cpp
+        app/qt/ui/admin_auth_helpers.cpp
+        app/qt/ui/admin_auth_helpers.h
+    )
+    target_include_directories(tankeye-admin-auth-code PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui
+    )
+    target_link_libraries(tankeye-admin-auth-code
+        Qt5::Widgets
     )
 endif()
