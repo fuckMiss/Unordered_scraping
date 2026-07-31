@@ -1,221 +1,224 @@
 # TankEye-Iris
 
-TankEye-Iris 是一套 Windows 工业视觉抓取上位机。它要解决的是把现场的一次抓取决策稳定地闭环：
+TankEye-Iris is a Windows-based industrial vision application for robotic grasping. It closes the production workflow from image acquisition to target detection, machine-coordinate conversion, grasp validation, and PLC register output.
 
 ```text
-物料图像 -> 目标与姿态 -> 图像坐标 -> 机械坐标 -> 抓取合法性 -> PLC 寄存器
+material image -> target and pose -> image coordinates -> machine coordinates -> grasp validity -> PLC registers
 ```
 
-因此项目的核心约束只有几件事：相机必须给出可信图像，模型必须给出可信目标，坐标转换必须把像素落到机械坐标系，限位规则必须拒绝危险目标，PLC 合约必须保持稳定。
+The system is designed around a few hard requirements: the camera must provide reliable frames, the OpenVINO models must return trustworthy targets, calibration must convert pixels into machine coordinates, safety limits must reject unsafe picks, and the PLC contract must remain stable.
 
-## 系统边界
+## System Boundary
 
-输入：
+Inputs:
 
-- 海康 Hikrobot 工业相机图像，调试时可用 OpenCV camera 0 回退。
-- OBB 模型：`models/weights/best_obb.xml` 和 `best_obb.bin`。
-- SEG 模型：`models/weights/best_seg.xml` 和 `best_seg.bin`。
-- 现场配置：`config/tankeye.json`、工程设置窗口保存的 `QSettings`、九点标定配置。
-- PLC 拍照触发寄存器。
+- Hikrobot industrial camera frames. OpenCV camera 0 can be used as a debug fallback.
+- OBB model files: `models/weights/best_obb.xml` and `best_obb.bin`.
+- SEG model files: `models/weights/best_seg.xml` and `best_seg.bin`.
+- Site configuration from `config/tankeye.json`, Qt `QSettings`, and nine-point calibration output.
+- PLC trigger register for image capture.
 
-输出：
+Outputs:
 
-- 主界面叠加显示目标、分割区域、角度、头部类型、抓取状态和运行状态。
-- PLC Modbus TCP 寄存器写入：前后、左右、角度、抓取状态、头部类型。
-- 运行日志：默认写到运行目录 `logs/tankeye_*.log`。
+- Qt UI visualization of targets, segmentation regions, angles, head type, grasp status, and runtime state.
+- Modbus TCP writes to PLC registers for front/back axis, left/right axis, angle, pick status, and head type.
+- Runtime logs written by default to `logs/tankeye_*.log`.
 
-## 主运行链路
+## Runtime Flow
 
-1. 启动 `launch_tankeye.ps1` 或 `launch_tankeye_main_only.vbs`。
-2. 启动脚本准备 DLL 搜索路径、OpenVINO 设备、模型路径、日志路径、PLC 覆盖参数、窗口参数和相机 IP。
-3. `tankeye-openvino_qt_app.exe` 启动 Qt 主界面，读取 `config/tankeye.json`。
-4. `GraspWorkflow` 加载 OBB/SEG OpenVINO 模型。
-5. 相机线程从 Hikrobot 相机取帧；设置 `TANKEYE_CAMERA_FALLBACK=1` 时，Hikrobot 不可用会回退到 OpenCV camera 0。
-6. 每帧依次执行 OBB 推理、SEG 推理和后处理。
-7. 后处理只把结构上可解释的目标交给抓取逻辑：OBB 的 `left` 是夹取位，`big/small` 是头部辅助点，SEG 提供物料区域。
-8. 九点标定把主目标中心从图像 `X/Y` 转成机械 `X/Y`。
-9. 机械 ROI、上下限和角度规则过滤不可抓目标。
-10. 抓取模式下，PLC 触发拍照后，程序写入结果寄存器并清除拍照触发。
+1. Start the app with `launch_tankeye.ps1` or `launch_tankeye_main_only.vbs`.
+2. The launcher prepares DLL search paths, OpenVINO device settings, model paths, log path, PLC overrides, window settings, and camera IP.
+3. `tankeye-openvino_qt_app.exe` starts the Qt main window and reads `config/tankeye.json`.
+4. `GraspWorkflow` loads the OBB and SEG OpenVINO models.
+5. The camera thread receives frames from the Hikrobot camera. If `TANKEYE_CAMERA_FALLBACK=1` is set and Hikrobot capture is unavailable, it can fall back to OpenCV camera 0.
+6. Each frame can run OBB inference, SEG inference, and post-processing.
+7. Post-processing passes only structurally valid targets to the grasp workflow. OBB `left` is the pick point, `big/small` are head helper points, and SEG provides the material region.
+8. Nine-point calibration converts the primary target center from image `X/Y` to machine `X/Y`.
+9. Machine ROI, axis limits, and angle rules reject unsafe or invalid targets.
+10. In PLC grasp mode, after the PLC capture trigger is received, the program writes the result registers and clears the trigger.
 
-## 第一性原则
+## Core Principles
 
-- **坐标系是核心事实。** 模型输出的是像素，机械执行需要机器坐标。九点标定生成单应矩阵，至少需要 4 组有效点，建议现场使用完整 9 点。
-- **PLC 合约比界面更稳定。** UI 可以调整显示方式，但 `D500/D502/D504/D506/D508` 的语义必须与 PLC 程序一致。
-- **拒绝优先于误抓。** 没有唯一主目标、没有有效坐标、超出 ROI/限位、结构不合法时，系统应写拒绝状态，而不是猜一个位置。
-- **配置是现场事实，代码是默认值。** `config/tankeye.json` 是默认配置层；工程设置窗口保存的值会覆盖可调项；环境变量只用于临时调试或部署覆盖。
-- **运行包要自洽。** 目标 PC 不应依赖源码；运行包需要带齐 EXE、模型、配置、Qt/OpenCV/OpenVINO/Hikrobot 运行时和必要工具。
+- **The coordinate system is the source of truth.** Models output pixels; the machine needs calibrated machine coordinates. Nine-point calibration generates the homography and should use all 9 points on site when possible.
+- **The PLC contract is more important than UI presentation.** The UI can change, but the meanings of `D500/D502/D504/D506/D508` must stay aligned with the PLC program.
+- **Rejecting is safer than guessing.** If there is no unique primary target, no valid coordinate, an out-of-limit result, or an invalid structure, the system should write a reject status instead of inventing a pick.
+- **Configuration belongs to the site.** `config/tankeye.json` provides defaults, engineering settings persist local overrides, and environment variables are for temporary launch or deployment overrides.
+- **Runtime packages must be self-contained.** Target PCs should not depend on the source tree. A release package must include the EXE, models, config, Qt/OpenCV/OpenVINO/Hikrobot runtime DLLs, launcher scripts, and required tools.
 
-## PLC 合约
+## PLC Contract
 
-默认映射来自 `config/tankeye.json`。现场改地址后，以 JSON 为准。
+The default register map comes from `config/tankeye.json`. If site addresses change, the JSON configuration is the reference.
 
-| 地址 | 含义 |
+| Register | Meaning |
 | --- | --- |
-| `D1500` | 拍照触发。PLC 写 `1`，视觉处理完成后清 `0`。 |
-| `D500` | 前后轴。默认写机械 `Y`，可切换为机械 `X`。 |
-| `D502` | 左右轴。默认写机械 `X`，可切换为机械 `Y`。 |
-| `D504` | 校准后的机械旋转角度。 |
-| `D506` | 抓取状态：`1` 单个可抓，`2` 多个可抓，`3` 不可抓/拒绝。 |
-| `D508` | 头部类型：`0` 未知，`1..4` 为识别类型。 |
+| `D1500` | Capture trigger. PLC writes `1`; vision clears it to `0` after processing. |
+| `D500` | Front/back axis. Defaults to machine `Y`; can be mapped to machine `X`. |
+| `D502` | Left/right axis. Defaults to machine `X`; can be mapped to machine `Y`. |
+| `D504` | Calibrated machine rotation angle. |
+| `D506` | Pick status: `1` single valid target, `2` multiple valid targets, `3` rejected / not pickable. |
+| `D508` | Head type: `0` unknown, `1..4` recognized classes. |
 
-拒绝目标时，程序只写 `D506=3`，不会覆盖前后、左右、角度和头部类型寄存器。
+When a target is rejected, the program writes only `D506=3`. It does not overwrite the previous front/back, left/right, angle, or head-type registers.
 
-## 配置层级
+## Configuration
 
-程序默认读取运行目录：
+By default, the application reads:
 
 ```text
 config/tankeye.json
 ```
 
-可用 `TANKEYE_CONFIG_PATH` 指向另一份 JSON。常用环境变量：
+Common environment variables:
 
-| 变量 | 作用 |
+| Variable | Purpose |
 | --- | --- |
-| `TANKEYE_CONFIG_PATH` | 覆盖配置文件路径。 |
-| `TANKEYE_PLC_HOST` | 覆盖 PLC IP。 |
-| `TANKEYE_PLC_PORT` | 覆盖 PLC 端口。 |
-| `TANKEYE_PLC_SIM` | `1/true/yes/on` 启用 PLC 模拟。 |
-| `TANKEYE_OPENVINO_DEVICE` | `AUTO`、`GPU` 或 `CPU`。 |
-| `TANKEYE_DEBUG_POSTPROCESS` | `1` 打开后处理调试日志。 |
-| `TANKEYE_LOG_FILE` | 指定日志文件。 |
-| `TANKEYE_CAMERA_FALLBACK` | `1` 允许相机回退到 OpenCV camera 0。 |
+| `TANKEYE_CONFIG_PATH` | Override the config file path. |
+| `TANKEYE_PLC_HOST` | Override the PLC IP address. |
+| `TANKEYE_PLC_PORT` | Override the PLC port. |
+| `TANKEYE_PLC_SIM` | Enable simulated PLC mode with `1/true/yes/on`. |
+| `TANKEYE_OPENVINO_DEVICE` | Select `AUTO`, `GPU`, or `CPU`. |
+| `TANKEYE_OPENVINO_CACHE_DIR` | Set the OpenVINO compile cache directory. |
+| `TANKEYE_DEBUG_POSTPROCESS` | Enable post-processing debug logs. |
+| `TANKEYE_LOG_FILE` | Set the runtime log file path. |
+| `TANKEYE_CAMERA_FALLBACK` | Allow fallback to OpenCV camera 0. |
 
-`tankeye.json` 是默认层；工程设置窗口保存的 `QSettings` 会覆盖相机、限位、轴向映射、补偿和角度等现场可调项；环境变量适合临时启动和排障。
+`tankeye.json` is the default layer. Values saved from the engineering settings window override site-tunable settings such as camera exposure, limits, axis mapping, compensation, angle calibration, and coordinate transform settings.
 
-## 工程设置
+## Engineering Settings
 
-- 相机 IP、曝光值、九点坐标转换、限位、轴向映射、补偿和角度校准会保存，下次打开复用。
-- `曝光 us` 可手动填写，也可使用 `单次自动曝光`。
-- `上下限保护` 使用机械坐标过滤目标；`ROI 留边` 会把边界向内收缩，避免抓取边界附近物料。
-- `轴向映射` 可选择 `前后=机械Y，左右=机械X` 或 `前后=机械X，左右=机械Y`，同时影响 PLC `D500/D502`、机械 ROI 和限位检查。
-- `前后补偿`、`左右补偿` 只叠加到最终 PLC 输出和 PLC 测试显示，不影响九点矩阵、机械 ROI 或限位判断。
-- 角度校准公式：
+- Camera IP, exposure, nine-point coordinate transform, limits, axis mapping, compensation, and angle calibration are persisted and reused on the next launch.
+- `Exposure us` can be entered manually or updated through a single automatic exposure action.
+- Limit protection filters targets in machine coordinates. ROI margin shrinks the allowed region inward to avoid edge picks.
+- Axis mapping can switch between `front/back = machine Y, left/right = machine X` and `front/back = machine X, left/right = machine Y`. This affects PLC `D500/D502`, machine ROI, and limit checks.
+- Front/back and left/right compensation are added only to the final PLC output and PLC test display. They do not change the calibration matrix, machine ROI, or limit decisions.
+- Angle calibration uses:
 
 ```text
 mechanical_angle = image_angle * direction + offset
 ```
 
-角度范围可选择 `0~360` 或 `-180~180`。例如在 `-180~180` 下，`270` 会输出为 `-90`。
+Angle output can use either `0..360` or `-180..180`.
 
-## 九点标定
+## Nine-Point Calibration
 
-运行包内双击：
+In the runtime package, start:
 
 ```text
 nine_point_circle_picker.exe
 ```
 
-从运行包目录启动时，输出到：
+When launched from the runtime directory, the tool writes:
 
 ```text
 calibration_output/calibration_image_points.txt
 ```
 
-点位按成功点击顺序写入：第 1 个成功点是 `P1`，第 2 个是 `P2`。只有点到黑色圆圈内部或足够贴近圆圈才算成功；点工具条或空白区域不会占用编号；可用顶部 `撤销` 删除上一个点。
+Points are recorded in successful click order. The first successful point is `P1`, the second is `P2`, and so on. A click counts only when it lands inside, or close enough to, the black circle. Toolbar clicks and blank-area clicks do not consume point numbers. Use the toolbar undo action to remove the previous point.
 
-## 构建
+## Build
 
-项目仅维护 Windows 构建。主要依赖：
+This project currently targets Windows.
+
+Main dependencies:
 
 - CMake 3.12+
 - MSVC x64
 - Qt 5.15.2 msvc2019_64
 - OpenCV
-- OpenVINO C++ Runtime/Dev
-- Hikrobot MVS SDK。源码包若本地存在 `vendor/hik_mvs` 会优先使用，但该厂商 SDK 不建议提交到公开 Git 仓库。
+- OpenVINO C++ Runtime / Dev package
+- Hikrobot MVS SDK. If `vendor/hik_mvs` exists locally, the project can use it, but this vendor SDK should generally not be committed to a public Git repository.
 
-常用构建命令：
+Common build commands:
 
 ```powershell
 cmake -S . -B build
 cmake --build build --config Release
 ```
 
-从源码启动：
+Run from source:
 
 ```powershell
 .\launch_tankeye.ps1 -Configuration Release -BuildDir build -WindowMode Maximized
 ```
 
-源码路径含中文或非 ASCII 字符时，启动脚本默认不自动传模型参数；需要自动加载模型时，优先使用 ASCII-only 路径或运行包。
+If the source path contains Chinese or non-ASCII characters, the launcher avoids auto-passing model paths by default. Use an ASCII-only path or the packaged runtime when automatic model loading is required.
 
-## 测试
+## Tests
 
-构建后运行测试：
+Run the registered tests after building:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release
 ```
 
-当前 CMake 注册的测试覆盖：
+Current CMake tests cover:
 
-- 配置读取：`app_config_service_test`
-- 九点坐标转换：`coordinate_transform_test`
-- 工程设置：`engineering_settings_service_test`
-- 后处理冒烟：`frame_postprocess_smoke`
-- 限位过滤：`grab_limit_evaluator_test`
-- PLC 输出合约：`plc_result_contract_test`
-- PLC 寄存器映射：`robot_controller_register_map_test`
-- UI 状态展示：`runtime_status_presenter_test`、`plc_runtime_state_test`
+- Config loading: `app_config_service_test`
+- Nine-point coordinate transform: `coordinate_transform_test`
+- Engineering settings: `engineering_settings_service_test`
+- Frame post-processing smoke test: `frame_postprocess_smoke`
+- Grab limit evaluation: `grab_limit_evaluator_test`
+- PLC output contract: `plc_result_contract_test`
+- PLC register mapping: `robot_controller_register_map_test`
+- UI runtime state presentation: `runtime_status_presenter_test`, `plc_runtime_state_test`
 
-## 部署与打包
+## Packaging
 
-把构建产物部署到 `build/Release`：
-
-```powershell
-.\scripts\deploy_windows.ps1 -Configuration Release -BuildDir build
-```
-
-生成独立运行包：
+Build the Release executable first:
 
 ```powershell
-.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.1 -Force
+cmake --build build --config Release --target tankeye-openvino_qt_app
 ```
 
-输出目录：
+Create a self-contained runtime package:
+
+```powershell
+.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.2 -Force
+```
+
+Output:
 
 ```text
-dist/TankEye-Iris_1.1
-dist/TankEye-Iris_1.1.zip
+dist/TankEye-Iris_1.2
+dist/TankEye-Iris_1.2.zip
 ```
 
-运行包包含主程序、模型、配置、标定输出、示例图、运行时 DLL、启动脚本、桌面图标脚本和使用说明。它不应包含源码、CMake 工程、Python 脚本、测试、`.lib`、`.pdb`、`.pt` 等开发产物。
+The runtime package includes the main executable, models, config, calibration output, sample image, runtime DLLs, launcher scripts, desktop shortcut helper, and usage guide. It should not include source code, CMake projects, Python scripts, tests, `.lib`, `.pdb`, `.pt`, or other development artifacts.
 
-上传 GitHub 时，建议不要提交 `dist/`、`_deps/`、`vendor/hik_mvs/`、`samples/Data/` 和 `models/weights/` 中的实际模型文件；模型文件可通过 GitHub Releases、Git LFS 或私有部署渠道分发。
+When uploading to GitHub, do not commit `dist/`, `_deps/`, `vendor/hik_mvs/`, `samples/Data/`, or actual files under `models/weights/`. Distribute model files through GitHub Releases, Git LFS, or a private deployment channel.
 
-创建桌面图标：
+Create a desktop shortcut:
 
 ```powershell
 .\scripts\create_desktop_shortcut.ps1
 ```
 
-如果运行包文件夹改名或移动位置，需要重新创建桌面图标。
+If the runtime folder is renamed or moved, recreate the desktop shortcut.
 
-## 目录地图
+## Directory Map
 
-| 路径 | 职责 |
+| Path | Responsibility |
 | --- | --- |
-| `app/qt/main.cpp` | Qt 程序入口、日志初始化、窗口启动。 |
-| `app/qt/ui/` | 主界面、工程设置窗口、状态展示和画面叠加。 |
-| `app/qt/hardware/` | Hikrobot 相机封装、PLC Modbus TCP 控制。 |
-| `app/qt/workflow/` | 抓取工作流、配置服务、坐标转换、限位、PLC 输出合约和后处理。 |
-| `app/cli/` | OBB/SEG 命令行推理入口。 |
-| `core/inference/` | YOLOv11 OBB/SEG OpenVINO 推理封装。 |
-| `core/common/` | 模型、部署和通用工具。 |
-| `config/` | 默认现场配置。 |
-| `models/weights/` | OpenVINO 模型权重。 |
-| `scripts/` | 启动、部署、打包、测试、标定和桌面图标脚本。 |
-| `tests/` | C++ 测试。 |
-| `runtime/` | 运行包使用说明素材。 |
-| `vendor/hik_mvs/` | 随仓库携带的 Hikrobot MVS 头文件、库和运行时。 |
-| `dist/` | 已生成的运行包。 |
+| `app/qt/main.cpp` | Qt entry point, log initialization, and startup wiring. |
+| `app/qt/ui/` | Main window, engineering settings window, status presentation, and frame overlays. |
+| `app/qt/hardware/` | Hikrobot camera wrapper and PLC Modbus TCP control. |
+| `app/qt/workflow/` | Grasp workflow, config services, coordinate transform, limits, PLC output contract, and post-processing. |
+| `app/cli/` | OBB/SEG command-line inference entry points. |
+| `core/inference/` | YOLOv11 OBB/SEG OpenVINO inference wrappers. |
+| `core/common/` | Model, deployment, and shared utilities. |
+| `config/` | Default site configuration. |
+| `models/weights/` | OpenVINO model weight location. |
+| `scripts/` | Launch, deploy, package, test, calibration, and shortcut scripts. |
+| `tests/` | C++ tests. |
+| `runtime/` | Runtime-package documentation assets. |
+| `vendor/hik_mvs/` | Optional local Hikrobot MVS headers, libraries, and runtime files. |
+| `dist/` | Generated runtime packages. |
 
-## 排障入口
+## Troubleshooting
 
-- 程序打不开：先看 `logs/tankeye_*.log`。
-- 找不到模型：确认 `models/weights/best_obb.xml` 和 `models/weights/best_seg.xml` 是否存在。
-- 找不到相机：检查 MVS 驱动、相机供电、网段、相机 IP；调试时可设置 `TANKEYE_CAMERA_FALLBACK=1`。
-- GPU 启动失败：先用 `-Device CPU` 验证主链路，再检查 Intel GPU 驱动和 OpenVINO 运行时。
-- PLC 不联机：先用 `-SimulatePlc` 验证视觉链路，再检查 PLC IP、端口、寄存器地址和网线。
-- 目标坐标异常：优先检查九点标定点顺序、机械坐标录入、单应矩阵有效性和 ROI/轴向映射。
+- App does not start: check `logs/tankeye_*.log`.
+- Models are not found: verify `models/weights/best_obb.xml` and `models/weights/best_seg.xml`.
+- Camera is not found: check the MVS driver, camera power, network segment, and camera IP. For debugging, set `TANKEYE_CAMERA_FALLBACK=1`.
+- GPU startup fails: verify the main workflow with `-Device CPU`, then check Intel GPU drivers and OpenVINO runtime deployment.
+- PLC cannot connect: verify the vision workflow with `-SimulatePlc`, then check PLC IP, port, register addresses, and network cabling.
+- Target coordinates look wrong: check nine-point calibration order, machine coordinate entry, homography validity, ROI, and axis mapping.
