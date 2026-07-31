@@ -91,6 +91,8 @@ private:
     void bindActions();
     void syncWindowControlButtons();
     void syncSidePanelToggleButton();
+    bool isVisuallyMaximized() const;
+    void logHighDpiMetrics(const QString& context) const;
     void toggleSidePanel();
     void applySidePanelState(bool expanded);
     void repositionSidePanelToggle();
@@ -178,6 +180,7 @@ private:
     std::unique_ptr<EngineeringSettingsDialogController> engineering_settings_dialog_controller_;
     QDialog* engineering_settings_dialog_ = nullptr;
     QFrame* top_bar_ = nullptr;
+    QWidget* top_right_controls_ = nullptr;
     QSplitter* main_splitter_ = nullptr;
     QFrame* side_panel_ = nullptr;
     QLabel* logo_label_ = nullptr;

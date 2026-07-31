@@ -163,6 +163,7 @@ QString ConfigureFileLog()
 int main(int argc, char** argv)
 {
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
     QApplication app(argc, argv);
     QObject::connect(&app, &QApplication::lastWindowClosed, []() {
         std::cout << "Qt signal: lastWindowClosed." << std::endl;
@@ -194,6 +195,17 @@ int main(int argc, char** argv)
     std::cout << "SEG model argument: " << seg_model_path.toStdString() << std::endl;
     std::cout << "QT_SCALE_FACTOR: " << qgetenv("QT_SCALE_FACTOR").constData() << std::endl;
     std::cout << "TANKEYE_UI_SCALE: " << qgetenv("TANKEYE_UI_SCALE").constData() << std::endl;
+    if (QScreen* screen = QGuiApplication::primaryScreen()) {
+        const QRect available = screen->availableGeometry();
+        const QSize physical = screen->size();
+        std::cout << "[HighDPI] startup primaryScreen available="
+                  << available.width() << "x" << available.height()
+                  << "+" << available.x() << "+" << available.y()
+                  << " physical=" << physical.width() << "x" << physical.height()
+                  << " dpr=" << screen->devicePixelRatio()
+                  << " logicalDpi=" << screen->logicalDotsPerInch()
+                  << std::endl;
+    }
     std::cout << "Runtime log is enabled." << std::endl;
     std::cout.flush();
     window.setInitialModelPaths(obb_model_path, seg_model_path);

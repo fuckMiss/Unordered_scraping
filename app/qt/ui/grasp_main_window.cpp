@@ -129,6 +129,21 @@ QSize SS(int width, int height)
     return QSize(S(width), S(height));
 }
 
+double TopBarScale()
+{
+    return qBound(0.70, UiScale(), 1.0);
+}
+
+int TS(int value)
+{
+    return qMax(1, qRound(value * TopBarScale()));
+}
+
+QSize TSS(int width, int height)
+{
+    return QSize(TS(width), TS(height));
+}
+
 int SC(int value)
 {
     return qMax(1, qRound(value * UiScale() * g_sidebar_compact_scale));
@@ -174,7 +189,7 @@ QFrame* CreateKeyValueRow(const QString& name, QLabel*& value_label, QWidget* pa
 {
     auto* row = new QFrame(parent);
     row->setObjectName("keyValueRow");
-    row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     row->setMinimumWidth(0);
 
     auto* layout = new QVBoxLayout(row);
@@ -184,8 +199,8 @@ QFrame* CreateKeyValueRow(const QString& name, QLabel*& value_label, QWidget* pa
     auto* key_cell = new QFrame(row);
     key_cell->setObjectName("keyCell");
     key_cell->setProperty("keyMetricCell", true);
-    key_cell->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    key_cell->setMinimumSize(QSize(0, SC(22)));
+    key_cell->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    key_cell->setMinimumSize(QSize(0, SC(24)));
     key_cell->setMaximumWidth(QWIDGETSIZE_MAX);
     auto* key_layout = new QHBoxLayout(key_cell);
     key_layout->setContentsMargins(SCM(5, 0, 5, 0));
@@ -198,8 +213,8 @@ QFrame* CreateKeyValueRow(const QString& name, QLabel*& value_label, QWidget* pa
     auto* value_cell = new QFrame(row);
     value_cell->setObjectName("valueCell");
     value_cell->setProperty("valueMetricCell", true);
-    value_cell->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    value_cell->setMinimumSize(QSize(0, SC(30)));
+    value_cell->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
+    value_cell->setMinimumSize(QSize(0, SC(38)));
     auto* value_layout = new QHBoxLayout(value_cell);
     value_layout->setContentsMargins(SCM(5, 0, 5, 0));
 
@@ -207,9 +222,10 @@ QFrame* CreateKeyValueRow(const QString& name, QLabel*& value_label, QWidget* pa
     value_label->setObjectName("valueLabel");
     value_label->setAlignment(Qt::AlignCenter);
     value_label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    value_label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    value_label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
     value_label->setMinimumWidth(0);
-    value_label->setWordWrap(false);
+    value_label->setMinimumHeight(SC(24));
+    value_label->setWordWrap(true);
     value_layout->addWidget(value_label, 1);
 
     layout->addWidget(key_cell);
@@ -891,6 +907,7 @@ void GraspMainWindow::showEvent(QShowEvent* event)
     applyResponsiveLayout(true);
     syncWindowControlButtons();
     repositionSidePanelToggle();
+    logHighDpiMetrics(QStringLiteral("show"));
 
     if (!initial_models_attempted_) {
         initial_models_attempted_ = true;
@@ -981,6 +998,8 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
 
     brand_label_ = new QLabel(QStringLiteral("TankEye-Iris"), top_bar_);
     brand_label_->setObjectName("brandLabel");
+    brand_label_->setMinimumWidth(0);
+    brand_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 
     left_layout->addWidget(logo_label_);
     left_layout->addWidget(brand_label_);
@@ -988,16 +1007,18 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
     title_label_ = new QLabel(QStringLiteral("截止阀抓取上料系统"), top_bar_);
     title_label_->setObjectName("titleLabel");
     title_label_->setAlignment(Qt::AlignCenter);
-    title_label_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    title_label_->setMinimumWidth(0);
+    title_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     title_label_->setAttribute(Qt::WA_TransparentForMouseEvents);
 
-    auto* right_widget = new QWidget(top_bar_);
-    auto* right_layout = new QHBoxLayout(right_widget);
+    top_right_controls_ = new QWidget(top_bar_);
+    top_right_controls_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    auto* right_layout = new QHBoxLayout(top_right_controls_);
     right_layout->setContentsMargins(0, 0, 0, 0);
     right_layout->setSpacing(S(6));
 
-    const QSize icon_size = SS(18, 18);
-    const QSize button_size = SS(34, 34);
+    const QSize icon_size = TSS(18, 18);
+    const QSize button_size = TSS(34, 34);
     const QColor icon_color(QStringLiteral("#f0e9e1"));
     const auto init_button = [icon_size, button_size](QToolButton* button,
                                                       const QString& tooltip,
@@ -1038,10 +1059,11 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
 
     top_layout->addWidget(left_widget, 0, 0, Qt::AlignLeft | Qt::AlignVCenter);
     top_layout->addWidget(title_label_, 0, 1);
-    top_layout->addWidget(right_widget, 0, 2, Qt::AlignRight | Qt::AlignVCenter);
+    top_layout->addWidget(top_right_controls_, 0, 2, Qt::AlignRight | Qt::AlignVCenter);
     top_layout->setColumnStretch(0, 1);
-    top_layout->setColumnStretch(1, 2);
-    top_layout->setColumnStretch(2, 1);
+    top_layout->setColumnStretch(1, 1);
+    top_layout->setColumnStretch(2, 0);
+    top_layout->setColumnMinimumWidth(2, top_right_controls_->sizeHint().width());
 
     root_layout->addWidget(top_bar_, 0);
     syncWindowControlButtons();
@@ -1454,6 +1476,9 @@ void GraspMainWindow::applyResponsiveLayout(bool force)
     const double width_scale = width() > 0 ? static_cast<double>(width()) / kDensityBaseWidth : 1.0;
     const double height_scale = height() > 0 ? static_cast<double>(height()) / kDensityBaseHeight : 1.0;
     const double next_scale = qMax(1.0, qMin(width_scale, height_scale));
+    const qreal dpr = screen() ? screen()->devicePixelRatio() : 1.0;
+    const int safe_margin = dpr >= 1.75 ? 6 : dpr >= 1.5 ? 8 : dpr >= 1.25 ? 10 : 12;
+    const int safe_side_margin = dpr >= 1.75 ? 4 : dpr >= 1.5 ? 5 : dpr >= 1.25 ? 6 : 8;
 
     if (!force && std::abs(next_scale - responsive_scale_) < 0.025) {
         syncMainSplitterRatio();
@@ -1470,13 +1495,50 @@ void GraspMainWindow::applyResponsiveLayout(bool force)
     refreshTopBarMetrics();
     refreshActionButtonMetrics();
 
+    if (central_panel_) {
+        if (auto* root_layout = qobject_cast<QVBoxLayout*>(central_panel_->layout())) {
+            root_layout->setContentsMargins(SM(safe_margin, safe_margin, safe_margin, qMax(safe_margin, 10)));
+            root_layout->setSpacing(S(qMax(6, safe_margin / 2)));
+        }
+    }
+    if (top_bar_) {
+        if (auto* top_layout = qobject_cast<QGridLayout*>(top_bar_->layout())) {
+            top_layout->setContentsMargins(SM(qMax(10, safe_margin), qMax(4, safe_margin / 2), qMax(10, safe_margin), qMax(4, safe_margin / 2)));
+            top_layout->setHorizontalSpacing(S(qMax(6, safe_margin / 2)));
+        }
+    }
+    if (side_panel_) {
+        if (auto* side_layout = qobject_cast<QVBoxLayout*>(side_panel_->layout())) {
+            side_layout->setContentsMargins(SCM(safe_side_margin, safe_side_margin, safe_side_margin, safe_side_margin));
+            side_layout->setSpacing(SC(qMax(4, safe_side_margin)));
+        }
+    }
+    if (detail_page_) {
+        if (auto* detail_layout = qobject_cast<QVBoxLayout*>(detail_page_->layout())) {
+            detail_layout->setContentsMargins(0, 0, 0, 0);
+            detail_layout->setSpacing(SC(qMax(6, safe_side_margin)));
+        }
+    }
+    if (target_list_page_) {
+        if (auto* target_list_layout = qobject_cast<QVBoxLayout*>(target_list_page_->layout())) {
+            target_list_layout->setContentsMargins(0, 0, 0, 0);
+            target_list_layout->setSpacing(SC(qMax(4, safe_side_margin)));
+        }
+    }
     const QList<QFrame*> key_cells = findChildren<QFrame*>(QString(), Qt::FindChildrenRecursively);
     for (QFrame* frame : key_cells) {
         if (frame->property("keyMetricCell").toBool()) {
-            frame->setMinimumSize(QSize(0, SC(22)));
+            frame->setMinimumSize(QSize(0, SC(24)));
             frame->setMaximumWidth(QWIDGETSIZE_MAX);
         } else if (frame->property("valueMetricCell").toBool()) {
-            frame->setMinimumSize(QSize(0, SC(30)));
+            frame->setMinimumSize(QSize(0, SC(38)));
+        }
+    }
+    const QList<QLabel*> value_labels = findChildren<QLabel*>(QString(), Qt::FindChildrenRecursively);
+    for (QLabel* label : value_labels) {
+        if (label->objectName() == QStringLiteral("valueLabel")) {
+            label->setMinimumHeight(SC(24));
+            label->setWordWrap(true);
         }
     }
 
@@ -1507,18 +1569,26 @@ void GraspMainWindow::applyResponsiveLayout(bool force)
 void GraspMainWindow::refreshTopBarMetrics()
 {
     if (top_bar_) {
-        top_bar_->setFixedHeight(S(56));
+        top_bar_->setFixedHeight(qMax(S(46), TS(56)));
     }
     if (logo_label_) {
-        logo_label_->setFixedSize(SS(50, 42));
+        logo_label_->setFixedSize(TSS(50, 42));
         const QPixmap logo_pixmap(DefaultLogoPath());
         if (!logo_pixmap.isNull()) {
-            logo_label_->setPixmap(logo_pixmap.scaled(SS(42, 34), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            logo_label_->setPixmap(logo_pixmap.scaled(TSS(42, 34), Qt::KeepAspectRatio, Qt::SmoothTransformation));
         }
     }
+    if (brand_label_) {
+        brand_label_->setMinimumWidth(0);
+        brand_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    }
+    if (title_label_) {
+        title_label_->setMinimumWidth(0);
+        title_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    }
 
-    const QSize icon_size = SS(18, 18);
-    const QSize button_size = SS(34, 34);
+    const QSize icon_size = TSS(18, 18);
+    const QSize button_size = TSS(34, 34);
     const QColor icon_color(QStringLiteral("#f0e9e1"));
     const QList<QToolButton*> buttons = {
         user_button_, settings_icon_button_, minimize_window_button_, maximize_window_button_, close_window_button_
@@ -1529,6 +1599,20 @@ void GraspMainWindow::refreshTopBarMetrics()
         }
         button->setFixedSize(button_size);
         button->setIconSize(icon_size);
+    }
+    if (top_right_controls_) {
+        if (auto* right_layout = qobject_cast<QHBoxLayout*>(top_right_controls_->layout())) {
+            right_layout->setSpacing(TS(6));
+        }
+        const int controls_width = button_size.width() * 5 + TS(6) * 4 + TS(2);
+        top_right_controls_->setMinimumWidth(controls_width);
+        top_right_controls_->setMaximumWidth(controls_width);
+        if (auto* top_layout = qobject_cast<QGridLayout*>(top_bar_->layout())) {
+            top_layout->setColumnMinimumWidth(2, controls_width);
+            top_layout->setColumnStretch(0, 1);
+            top_layout->setColumnStretch(1, 1);
+            top_layout->setColumnStretch(2, 0);
+        }
     }
     if (user_button_) {
         user_button_->setIcon(CreateAvatarIcon(icon_size, icon_color));
@@ -1606,6 +1690,39 @@ int GraspMainWindow::responsiveSidebarWidth() const
     return ClampSidebarWidth(qMax(SidebarMinWidth(), proportional_width));
 }
 
+bool GraspMainWindow::isVisuallyMaximized() const
+{
+    return isMaximized();
+}
+
+void GraspMainWindow::logHighDpiMetrics(const QString& context) const
+{
+    const QScreen* target_screen = screen() ? screen() : QGuiApplication::primaryScreen();
+    if (!target_screen) {
+        cout << "[HighDPI] " << context.toStdString()
+             << " screen=none window=" << width() << "x" << height()
+             << " QT_SCALE_FACTOR=" << qgetenv("QT_SCALE_FACTOR").constData()
+             << " TANKEYE_UI_SCALE=" << qgetenv("TANKEYE_UI_SCALE").constData()
+             << endl;
+        return;
+    }
+
+    const QRect available = target_screen->availableGeometry();
+    const QSize physical = target_screen->size();
+    cout << "[HighDPI] " << context.toStdString()
+         << " available=" << available.width() << "x" << available.height()
+         << "+" << available.x() << "+" << available.y()
+         << " physical=" << physical.width() << "x" << physical.height()
+         << " dpr=" << target_screen->devicePixelRatio()
+         << " logicalDpi=" << target_screen->logicalDotsPerInch()
+         << " window=" << width() << "x" << height()
+         << " geometry=" << geometry().width() << "x" << geometry().height()
+         << "+" << geometry().x() << "+" << geometry().y()
+         << " QT_SCALE_FACTOR=" << qgetenv("QT_SCALE_FACTOR").constData()
+         << " TANKEYE_UI_SCALE=" << qgetenv("TANKEYE_UI_SCALE").constData()
+         << endl;
+}
+
 void GraspMainWindow::bindActions()
 {
     connect(load_image_button_, &QPushButton::clicked, this, [this]() { loadImage(); });
@@ -1661,8 +1778,8 @@ void GraspMainWindow::syncWindowControlButtons()
     const QColor icon_color(QStringLiteral("#f0e9e1"));
     maximize_window_button_->setIcon(isMaximized() ? CreateRestoreIcon(icon_size, icon_color)
                                                    : CreateMaximizeIcon(icon_size, icon_color));
-    maximize_window_button_->setToolTip(isMaximized() ? QStringLiteral("还原窗口")
-                                                      : QStringLiteral("最大化"));
+    maximize_window_button_->setToolTip(isVisuallyMaximized() ? QStringLiteral("还原窗口")
+                                                              : QStringLiteral("最大化"));
 }
 
 void GraspMainWindow::syncSidePanelToggleButton()
