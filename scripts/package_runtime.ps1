@@ -1,6 +1,6 @@
 ﻿param(
     [string]$BuildDir = "build",
-    [string]$ReleaseName = "TankEye-Iris_1.1",
+    [string]$ReleaseName = "TankEye-Iris_1.2",
     [switch]$Force
 )
 
@@ -460,7 +460,7 @@ Write-Host "Desktop shortcut created: $ShortcutPath"
 Write-Utf8File (Join-Path $StagingDir "create_desktop_shortcut.ps1") $ShortcutScript
 
 $Readme = @'
-# TankEye-Iris 1.1 独立运行包
+# TankEye-Iris 1.2 独立运行包
 
 ## 启动
 
@@ -485,6 +485,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 - 演示图：`samples\images\2.jpg`
 - 运行库：Qt、OpenCV、OpenVINO、TBB、Hikrobot MVS Runtime
 - 工具：`nine_point_circle_picker.exe`、`create_desktop_shortcut.ps1`
+- 缓存：`openvino_cache\`
+- 日志：`logs\tankeye_*.log`
 
 ## 新电脑前置条件
 
@@ -496,6 +498,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 ## 不包含源码
 
 此运行包不包含 C/C++ 源码、头文件、Python 脚本、CMake 工程、测试、调试符号、`.lib` 或训练资产。
+
+## 1.2 说明
+
+- 主界面左侧图像区约 75%，右侧控制栏约 25%。
+- 图像完整显示，允许边缘留白，不裁剪。
+- 图片读取使用后台线程。
+- OpenVINO 缓存默认保留；如需清理，启动时显式添加 `-ClearOpenVinoCache`。
+- 运行日志默认带时间戳，可在程序内打开“运行日志”查看。
 '@
 Write-Utf8File (Join-Path $StagingDir "README_RUNTIME.md") $Readme
 
@@ -534,7 +544,7 @@ $HashEntries = @($FilesForHash | ForEach-Object { Add-HashEntry $StagingDir $_ }
 
 $Manifest = [PSCustomObject]@{
     name = $ReleaseName
-    version = "1.1"
+    version = "1.2"
     built_at = (Get-Date).ToString("o")
     source_build_dir = $BuildDir
     runtime_only = $true

@@ -1,9 +1,9 @@
-TankEye-Iris 使用说明
-=====================
+TankEye-Iris 1.2 使用说明
+========================
 
 一、首次使用
 
-1. 将 `TankEye-Iris_1.1.zip` 解压到本地磁盘，例如 `D:\TankEye-Iris_1.1`。
+1. 将 `TankEye-Iris_1.2.zip` 解压到本地磁盘，例如 `D:\TankEye-Iris_1.2`。
 2. 不要直接在压缩包里运行程序。
 3. 双击包根目录下的 `launch_tankeye_main_only.vbs`。
 4. 第一次启动时，程序会自动在当前 Windows 用户桌面创建 `TankEye-Iris` 图标。
@@ -13,8 +13,11 @@ TankEye-Iris 使用说明
 
 1. 启动程序后，点击“加载图片”。
 2. 可以选择包内 `samples\images\2.jpg` 作为演示图，也可以选择自己的图片。
-3. 点击“开始检测”。
-4. 程序会显示 OBB、SEG、夹取射线、抓取点以及检测结果。
+3. “加载图片”已改为后台读取，减少界面阻塞。
+4. 点击“开始检测”执行 OBB/SEG 检测。
+5. 程序会显示目标、分割区域、夹取射线、抓取点以及检测结果。
+
+注意：程序启动后会自动加载模型。第一次运行包加载 OpenVINO GPU/CPU 模型时可能需要编译模型并生成缓存；这会占用 CPU/GPU 资源，因此首次加载图片或打开相机可能仍会感觉慢。只要不删除 `openvino_cache`，第二次启动或第二次加载同一套模型通常会更快。
 
 三、相机检测
 
@@ -34,25 +37,40 @@ TankEye-Iris 使用说明
    ```
 
 4. `SimulatePlc` 只模拟 PLC 读写，不会连接或写入现场 PLC。
+5. 有有效九点标定时，写入 PLC 的坐标为机械坐标；拒绝目标时只写 `D506=3`。
 
-五、新电脑前置条件
+五、界面和日志
+
+1. 主界面左侧图像区约 75%，右侧控制栏约 25%。
+2. 右侧栏为双列布局，窗口缩小时会自适应压缩。
+3. 图像完整显示，允许边缘留白，不裁剪图像。
+4. 点击“运行日志”可以查看当前运行日志。
+5. 日志窗口支持最新日志、自动刷新、搜索、级别过滤、时间过滤和分页。
+6. 所有运行日志默认带时间戳，写入 `logs\tankeye_*.log`。
+
+六、新电脑前置条件
 
 1. Windows 64 位。
 2. CPU 推理不需要安装 Python、CMake、Qt、OpenCV 或 OpenVINO。
 3. 使用 Intel GPU 加速时，目标电脑需要安装官方 Intel 显卡驱动。
 4. 使用海康相机时，目标电脑需要安装官方 MVS 相机驱动；运行包内已包含程序运行所需的海康 SDK Runtime。
 
-六、重要目录
+七、重要目录
 
 - `models\weights`：OBB 和 SEG 模型。
 - `config\tankeye.json`：PLC、相机和工程默认配置。
 - `calibration_profiles`：九点标定配置。
 - `calibration_output`：标定工具输出。
 - `logs`：程序运行日志。
+- `openvino_cache`：OpenVINO 编译缓存。正常使用不要删除。
+- `samples\images`：演示图片。
 
-七、问题排查
+八、问题排查
 
 1. 程序无法启动：查看 `logs` 目录中最新的 `tankeye_*.log`。
-2. 找不到相机：检查 MVS 驱动、相机供电、网段和相机 IP。
-3. GPU 不可用：使用 CPU 启动，或安装官方 Intel 显卡驱动。
-4. PLC 不响应联机：使用 `-SimulatePlc` 参数进行离线测试。
+2. 找不到模型：确认 `models\weights\best_obb.xml` 和 `models\weights\best_seg.xml` 存在。
+3. 首次模型加载慢：查看日志中的 `[OpenVINO] Compile model ms`；同一运行包目录第二次通常会更快。
+4. 首次加载图片感觉慢：通常是模型正在后台编译并抢占资源；图片读取本身已改为后台线程。
+5. 找不到相机：检查 MVS 驱动、相机供电、网段和相机 IP。
+6. GPU 不可用：使用 `-Device CPU` 启动，或安装官方 Intel 显卡驱动。
+7. PLC 不响应联机：使用 `-SimulatePlc` 参数进行离线测试。

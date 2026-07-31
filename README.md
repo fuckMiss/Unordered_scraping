@@ -37,6 +37,17 @@ Outputs:
 9. Machine ROI, axis limits, and angle rules reject unsafe or invalid targets.
 10. In PLC grasp mode, after the PLC capture trigger is received, the program writes the result registers and clears the trigger.
 
+## Current 1.2 Notes
+
+- The main UI uses an approximately 75% image area and 25% right-side control panel.
+- The right-side panel uses a compact two-column layout and scales with the window.
+- Images are shown in full, with edge blank space allowed. The display does not crop the source image.
+- Image loading runs on a background thread to reduce UI stalls.
+- The primary X/Y display prefers machine coordinates when calibration is available and falls back to image coordinates only when machine coordinates are unavailable.
+- PLC writes still use machine coordinates when valid calibration exists.
+- Runtime logs are timestamped and can be viewed in the app with latest-log auto refresh, search, level filtering, time filtering, and pagination.
+- Packaged runs preserve `openvino_cache` by default. First OpenVINO GPU/CPU model compilation can still be slow, but later launches with the same package and models should usually be faster.
+
 ## Core Principles
 
 - **The coordinate system is the source of truth.** Models output pixels; the machine needs calibrated machine coordinates. Nine-point calibration generates the homography and should use all 9 points on site when possible.
