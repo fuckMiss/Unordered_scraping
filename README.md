@@ -47,6 +47,7 @@ Outputs:
 - PLC writes still use machine coordinates when valid calibration exists.
 - Runtime logs are timestamped and can be viewed in the app with latest-log auto refresh, search, level filtering, time filtering, and pagination.
 - Packaged runs preserve `openvino_cache` by default. First OpenVINO GPU/CPU model compilation can still be slow, but later launches with the same package and models should usually be faster.
+- The UI starts in normal mode. Admin mode requires a machine-bound authorization code before debug entries such as engineering settings and runtime logs are available.
 
 ## Core Principles
 
@@ -92,8 +93,28 @@ Common environment variables:
 | `TANKEYE_DEBUG_POSTPROCESS` | Enable post-processing debug logs. |
 | `TANKEYE_LOG_FILE` | Set the runtime log file path. |
 | `TANKEYE_CAMERA_FALLBACK` | Allow fallback to OpenCV camera 0. |
+| `TANKEYE_ADMIN_AUTH_KEY_FILE` | Override the local admin authorization key file. |
+| `TANKEYE_ADMIN_AUTH_SECRET` | Override the admin authorization secret directly for temporary testing. |
 
 `tankeye.json` is the default layer. Values saved from the engineering settings window override site-tunable settings such as camera exposure, limits, axis mapping, compensation, angle calibration, and coordinate transform settings.
+
+## Admin Mode
+
+- Normal mode keeps production controls available and only shows `Target List` in the function-entry area.
+- Admin mode unlocks debug entries: display mode, target list, engineering settings, and runtime logs.
+- First-time admin creation is machine-bound. The target PC shows a machine code; generate an `INIT` code on the maintainer PC:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -MachineCode "TK-...." -Purpose INIT
+```
+
+- Forgotten-password reset uses the same machine code with `RESET`:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -MachineCode "TK-...." -Purpose RESET
+```
+
+- The private release key is `config/admin_auth.key`. It is intentionally ignored by git but is copied into runtime packages when present. Keep this file private and use the same key for packaging and code generation.
 
 ## Engineering Settings
 
@@ -196,6 +217,8 @@ dist/TankEye-Iris_1.2.zip
 
 The runtime package includes the main executable, models, config, calibration output, sample image, runtime DLLs, launcher scripts, desktop shortcut helper, and usage guide. It should not include source code, CMake projects, Python scripts, tests, `.lib`, `.pdb`, `.pt`, or other development artifacts.
 
+If `config/admin_auth.key` exists, the packaging script copies it into the runtime package so admin authorization codes generated with the same key are accepted on the target PC. The key file itself must not be committed to git.
+
 When uploading to GitHub, do not commit `dist/`, `_deps/`, `vendor/hik_mvs/`, `samples/Data/`, or actual files under `models/weights/`. Distribute model files through GitHub Releases, Git LFS, or a private deployment channel.
 
 Create a desktop shortcut:
@@ -233,3 +256,4 @@ If the runtime folder is renamed or moved, recreate the desktop shortcut.
 - GPU startup fails: verify the main workflow with `-Device CPU`, then check Intel GPU drivers and OpenVINO runtime deployment.
 - PLC cannot connect: verify the vision workflow with `-SimulatePlc`, then check PLC IP, port, register addresses, and network cabling.
 - Target coordinates look wrong: check nine-point calibration order, machine coordinate entry, homography validity, ROI, and axis mapping.
+- Admin authorization code is rejected: copy the full machine code from the app, generate the code with the same `config/admin_auth.key`, and use `INIT` for first-time creation or `RESET` for forgotten-password reset.

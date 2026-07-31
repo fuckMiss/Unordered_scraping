@@ -36,6 +36,7 @@ cmake -S . -B build `
 
 ```powershell
 cmake --build build --config Release --target tankeye-openvino_qt_app
+cmake --build build --config Release --target tankeye-admin-auth-code
 ```
 
 检查程序是否存在：
@@ -91,7 +92,25 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -Bu
 
 如果要连接真实 PLC，不要加 `-SimulatePlc`，并确认 `config\tankeye.json` 里的 PLC 地址配置正确。
 
-## 6. 打包运行包
+## 6. 管理员授权码
+
+正式包使用 `config\admin_auth.key` 验证管理员授权码。该文件不会提交到 GitHub，但如果存在，打包脚本会复制进运行包。
+
+新机器首次创建管理员账号时，让对方复制软件显示的机器码，然后生成 `INIT` 授权码：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -MachineCode "TK-客户机器码" -Purpose INIT
+```
+
+忘记管理员密码时，用同一机器码生成 `RESET` 重置码：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -MachineCode "TK-客户机器码" -Purpose RESET
+```
+
+如果脚本提示使用开发默认密钥，说明没有找到 `config\admin_auth.key`，正式打包前需要先补齐密钥文件。
+
+## 7. 打包运行包
 
 打包命令：
 
@@ -114,7 +133,7 @@ build\MinSizeRel\tankeye-openvino_qt_app.exe
 build\Release\tankeye-openvino_qt_app.exe
 ```
 
-## 7. 打包结果
+## 8. 打包结果
 
 成功后生成：
 
@@ -125,7 +144,7 @@ dist\TankEye-Iris_1.2.zip
 
 `dist\TankEye-Iris_1.2` 是可直接运行的文件夹，`dist\TankEye-Iris_1.2.zip` 是给新电脑拷贝用的压缩包。
 
-## 8. 验证打包结果
+## 9. 验证打包结果
 
 检查关键文件：
 
@@ -136,6 +155,7 @@ Test-Path .\dist\TankEye-Iris_1.2\models\weights\best_obb.xml
 Test-Path .\dist\TankEye-Iris_1.2\models\weights\best_seg.xml
 Test-Path .\dist\TankEye-Iris_1.2\openvino_intel_cpu_plugin.dll
 Test-Path .\dist\TankEye-Iris_1.2\openvino_intel_gpu_plugin.dll
+Test-Path .\dist\TankEye-Iris_1.2\config\admin_auth.key
 Test-Path .\dist\TankEye-Iris_1.2\USAGE_GUIDE.txt
 ```
 
@@ -149,7 +169,7 @@ Test-Path .\dist\TankEye-Iris_1.2\USAGE_GUIDE.txt
 
 返回 `True` 表示一致。
 
-## 9. 启动打包后的程序
+## 10. 启动打包后的程序
 
 进入运行包目录：
 
@@ -175,7 +195,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 launch_tankeye_main_only.vbs
 ```
 
-## 10. 当前 1.2 行为说明
+## 11. 当前 1.2 行为说明
 
 - 主界面比例为左侧图像区约 75%、右侧控制栏约 25%。
 - 右侧栏采用双列布局，并随窗口尺寸自适应。
@@ -184,9 +204,11 @@ launch_tankeye_main_only.vbs
 - 当前目标 X/Y 有机械坐标时优先显示机械坐标；PLC 写入仍使用机械坐标。
 - 运行日志全部带时间戳。
 - 界面内“运行日志”支持最新日志、自动刷新、搜索、级别过滤、时间过滤和分页。
+- 普通模式只显示目标列表；管理员模式登录后显示隐藏/全显、工程设置、运行日志等调试入口。
+- 首次创建管理员需要 `INIT` 授权码；忘记密码重置需要 `RESET` 重置码。
 - OpenVINO 缓存目录默认为运行包内 `openvino_cache`，正常启动不会删除缓存。
 
-## 11. 常见问题
+## 12. 常见问题
 
 ### 报错：Qt app executable not found
 
@@ -238,6 +260,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtim
 ### 图片中文路径导致加载失败或异常
 
 Windows 下 OpenCV 直接读取中文路径可能不稳定。临时规避方法是把测试图片放到纯英文路径，并把图片文件名改成英文或数字。
+
+### 管理员授权码无效
+
+确认机器码是从软件里复制的完整机器码；首次创建使用 `-Purpose INIT`，忘记密码重置使用 `-Purpose RESET`；生成码的电脑和打包运行包使用同一个 `config\admin_auth.key`。
 
 ### 打包后加载模型变慢
 
@@ -296,13 +322,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 
 其中 `Compile model ms` 如果第一次很大、第二次明显变小，说明缓存正在正常生效。
 
-## 12. 最常用的一套命令
+## 13. 最常用的一套命令
 
 日常修改代码后，直接按顺序执行：
 
 ```powershell
 cd D:\work_floder\jiezhifa\TankEye_source_for_new_pc
-cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_frame_postprocess_smoke
+cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-admin-auth-code tankeye-openvino_frame_postprocess_smoke
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter "*frame_postprocess_smoke*.exe"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.2 -Force
 ```

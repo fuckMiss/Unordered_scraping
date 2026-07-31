@@ -18,6 +18,7 @@ TankEye-Iris 是一套 Windows 工业视觉抓取上位机。它负责把现场�
 - 程序启动后会自动加载 OBB/SEG 模型；OpenVINO 首次 GPU/CPU 编译可能较慢，运行包默认保留 `openvino_cache`，第二次通常会更快。
 - 运行日志默认写入 `logs/tankeye_*.log`，所有 `cout/cerr` 日志都会带时间戳。
 - 界面内“运行日志”支持查看最新日志、自动刷新、搜索、级别过滤、时间过滤和分页。
+- 程序默认进入普通模式；管理员模式需要机器授权码，登录后才显示工程设置、运行日志等调试入口。
 
 ## 系统边界
 
@@ -92,8 +93,28 @@ config/tankeye.json
 | `TANKEYE_DEBUG_POSTPROCESS` | `1` 打开后处理调试日志。 |
 | `TANKEYE_LOG_FILE` | 指定日志文件。 |
 | `TANKEYE_CAMERA_FALLBACK` | `1` 允许相机回退到 OpenCV camera 0。 |
+| `TANKEYE_ADMIN_AUTH_KEY_FILE` | 覆盖管理员授权密钥文件路径。 |
+| `TANKEYE_ADMIN_AUTH_SECRET` | 临时直接指定管理员授权密钥，仅用于测试。 |
 
 `tankeye.json` 是默认层；工程设置窗口保存的 `QSettings` 会覆盖相机、限位、轴向映射、补偿和角度等现场可调项；环境变量适合临时启动和排障。
+
+## 管理员模式
+
+- 普通模式保留生产操作按钮，右侧“功能入口”只显示“目标列表”。
+- 管理员模式显示调试入口：隐藏/全显、目标列表、工程设置、运行日志。
+- 新机器首次创建管理员账号时，需要把界面里的机器码发给维护人员，再用 `INIT` 生成授权码：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -MachineCode "TK-...." -Purpose INIT
+```
+
+- 忘记管理员密码时，用同一机器码和 `RESET` 生成重置码：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -MachineCode "TK-...." -Purpose RESET
+```
+
+- 正式授权密钥文件是 `config/admin_auth.key`。它会被 git 忽略，但打包时会自动复制进运行包。请保管好这个文件，并用同一密钥打包和生成授权码。
 
 ## 工程设置
 
@@ -188,6 +209,8 @@ dist/TankEye-Iris_1.2.zip
 
 运行包包含主程序、模型、配置、标定输出、示例图、运行时 DLL、启动脚本、桌面图标脚本和使用说明。它不应包含源码、CMake 工程、Python 脚本、测试、`.lib`、`.pdb`、`.pt` 等开发产物。
 
+如果存在 `config/admin_auth.key`，打包脚本会把它复制到运行包内。现场机器上的软件会用这个密钥验证管理员授权码；该密钥文件不要提交到 GitHub。
+
 上传 GitHub 时，不要提交 `dist/`、`_deps/`、`vendor/hik_mvs/`、`samples/Data/` 和 `models/weights/` 中的实际模型文件；模型文件可通过 GitHub Releases、Git LFS 或私有部署渠道分发。
 
 创建桌面图标：
@@ -227,3 +250,4 @@ dist/TankEye-Iris_1.2.zip
 - GPU 启动失败：先用 `-Device CPU` 验证主链路，再检查 Intel GPU 驱动和 OpenVINO 运行时。
 - PLC 不联机：先用 `-SimulatePlc` 验证视觉链路，再检查 PLC IP、端口、寄存器地址和网线。
 - 目标坐标异常：优先检查九点标定点顺序、机械坐标录入、单应矩阵有效性和 ROI/轴向映射。
+- 管理员授权码无效：从界面复制完整机器码；用同一个 `config/admin_auth.key` 生成；首次创建用 `INIT`，忘记密码重置用 `RESET`。
