@@ -134,14 +134,14 @@ void YOLOv11_SEG::initializeModelState()
     det_output_buffer_.assign(runtime_.det_output_numel, 0.0f);
     mask_output_buffer_.assign(runtime_.mask_output_numel, 0.0f);
 
-    printf("YOLOv11_SEG OpenVINO Model Info:\n");
-    printf("  Device: %s\n", actual_device_.c_str());
-    printf("  Input: %dx%d\n", runtime_.input_w, runtime_.input_h);
-    printf("  Raw Detection Tensor: %s\n", ShapeToString(det_shape).c_str());
-    printf("  Raw Proto Tensor: %s\n", ShapeToString(mask_shape).c_str());
-    printf("  Detection Output: %d x %d\n", runtime_.detection_attribute_size, runtime_.num_detections);
-    printf("  Proto Output: %d x %d x %d\n", runtime_.mask_dim, runtime_.mask_h, runtime_.mask_w);
-    printf("  Num classes: %d\n", runtime_.num_classes);
+    cout << "YOLOv11_SEG OpenVINO Model Info:" << endl;
+    cout << "  Device: " << actual_device_ << endl;
+    cout << "  Input: " << runtime_.input_w << "x" << runtime_.input_h << endl;
+    cout << "  Raw Detection Tensor: " << ShapeToString(det_shape) << endl;
+    cout << "  Raw Proto Tensor: " << ShapeToString(mask_shape) << endl;
+    cout << "  Detection Output: " << runtime_.detection_attribute_size << " x " << runtime_.num_detections << endl;
+    cout << "  Proto Output: " << runtime_.mask_dim << " x " << runtime_.mask_h << " x " << runtime_.mask_w << endl;
+    cout << "  Num classes: " << runtime_.num_classes << endl;
 
     if (config_.enable_warmup) {
         ov::Tensor input_tensor(ov::element::f32, input_port_.get_shape(), input_buffer_.data());
@@ -149,7 +149,7 @@ void YOLOv11_SEG::initializeModelState()
         for (int i = 0; i < 5; ++i) {
             infer();
         }
-        printf("model warmup 5 times\n");
+        cout << "model warmup 5 times" << endl;
     }
 }
 
@@ -339,6 +339,6 @@ void YOLOv11_SEG::draw(Mat& image, const vector<SegDetection>& output, const str
 
     if (!output_path.empty()) {
         imwrite(output_path, image);
-        printf("Seg result saved to %s\n", output_path.c_str());
+        cout << "Seg result saved to " << output_path << endl;
     }
 }

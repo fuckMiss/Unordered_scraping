@@ -120,11 +120,11 @@ void YOLOv11_OBB::initializeModelState()
     input_buffer_.assign(static_cast<size_t>(3) * runtime_.input_w * runtime_.input_h, 0.0f);
     output_buffer_.assign(runtime_.output_numel, 0.0f);
 
-    printf("YOLOv11_OBB OpenVINO Model Info:\n");
-    printf("  Device: %s\n", actual_device_.c_str());
-    printf("  Input: %dx%d\n", runtime_.input_w, runtime_.input_h);
-    printf("  Output: %d x %d\n", runtime_.detection_attribute_size, runtime_.num_detections);
-    printf("  Num classes: %d\n", runtime_.num_classes);
+    cout << "YOLOv11_OBB OpenVINO Model Info:" << endl;
+    cout << "  Device: " << actual_device_ << endl;
+    cout << "  Input: " << runtime_.input_w << "x" << runtime_.input_h << endl;
+    cout << "  Output: " << runtime_.detection_attribute_size << " x " << runtime_.num_detections << endl;
+    cout << "  Num classes: " << runtime_.num_classes << endl;
 
     if (config_.enable_warmup) {
         ov::Tensor input_tensor(ov::element::f32, input_port_.get_shape(), input_buffer_.data());
@@ -132,7 +132,7 @@ void YOLOv11_OBB::initializeModelState()
         for (int i = 0; i < 5; i++) {
             infer_request_.infer();
         }
-        printf("model warmup 5 times\n");
+        cout << "model warmup 5 times" << endl;
     }
 }
 
@@ -326,6 +326,6 @@ void YOLOv11_OBB::draw(Mat& image, const vector<OBBDetection>& output, const str
     image = display;
     if (!output_path.empty()) {
         imwrite(output_path, display);
-        printf("Saved result to: %s\n", output_path.c_str());
+        cout << "Saved result to: " << output_path << endl;
     }
 }

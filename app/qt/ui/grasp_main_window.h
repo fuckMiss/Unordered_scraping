@@ -65,6 +65,12 @@ private:
         Camera
     };
 
+    struct ImageLoadResult {
+        QString path;
+        QString error_message;
+        cv::Mat image;
+    };
+
     void setupUi();
     void buildTopBar(QVBoxLayout* root_layout);
     void buildDisplayPanel(QSplitter* splitter);
@@ -73,8 +79,15 @@ private:
     void buildResultSection(QVBoxLayout* side_layout);
     void buildStatusSection(QVBoxLayout* side_layout);
     void buildActionSection(QVBoxLayout* side_layout);
+    void buildFunctionSection(QVBoxLayout* side_layout);
     void buildTargetListSection(QVBoxLayout* side_layout);
     void applyStyles();
+    void applyResponsiveLayout(bool force = false);
+    void refreshTopBarMetrics();
+    void refreshActionButtonMetrics();
+    void syncMainSplitterRatio();
+    void refreshSidebarCompactMetrics();
+    int responsiveSidebarWidth() const;
     void bindActions();
     void syncWindowControlButtons();
     void syncSidePanelToggleButton();
@@ -87,6 +100,7 @@ private:
     void startPlcPollingState();
 
     void openEngineeringSettings();
+    void showRuntimeLogs();
     void loadImage();
     void openCamera();
     void closeCamera();
@@ -188,6 +202,7 @@ private:
     QPushButton* display_mode_button_ = nullptr;
     QPushButton* engineering_button_ = nullptr;
     QPushButton* target_list_button_ = nullptr;
+    QPushButton* runtime_log_button_ = nullptr;
     QPushButton* target_list_back_button_ = nullptr;
     QToolButton* user_button_ = nullptr;
     QToolButton* settings_icon_button_ = nullptr;
@@ -271,6 +286,7 @@ private:
     QFutureWatcher<QString>* plc_poll_watcher_ = nullptr;
     QFutureWatcher<QString>* plc_detection_watcher_ = nullptr;
     QFutureWatcher<QString>* plc_test_watcher_ = nullptr;
+    QFutureWatcher<ImageLoadResult>* image_load_watcher_ = nullptr;
     bool top_bar_dragging_ = false;
     QPoint top_bar_drag_offset_;
     QPoint top_bar_press_global_pos_;
@@ -279,6 +295,8 @@ private:
     bool resizing_frame_ = false;
     bool side_panel_expanded_ = true;
     int expanded_sidebar_width_ = 360;
+    double responsive_scale_ = 1.0;
+    bool syncing_splitter_sizes_ = false;
     Qt::Edges active_resize_edges_;
     QRect resize_start_geometry_;
     QPoint resize_start_global_pos_;

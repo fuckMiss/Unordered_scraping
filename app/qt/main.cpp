@@ -12,13 +12,87 @@
 #include <QScreen>
 #include <QString>
 
-#include <cstdio>
+#include <fstream>
 #include <iostream>
-
-#include <fcntl.h>
-#include <io.h>
+#include <mutex>
+#include <streambuf>
 
 namespace {
+
+class TimestampLogBuffer : public std::streambuf
+{
+public:
+    TimestampLogBuffer(const QString& log_path, const char* level)
+        : level_(level)
+    {
+        file_.open(log_path.toStdString(), std::ios::out | std::ios::app | std::ios::binary);
+    }
+
+    ~TimestampLogBuffer() override
+    {
+        sync();
+    }
+
+protected:
+    int overflow(int ch) override
+    {
+        if (ch == traits_type::eof()) {
+            return sync() == 0 ? traits_type::not_eof(ch) : traits_type::eof();
+        }
+
+        buffer_.push_back(static_cast<char>(ch));
+        if (ch == '\n') {
+            FlushLine();
+        }
+        return ch;
+    }
+
+    int sync() override
+    {
+        if (!buffer_.empty()) {
+            FlushLine();
+        }
+        if (file_.is_open()) {
+            file_.flush();
+        }
+        return 0;
+    }
+
+private:
+    void FlushLine()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!file_.is_open()) {
+            buffer_.clear();
+            return;
+        }
+
+        while (!buffer_.empty() && (buffer_.back() == '\n' || buffer_.back() == '\r')) {
+            buffer_.pop_back();
+        }
+        if (!buffer_.empty()) {
+            const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
+            file_ << stamp.toStdString() << " [" << level_ << "] " << buffer_ << '\n';
+        }
+        buffer_.clear();
+        file_.flush();
+    }
+
+    std::ofstream file_;
+    std::string buffer_;
+    const char* level_;
+    std::mutex mutex_;
+};
+
+struct TimestampLogSinks
+{
+    std::unique_ptr<TimestampLogBuffer> cout_buffer;
+    std::unique_ptr<TimestampLogBuffer> cerr_buffer;
+    std::streambuf* old_cout = nullptr;
+    std::streambuf* old_cerr = nullptr;
+};
+
+TimestampLogSinks g_timestamp_log_sinks;
 
 void CleanupOldLogFiles(const QDir& log_dir, int keep_days)
 {
@@ -45,6 +119,14 @@ void CleanupOldLogFiles(const QDir& log_dir, int keep_days)
     }
 }
 
+void InstallTimestampLogSinks(const QString& log_path)
+{
+    g_timestamp_log_sinks.cout_buffer = std::make_unique<TimestampLogBuffer>(log_path, "INFO");
+    g_timestamp_log_sinks.cerr_buffer = std::make_unique<TimestampLogBuffer>(log_path, "ERROR");
+    g_timestamp_log_sinks.old_cout = std::cout.rdbuf(g_timestamp_log_sinks.cout_buffer.get());
+    g_timestamp_log_sinks.old_cerr = std::cerr.rdbuf(g_timestamp_log_sinks.cerr_buffer.get());
+}
+
 QString ConfigureFileLog()
 {
     QString log_path = QString::fromLocal8Bit(qgetenv("TANKEYE_LOG_FILE"));
@@ -65,11 +147,7 @@ QString ConfigureFileLog()
     const QFileInfo log_info(log_path);
     CleanupOldLogFiles(log_info.absoluteDir(), 7);
 
-    const std::wstring wide_log_path = log_path.toStdWString();
-    FILE* stdout_file = nullptr;
-    FILE* stderr_file = nullptr;
-    _wfreopen_s(&stdout_file, wide_log_path.c_str(), L"a", stdout);
-    _wfreopen_s(&stderr_file, wide_log_path.c_str(), L"a", stderr);
+    InstallTimestampLogSinks(log_path);
 
     std::cout << "============================================================" << std::endl;
     std::cout << "TankEye Qt app started at "

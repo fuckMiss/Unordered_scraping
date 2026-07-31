@@ -61,7 +61,23 @@ function Add-HashEntry($Root, $File) {
     }
 }
 
-Require-File (Join-Path $BuildPath "tankeye-openvino_qt_app.exe") "Qt app executable"
+$BuildOutputCandidates = @(
+    $BuildPath,
+    (Join-Path $BuildPath "Release"),
+    (Join-Path $BuildPath "RelWithDebInfo"),
+    (Join-Path $BuildPath "MinSizeRel")
+)
+$BuildOutputPath = $BuildOutputCandidates |
+    Where-Object { Test-Path -LiteralPath (Join-Path $_ "tankeye-openvino_qt_app.exe") } |
+    Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($BuildOutputPath)) {
+    $CheckedPaths = ($BuildOutputCandidates | ForEach-Object {
+        Join-Path $_ "tankeye-openvino_qt_app.exe"
+    }) -join "; "
+    throw "Qt app executable not found. Checked: $CheckedPaths"
+}
+Write-Host "[Package] Build output: $BuildOutputPath"
+Require-File (Join-Path $BuildOutputPath "tankeye-openvino_qt_app.exe") "Qt app executable"
 Require-File (Join-Path $AppDir "models\weights\best_obb.xml") "OBB model XML"
 Require-File (Join-Path $AppDir "models\weights\best_obb.bin") "OBB model BIN"
 Require-File (Join-Path $AppDir "models\weights\best_seg.xml") "SEG model XML"
@@ -154,7 +170,7 @@ if ([string]::IsNullOrWhiteSpace($OpenVinoBin)) {
 }
 
 $env:Path = (($QtBin, $OpenCvBin, $OpenVinoBin, $env:Path) -join ";")
-Copy-File (Join-Path $BuildPath "tankeye-openvino_qt_app.exe") $StagingDir
+Copy-File (Join-Path $BuildOutputPath "tankeye-openvino_qt_app.exe") $StagingDir
 & $WinDeployQt --release --compiler-runtime --no-translations (Join-Path $StagingDir "tankeye-openvino_qt_app.exe")
 if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
@@ -172,14 +188,14 @@ Get-ChildItem -LiteralPath $VcRuntimeDir -File -Filter "*.dll" | ForEach-Object 
     Copy-File $_.FullName $StagingDir
 }
 
-Get-ChildItem -LiteralPath $BuildPath -File | Where-Object {
+Get-ChildItem -LiteralPath $BuildOutputPath -File | Where-Object {
     $_.Extension -ieq ".dll" -or $_.Extension -ieq ".cti" -or $_.Extension -ieq ".ax" -or $_.Name -ieq "CommonParameters.ini"
 } | ForEach-Object {
     Copy-File $_.FullName $StagingDir
 }
 
 foreach ($DirName in @("bearer", "iconengines", "imageformats", "platforms", "styles", "ThirdParty")) {
-    Copy-DirectoryIfExists (Join-Path $BuildPath $DirName) (Join-Path $StagingDir $DirName)
+    Copy-DirectoryIfExists (Join-Path $BuildOutputPath $DirName) (Join-Path $StagingDir $DirName)
 }
 
 foreach ($AssetName in @("app_logo_cutout.png", "app_icon.ico")) {
@@ -193,7 +209,10 @@ Copy-File (Join-Path $AppDir "models\weights\best_obb.bin") $WeightsDir
 Copy-File (Join-Path $AppDir "models\weights\best_seg.xml") $WeightsDir
 Copy-File (Join-Path $AppDir "models\weights\best_seg.bin") $WeightsDir
 
-$ConfigSource = Join-Path $BuildPath "config\tankeye.json"
+$ConfigSource = Join-Path $BuildOutputPath "config\tankeye.json"
+if (-not (Test-Path -LiteralPath $ConfigSource)) {
+    $ConfigSource = Join-Path $BuildPath "config\tankeye.json"
+}
 if (-not (Test-Path -LiteralPath $ConfigSource)) {
     $ConfigSource = Join-Path $AppDir "config\tankeye.json"
 }
@@ -219,7 +238,10 @@ function Test-ValidCoordinateProfile($ProfilePath) {
     }
 }
 
-Copy-DirectoryIfExists (Join-Path $BuildPath "calibration_profiles") (Join-Path $StagingDir "calibration_profiles")
+Copy-DirectoryIfExists (Join-Path $BuildOutputPath "calibration_profiles") (Join-Path $StagingDir "calibration_profiles")
+if (-not (Test-Path -LiteralPath (Join-Path $StagingDir "calibration_profiles"))) {
+    Copy-DirectoryIfExists (Join-Path $BuildPath "calibration_profiles") (Join-Path $StagingDir "calibration_profiles")
+}
 Copy-DirectoryIfExists (Join-Path $AppDir "calibration_output") (Join-Path $StagingDir "calibration_output")
 
 $PackagedConfigPath = Join-Path $StagingDir "config\tankeye.json"
@@ -247,6 +269,7 @@ Copy-FileIfExists (Join-Path $AppDir "samples\images\2.jpg") (Join-Path $Staging
 Copy-File (Join-Path $AppDir "runtime\USAGE_GUIDE.txt") $StagingDir
 
 $PickerCandidates = @(
+    (Join-Path $BuildOutputPath "nine_point_circle_picker.exe"),
     (Join-Path $BuildPath "nine_point_circle_picker.exe"),
     (Join-Path $AppDir "dist\TankEye-Iris_1.0\nine_point_circle_picker.exe")
 )
@@ -268,6 +291,7 @@ param(
     [int]$PlcPort = 0,
     [switch]$SimulatePlc,
     [switch]$DebugPostprocess,
+    [switch]$ClearOpenVinoCache,
     [string]$CameraIp = "192.168.0.233"
 )
 
@@ -289,7 +313,10 @@ foreach ($Required in @($AppExe, $ObbModel, $SegModel)) {
 }
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-Remove-Item -LiteralPath $OpenVinoCacheDir -Recurse -Force -ErrorAction SilentlyContinue
+if ($ClearOpenVinoCache) {
+    Remove-Item -LiteralPath $OpenVinoCacheDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+New-Item -ItemType Directory -Force -Path $OpenVinoCacheDir | Out-Null
 
 try {
     $Desktop = [Environment]::GetFolderPath("Desktop")
@@ -321,7 +348,7 @@ $RuntimePaths = @(
 ) | Where-Object { Test-Path -LiteralPath $_ }
 $env:Path = (($RuntimePaths + @($env:Path)) -join ";")
 
-Remove-Item Env:\TANKEYE_OPENVINO_CACHE_DIR -ErrorAction SilentlyContinue
+$env:TANKEYE_OPENVINO_CACHE_DIR = $OpenVinoCacheDir
 $env:TANKEYE_CONFIG_PATH = Join-Path $AppDir "config\tankeye.json"
 $env:TANKEYE_WINDOW_MODE = $WindowMode
 $env:TANKEYE_WINDOW_WIDTH = [string]$WindowWidth
@@ -373,6 +400,7 @@ function Invoke-TankEyeApp {
     Write-Host "[TankEye] Device: $SelectedDevice"
     Write-Host "[TankEye] PLC: $(if ($SimulatePlc) { 'SIMULATED' } elseif ($PlcHost) { "$PlcHost`:$PlcPort" } else { 'config default' })"
     Write-Host "[TankEye] Log: $SelectedLogFile"
+    Write-Host "[TankEye] OpenVINO cache: $OpenVinoCacheDir"
 
     $Process = Start-Process -FilePath $AppExe -ArgumentList @($ObbModel, $SegModel) -WorkingDirectory $AppDir -PassThru
     if ($StartupGuardSeconds -gt 0) {
@@ -389,18 +417,7 @@ function Invoke-TankEyeApp {
 }
 
 $RequestedDevice = $Device.ToUpperInvariant()
-if ($RequestedDevice -eq "CPU") {
-    exit (Invoke-TankEyeApp -SelectedDevice "CPU" -SelectedLogFile $LogFile -StartupGuardSeconds 0)
-}
-
-$GpuExitCode = Invoke-TankEyeApp -SelectedDevice "GPU" -SelectedLogFile $LogFile -StartupGuardSeconds 60
-if ($GpuExitCode -eq 0) {
-    exit 0
-}
-
-$CpuLogFile = Join-Path $LogDir "tankeye_$($LogStamp)_cpu_fallback.log"
-Write-Warning "[TankEye] GPU startup failed with code $GpuExitCode. Falling back to CPU."
-exit (Invoke-TankEyeApp -SelectedDevice "CPU" -SelectedLogFile $CpuLogFile -StartupGuardSeconds 0)
+exit (Invoke-TankEyeApp -SelectedDevice $RequestedDevice -SelectedLogFile $LogFile -StartupGuardSeconds 0)
 '@
 Write-Utf8File (Join-Path $StagingDir "launch_tankeye.ps1") $Launcher
 
@@ -443,39 +460,46 @@ Write-Host "Desktop shortcut created: $ShortcutPath"
 Write-Utf8File (Join-Path $StagingDir "create_desktop_shortcut.ps1") $ShortcutScript
 
 $Readme = @'
-# TankEye-Iris 1.1 鐙珛杩愯鍖?
-## 鍚姩
+# TankEye-Iris 1.1 独立运行包
 
-鍙屽嚮 `launch_tankeye_main_only.vbs`锛屾垨鍦?PowerShell 涓繍琛岋細
+## 启动
+
+双击 `launch_tankeye_main_only.vbs`，或在 PowerShell 中运行：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1
 ```
 
-娴嬭瘯 PLC 妯℃嫙鍜?CPU 鎺ㄧ悊锛?
+测试 PLC 模拟和 CPU 推理：
+
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -Device CPU -SimulatePlc
 ```
 
-## 鍖呭唴鍐呭
+## 包内内容
 
-- 涓荤▼搴忥細`tankeye-openvino_qt_app.exe`
-- 妯″瀷锛歚models\weights\best_obb.*`銆乣models\weights\best_seg.*`
-- 閰嶇疆锛歚config\tankeye.json`
-- 鏍囧畾锛歚calibration_profiles\`銆乣calibration_output\`
-- 婕旂ず鍥撅細`samples\images\2.jpg`
-- 杩愯搴擄細Qt銆丱penCV銆丱penVINO銆乀BB銆丠ikrobot MVS Runtime
-- 宸ュ叿锛歚nine_point_circle_picker.exe`銆乣create_desktop_shortcut.ps1`
+- 主程序：`tankeye-openvino_qt_app.exe`
+- 模型：`models\weights\best_obb.*`、`models\weights\best_seg.*`
+- 配置：`config\tankeye.json`
+- 标定：`calibration_profiles\`、`calibration_output\`
+- 演示图：`samples\images\2.jpg`
+- 运行库：Qt、OpenCV、OpenVINO、TBB、Hikrobot MVS Runtime
+- 工具：`nine_point_circle_picker.exe`、`create_desktop_shortcut.ps1`
 
-## 鏂扮數鑴戝墠缃潯浠?
-- Windows 64 浣嶃€?- CPU 鎺ㄧ悊鍙洿鎺ヨ繍琛屻€?- GPU 鎺ㄧ悊闇€瑕佺洰鏍囩數鑴戝畨瑁呭畼鏂?Intel 鏄惧崱椹卞姩銆?- 鍖呭唴甯?Hikrobot SDK 杩愯搴擄紱棣栨鎺ュ叆娴峰悍鐩告満鍓嶏紝鐩爣鐢佃剳浠嶉渶瀹夎瀹樻柟 MVS 鐩告満椹卞姩銆?
-## 涓嶅寘鍚簮鐮?
-姝よ繍琛屽寘涓嶅寘鍚?C/C++ 婧愮爜銆佸ご鏂囦欢銆丳ython 鑴氭湰銆丆Make 宸ョ▼銆佹祴璇曘€佽皟璇曠鍙枫€乣.lib` 鎴栬缁冭祫浜с€?'@
+## 新电脑前置条件
+
+- Windows 64 位。
+- CPU 推理可直接运行。
+- GPU 推理需要目标电脑安装官方 Intel 显卡驱动。
+- 包内带 Hikrobot SDK 运行库；首次接入海康相机前，目标电脑仍需安装官方 MVS 相机驱动。
+
+## 不包含源码
+
+此运行包不包含 C/C++ 源码、头文件、Python 脚本、CMake 工程、测试、调试符号、`.lib` 或训练资产。
+'@
 Write-Utf8File (Join-Path $StagingDir "README_RUNTIME.md") $Readme
 
-$UsageGuideBase64 = "VGFua0V5ZS1JcmlzIOS9v+eUqOivtOaYjgo9PT09PT09PT09PT09PT09PT09PT0KCuS4gOOAgemmluasoeS9v+eUqAoxLiDlsIYgVGFua0V5ZS1JcmlzXzEuMS56aXAg6Kej5Y6L5Yiw5pys5Zyw56OB55uY77yM5L6L5aaCIEQ6XFRhbmtFeWUtSXJpc18xLjHjgIIKMi4g5LiN6KaB55u05o6l5Zyo5Y6L57yp5YyF5YaF6L+Q6KGM56iL5bqP44CCCjMuIOWPjOWHu+WMheagueebruW9leeahCBsYXVuY2hfdGFua2V5ZV9tYWluX29ubHkudmJz44CCCjQuIOesrOS4gOasoeWQr+WKqOS8muiHquWKqOWcqOW9k+WJjSBXaW5kb3dzIOeUqOaIt+ahjOmdouWIm+W7uiBUYW5rRXllLUlyaXMg5Zu+5qCH44CCCjUuIOWQjue7reWPr+WPjOWHu+ahjOmdouWbvuagh+WQr+WKqOOAggoK5LqM44CB5Zu+54mH5qOA5rWLCjEuIOWQr+WKqOeoi+W6j+WQjueCueWHu+KAnOWKoOi9veWbvueJh+KAneOAggoyLiDlj6/pgInmi6nljIXlhoUgc2FtcGxlc1xpbWFnZXNcMi5qcGcg5L2c5Li65ryU56S65Zu+77yM5oiW6YCJ5oup6Ieq5bex55qE5Zu+54mH44CCCjMuIOeCueWHu+KAnOW8gOWni+ajgOa1i+KAneOAggo0LiDnqIvluo/kvJrmmL7npLogT0JC44CBU0VH44CB5aS55Y+W5bCE57q/44CB5oqT5Y+W54K55Y+K5qOA5rWL57uT5p6c44CCCgrkuInjgIHnm7jmnLrmo4DmtYsKMS4g56Gu6K6k55S16ISR5bey5a6J6KOF5a6Y5pa5IEhpa3JvYm90IE1WUyDnm7jmnLrpqbHliqjjgIIKMi4g56Gu6K6k55u45py6572R5q615ZKM55S16ISR572R5Y2hIElQIOWPr+mAmuS/oeOAggozLiDlnKjlt6XnqIvorr7nva7kuK3loavlhpnnm7jmnLogSVDjgIHmm53lhYnlj4LmlbDlkoznjrDlnLrmoIflrprjgIIKNC4g54K55Ye74oCc5omT5byA55u45py64oCd77yM5YaN54K55Ye74oCc5byA5aeL5qOA5rWL4oCd44CCCgrlm5vjgIFQTEMKMS4g6buY6K6kIFBMQyDphY3nva7kvY3kuo4gY29uZmlnXHRhbmtleWUuanNvbuOAggoyLiDnjrDlnLrogZTosIPliY3noa7orqQgUExDIElQ44CB56uv5Y+j44CB5a+E5a2Y5Zmo5Zyw5Z2A44CB5Z2Q5qCH5pig5bCE5ZKM6ZmQ5L2N6K6+572u44CCCjMuIOmcgOimgeemu+e6v+mqjOivgeaXtu+8jOWPr+S9v+eUqOWQr+WKqOWRveS7pO+8mgogICBwb3dlcnNoZWxsLmV4ZSAtTm9Qcm9maWxlIC1FeGVjdXRpb25Qb2xpY3kgQnlwYXNzIC1GaWxlIC5cbGF1bmNoX3RhbmtleWUucHMxIC1EZXZpY2UgQ1BVIC1TaW11bGF0ZVBsYwo0LiBTaW11bGF0ZVBsYyDlj6rmqKHmi58gUExDIOivu+WGme+8jOS4jeS8mui/nuaOpeaIluWGmeWFpeeOsOWcuiBQTEPjgIIKCuS6lOOAgeaWsOeUteiEkeWJjee9ruadoeS7tgoxLiBXaW5kb3dzIDY0IOS9jeOAggoyLiBDUFUg5o6o55CG5LiN6ZyA6KaB5a6J6KOFIFB5dGhvbuOAgUNNYWtl44CBUXTjgIFPcGVuQ1Yg5oiWIE9wZW5WSU5P44CCCjMuIOS9v+eUqCBJbnRlbCBHUFUg5Yqg6YCf5pe277yM55uu5qCH55S16ISR6ZyA6KaB5a6J6KOF5a6Y5pa5IEludGVsIOaYvuWNoempseWKqOOAggo0LiDkvb/nlKjmtbflurfnm7jmnLrml7bvvIznm67moIfnlLXohJHpnIDopoHlronoo4XlrpjmlrkgTVZTIOebuOacuumpseWKqO+8m+WMheWGheW3suWMheWQq+eoi+W6j+i/kOihjOaJgOmcgOeahOa1t+W6tyBTREsgUnVudGltZeOAggoK5YWt44CB6YeN6KaB55uu5b2VCi0gbW9kZWxzXHdlaWdodHPvvJpPQkIg5ZKMIFNFRyDmqKHlnovjgIIKLSBjb25maWdcdGFua2V5ZS5qc29u77yaUExD44CB55u45py65ZKM5bel56iL6buY6K6k6YWN572u44CCCi0gY2FsaWJyYXRpb25fcHJvZmlsZXPvvJrkuZ3ngrnmoIflrprphY3nva7jgIIKLSBjYWxpYnJhdGlvbl9vdXRwdXTvvJrmoIflrprlt6XlhbfovpPlh7rjgIIKLSBsb2dz77ya56iL5bqP6L+Q6KGM5pel5b+X44CCCgrkuIPjgIHpl67popjmjpLmn6UKMS4g56iL5bqP5peg5rOV5ZCv5Yqo77ya5p+l55yLIGxvZ3Mg55uu5b2V5Lit5pyA5paw55qEIHRhbmtleWVfKi5sb2fjgIIKMi4g5om+5LiN5Yiw55u45py677ya5qOA5p+lIE1WUyDpqbHliqjjgIHnm7jmnLrkvpvnlLXjgIHnvZHmrrXlkoznm7jmnLogSVDjgIIKMy4gR1BVIOS4jeWPr+eUqO+8muS9v+eUqCBDUFUg5ZCv5Yqo77yM5oiW5a6J6KOF5a6Y5pa5IEludGVsIOaYvuWNoempseWKqOOAggo0LiBQTEMg5LiN5bqU6IGU5py65pe277ya5L2/55SoIC1TaW11bGF0ZVBsYyDlj4LmlbDov5vooYzmtYvor5XjgII="
 $UsageGuidePath = Join-Path $StagingDir "USAGE_GUIDE.txt"
-[System.IO.File]::WriteAllBytes($UsageGuidePath, [System.Convert]::FromBase64String($UsageGuideBase64))
 Require-File $UsageGuidePath "Usage guide"
 
 $Notices = @'

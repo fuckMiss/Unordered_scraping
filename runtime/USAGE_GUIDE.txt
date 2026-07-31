@@ -1,13 +1,58 @@
-﻿TankEye-Iris 浣跨敤璇存槑
+TankEye-Iris 使用说明
 =====================
 
-涓€銆侀娆′娇鐢?1. 灏?TankEye-Iris_1.1.zip 瑙ｅ帇鍒版湰鍦扮鐩橈紝渚嬪 D:\TankEye-Iris_1.1銆?2. 涓嶈鐩存帴鍦ㄥ帇缂╁寘鍐呰繍琛岀▼搴忋€?3. 鍙屽嚮鍖呮牴鐩綍鐨?launch_tankeye_main_only.vbs銆?4. 绗竴娆″惎鍔ㄤ細鑷姩鍦ㄥ綋鍓?Windows 鐢ㄦ埛妗岄潰鍒涘缓 TankEye-Iris 鍥炬爣銆?5. 鍚庣画鍙弻鍑绘闈㈠浘鏍囧惎鍔ㄣ€?
-浜屻€佸浘鐗囨娴?1. 鍚姩绋嬪簭鍚庣偣鍑烩€滃姞杞藉浘鐗団€濄€?2. 鍙€夋嫨鍖呭唴 samples\images\2.jpg 浣滀负婕旂ず鍥撅紝鎴栭€夋嫨鑷繁鐨勫浘鐗囥€?3. 鐐瑰嚮鈥滃紑濮嬫娴嬧€濄€?4. 绋嬪簭浼氭樉绀?OBB銆丼EG銆佸す鍙栧皠绾裤€佹姄鍙栫偣鍙婃娴嬬粨鏋溿€?
-涓夈€佺浉鏈烘娴?1. 纭鐢佃剳宸插畨瑁呭畼鏂?Hikrobot MVS 鐩告満椹卞姩銆?2. 纭鐩告満缃戞鍜岀數鑴戠綉鍗?IP 鍙€氫俊銆?3. 鍦ㄥ伐绋嬭缃腑濉啓鐩告満 IP銆佹洕鍏夊弬鏁板拰鐜板満鏍囧畾銆?4. 鐐瑰嚮鈥滄墦寮€鐩告満鈥濓紝鍐嶇偣鍑烩€滃紑濮嬫娴嬧€濄€?
-鍥涖€丳LC
-1. 榛樿 PLC 閰嶇疆浣嶄簬 config\tankeye.json銆?2. 鐜板満鑱旇皟鍓嶇‘璁?PLC IP銆佺鍙ｃ€佸瘎瀛樺櫒鍦板潃銆佸潗鏍囨槧灏勫拰闄愪綅璁剧疆銆?3. 闇€瑕佺绾块獙璇佹椂锛屽彲浣跨敤鍚姩鍛戒护锛?   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -Device AUTO -SimulatePlc
-4. SimulatePlc 鍙ā鎷?PLC 璇诲啓锛屼笉浼氳繛鎺ユ垨鍐欏叆鐜板満 PLC銆?
-浜斻€佹柊鐢佃剳鍓嶇疆鏉′欢
-1. Windows 64 浣嶃€?2. CPU 鎺ㄧ悊涓嶉渶瑕佸畨瑁?Python銆丆Make銆丵t銆丱penCV 鎴?OpenVINO銆?3. 浣跨敤 Intel GPU 鍔犻€熸椂锛岀洰鏍囩數鑴戦渶瑕佸畨瑁呭畼鏂?Intel 鏄惧崱椹卞姩銆?4. 浣跨敤娴峰悍鐩告満鏃讹紝鐩爣鐢佃剳闇€瑕佸畨瑁呭畼鏂?MVS 鐩告満椹卞姩锛涘寘鍐呭凡鍖呭惈绋嬪簭杩愯鎵€闇€鐨勬捣搴?SDK Runtime銆?
-鍏€侀噸瑕佺洰褰?- models\weights锛歄BB 鍜?SEG 妯″瀷銆?- config\tankeye.json锛歅LC銆佺浉鏈哄拰宸ョ▼榛樿閰嶇疆銆?- calibration_profiles锛氫節鐐规爣瀹氶厤缃€?- calibration_output锛氭爣瀹氬伐鍏疯緭鍑恒€?- logs锛氱▼搴忚繍琛屾棩蹇椼€?
-涓冦€侀棶棰樻帓鏌?1. 绋嬪簭鏃犳硶鍚姩锛氭煡鐪?logs 鐩綍涓渶鏂扮殑 tankeye_*.log銆?2. 鎵句笉鍒扮浉鏈猴細妫€鏌?MVS 椹卞姩銆佺浉鏈轰緵鐢点€佺綉娈靛拰鐩告満 IP銆?3. GPU 涓嶅彲鐢細浣跨敤 CPU 鍚姩锛屾垨瀹夎瀹樻柟 Intel 鏄惧崱椹卞姩銆?4. PLC 涓嶅簲鑱旀満鏃讹細浣跨敤 -SimulatePlc 鍙傛暟杩涜娴嬭瘯銆?
+一、首次使用
+
+1. 将 `TankEye-Iris_1.1.zip` 解压到本地磁盘，例如 `D:\TankEye-Iris_1.1`。
+2. 不要直接在压缩包里运行程序。
+3. 双击包根目录下的 `launch_tankeye_main_only.vbs`。
+4. 第一次启动时，程序会自动在当前 Windows 用户桌面创建 `TankEye-Iris` 图标。
+5. 后续可以双击桌面图标启动。
+
+二、图片检测
+
+1. 启动程序后，点击“加载图片”。
+2. 可以选择包内 `samples\images\2.jpg` 作为演示图，也可以选择自己的图片。
+3. 点击“开始检测”。
+4. 程序会显示 OBB、SEG、夹取射线、抓取点以及检测结果。
+
+三、相机检测
+
+1. 确认电脑已经安装官方 Hikrobot MVS 相机驱动。
+2. 确认相机网段和电脑网卡 IP 可以通信。
+3. 在工程设置中填写相机 IP、曝光参数和现场标定。
+4. 点击“打开相机”，再点击“开始检测”。
+
+四、PLC
+
+1. 默认 PLC 配置位于 `config\tankeye.json`。
+2. 现场联调前，请确认 PLC IP、端口、寄存器地址、坐标映射和限位设置。
+3. 需要离线验证时，可以使用启动命令：
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -Device AUTO -SimulatePlc
+   ```
+
+4. `SimulatePlc` 只模拟 PLC 读写，不会连接或写入现场 PLC。
+
+五、新电脑前置条件
+
+1. Windows 64 位。
+2. CPU 推理不需要安装 Python、CMake、Qt、OpenCV 或 OpenVINO。
+3. 使用 Intel GPU 加速时，目标电脑需要安装官方 Intel 显卡驱动。
+4. 使用海康相机时，目标电脑需要安装官方 MVS 相机驱动；运行包内已包含程序运行所需的海康 SDK Runtime。
+
+六、重要目录
+
+- `models\weights`：OBB 和 SEG 模型。
+- `config\tankeye.json`：PLC、相机和工程默认配置。
+- `calibration_profiles`：九点标定配置。
+- `calibration_output`：标定工具输出。
+- `logs`：程序运行日志。
+
+七、问题排查
+
+1. 程序无法启动：查看 `logs` 目录中最新的 `tankeye_*.log`。
+2. 找不到相机：检查 MVS 驱动、相机供电、网段和相机 IP。
+3. GPU 不可用：使用 CPU 启动，或安装官方 Intel 显卡驱动。
+4. PLC 不响应联机：使用 `-SimulatePlc` 参数进行离线测试。
