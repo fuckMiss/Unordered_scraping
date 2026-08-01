@@ -304,37 +304,44 @@ void EngineeringSettingsDialogController::show()
     angle_debug_grid->setColumnStretch(1, 0);
     angle_debug_grid->setColumnStretch(2, 0);
     angle_debug_grid->setColumnStretch(3, 1);
-    auto create_angle_label = [dialog]() {
-        auto* label = new QLabel(dialog);
-        label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        label->setMinimumWidth(S(120));
-        return label;
+    auto create_angle_label = [dialog](QString text) {
+        text.remove(QLatin1Char(' '));
+        text.remove(QChar(0x3000));
+        text.remove(QStringLiteral("："));
+        text.remove(QLatin1Char(':'));
+
+        auto* container = new QWidget(dialog);
+        container->setMinimumWidth(S(132));
+        container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        auto* layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+        for (int i = 0; i < text.size(); ++i) {
+            auto* char_label = new QLabel(QString(text.at(i)), container);
+            char_label->setAlignment(Qt::AlignCenter);
+            layout->addWidget(char_label, 0);
+            if (i + 1 < text.size()) {
+                layout->addStretch(1);
+            }
+        }
+        auto* colon_label = new QLabel(QStringLiteral("："), container);
+        colon_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        layout->addWidget(colon_label, 0);
+        return container;
     };
-    auto* current_angle_label = create_angle_label();
-    current_angle_label->setText(QStringLiteral("当前显示角度："));
-    angle_debug_grid->addWidget(current_angle_label, 0, 0);
+    angle_debug_grid->addWidget(create_angle_label(QStringLiteral("当前显示角度：")), 0, 0);
     angle_debug_grid->addWidget(angle_reference_current_spin, 0, 1);
     angle_debug_grid->addWidget(capture_current_angle_button, 0, 2, Qt::AlignLeft);
-    auto* target_angle_label = create_angle_label();
-    target_angle_label->setText(QStringLiteral("机器目标角度："));
-    angle_debug_grid->addWidget(target_angle_label, 1, 0);
+    angle_debug_grid->addWidget(create_angle_label(QStringLiteral("机器目标角度：")), 1, 0);
     angle_debug_grid->addWidget(angle_reference_target_spin, 1, 1);
     angle_debug_grid->addWidget(calculate_angle_offset_button, 1, 2, Qt::AlignLeft);
-    auto* offset_label = create_angle_label();
-    offset_label->setText(QStringLiteral("角度偏移："));
-    angle_debug_grid->addWidget(offset_label, 2, 0);
+    angle_debug_grid->addWidget(create_angle_label(QStringLiteral("角度偏移：")), 2, 0);
     angle_debug_grid->addWidget(angle_offset_spin, 2, 1);
-    auto* direction_label = create_angle_label();
-    direction_label->setText(QStringLiteral("正向/反向："));
-    angle_debug_grid->addWidget(direction_label, 3, 0);
+    angle_debug_grid->addWidget(create_angle_label(QStringLiteral("正向/反向：")), 3, 0);
     angle_debug_grid->addWidget(angle_direction_combo, 3, 1);
-    auto* range_label = create_angle_label();
-    range_label->setText(QStringLiteral("角度范围："));
-    angle_debug_grid->addWidget(range_label, 4, 0);
+    angle_debug_grid->addWidget(create_angle_label(QStringLiteral("角度范围：")), 4, 0);
     angle_debug_grid->addWidget(angle_range_combo, 4, 1);
-    auto* center_offset_label = create_angle_label();
-    center_offset_label->setText(QStringLiteral("中心偏移："));
-    angle_debug_grid->addWidget(center_offset_label, 5, 0);
+    angle_debug_grid->addWidget(create_angle_label(QStringLiteral("中心偏移：")), 5, 0);
     angle_debug_grid->addWidget(center_ray_offset_spin, 5, 1);
     angle_debug_grid->addWidget(show_plc_center_debug_check, 6, 1, 1, 2, Qt::AlignLeft);
     auto* axis_mapping_row = new QGridLayout();
@@ -704,11 +711,20 @@ void EngineeringSettingsDialogController::show()
     bottom_row->addWidget(load_button);
     layout->addLayout(bottom_row);
 
+    auto calibration_base_offset = std::make_shared<double>(angle_offset_spin->value());
+    QObject::connect(angle_reference_current_spin,
+                     QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                     dialog,
+                     [angle_offset_spin, calibration_base_offset](double) {
+        *calibration_base_offset = angle_offset_spin->value();
+    });
+
     QObject::connect(capture_current_angle_button, &QPushButton::clicked, dialog, [owner,
                                                                           angle_reference_current_spin,
                                                                           angle_offset_spin,
                                                                           angle_direction_combo,
-                                                                          angle_range_combo]() {
+                                                                          angle_range_combo,
+                                                                          calibration_base_offset]() {
         const int primary_index = owner->current_result_.primary_index;
         if (primary_index < 0 || primary_index >= static_cast<int>(owner->current_result_.detections.size())) {
             QMessageBox::warning(owner,
@@ -723,6 +739,7 @@ void EngineeringSettingsDialogController::show()
         config.angle_reverse_direction = angle_direction_combo->currentData().toBool();
         config.angle_range_mode = range_mode;
         const double display_angle = ApplyPlcAngleCalibration(static_cast<float>(raw_angle), config);
+        *calibration_base_offset = angle_offset_spin->value();
         angle_reference_current_spin->setValue(display_angle);
         owner->updateStatusMessage(QStringLiteral("已取当前显示角度：%1 deg").arg(QString::number(display_angle, 'f', 2)), 5000);
     });
@@ -732,11 +749,11 @@ void EngineeringSettingsDialogController::show()
                                                                            angle_reference_target_spin,
                                                                            angle_offset_spin,
                                                                            angle_direction_combo,
-                                                                           angle_range_combo]() {
+                                                                           angle_range_combo,
+                                                                           calibration_base_offset]() {
         const double current_display_angle = angle_reference_current_spin->value();
         const double target_angle = angle_reference_target_spin->value();
-        const double previous_offset = angle_offset_spin->value();
-        double offset = previous_offset + target_angle - current_display_angle;
+        double offset = *calibration_base_offset + target_angle - current_display_angle;
         offset = std::fmod(offset, 360.0);
         if (offset > 360.0) {
             offset -= 360.0;

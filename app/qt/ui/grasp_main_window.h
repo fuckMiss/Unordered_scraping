@@ -223,6 +223,8 @@ private:
     QPushButton* engineering_button_ = nullptr;
     QPushButton* target_list_button_ = nullptr;
     QPushButton* runtime_log_button_ = nullptr;
+    QFrame* input_group_ = nullptr;
+    QGridLayout* detect_buttons_layout_ = nullptr;
     QFrame* function_group_ = nullptr;
     QGridLayout* function_layout_ = nullptr;
     QPushButton* target_list_back_button_ = nullptr;

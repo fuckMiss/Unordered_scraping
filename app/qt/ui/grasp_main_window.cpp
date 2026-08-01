@@ -297,12 +297,33 @@ QString AdminAuthDialogStyle()
         .arg(S(8));
 }
 
-QLabel* CreateAuthFormLabel(const QString& text, QWidget* parent)
+QWidget* CreateAuthFormLabel(QString text, QWidget* parent)
 {
-    auto* label = new QLabel(text, parent);
-    label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    label->setMinimumWidth(S(104));
-    return label;
+    text.remove(QLatin1Char(' '));
+    text.remove(QChar(0x3000));
+    text.remove(QStringLiteral("："));
+    text.remove(QLatin1Char(':'));
+
+    auto* container = new QWidget(parent);
+    container->setMinimumWidth(S(112));
+    container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto* layout = new QHBoxLayout(container);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+
+    for (int i = 0; i < text.size(); ++i) {
+        auto* char_label = new QLabel(QString(text.at(i)), container);
+        char_label->setAlignment(Qt::AlignCenter);
+        layout->addWidget(char_label, 0);
+        if (i + 1 < text.size()) {
+            layout->addStretch(1);
+        }
+    }
+
+    auto* colon_label = new QLabel(QStringLiteral("："), container);
+    colon_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    layout->addWidget(colon_label, 0);
+    return container;
 }
 
 void ShowCopyToast(QLabel* toast)
@@ -1389,13 +1410,13 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     plc_link_button_->setObjectName("primaryActionButton");
     stop_button_->setObjectName("stopActionButton");
 
-    auto* input_group = new QFrame(this);
-    input_group->setObjectName("controlGroupCard");
-    input_group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    auto* input_layout = new QVBoxLayout(input_group);
+    input_group_ = new QFrame(this);
+    input_group_->setObjectName("controlGroupCard");
+    input_group_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    auto* input_layout = new QVBoxLayout(input_group_);
     input_layout->setContentsMargins(SCM(6, 6, 6, 6));
     input_layout->setSpacing(SC(4));
-    input_layout->addWidget(CreateGroupCaption(QStringLiteral("输入来源"), input_group));
+    input_layout->addWidget(CreateGroupCaption(QStringLiteral("输入来源"), input_group_));
     input_layout->addWidget(image_path_label_);
     auto* input_buttons = new QGridLayout();
     input_buttons->setContentsMargins(0, 0, 0, 0);
@@ -1415,19 +1436,19 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     detect_layout->setSpacing(SC(5));
     detect_layout->addWidget(CreateGroupCaption(QStringLiteral("检测控制"), detect_group));
 
-    auto* detect_buttons = new QGridLayout();
-    detect_buttons->setContentsMargins(0, 0, 0, 0);
-    detect_buttons->setHorizontalSpacing(SC(6));
-    detect_buttons->setVerticalSpacing(SC(6));
-    detect_buttons->addWidget(start_button_, 0, 0);
-    detect_buttons->addWidget(plc_test_button_, 0, 1);
-    detect_buttons->addWidget(plc_link_button_, 1, 0);
-    detect_buttons->addWidget(stop_button_, 1, 1);
-    detect_buttons->setColumnStretch(0, 1);
-    detect_buttons->setColumnStretch(1, 1);
-    detect_layout->addLayout(detect_buttons);
+    detect_buttons_layout_ = new QGridLayout();
+    detect_buttons_layout_->setContentsMargins(0, 0, 0, 0);
+    detect_buttons_layout_->setHorizontalSpacing(SC(6));
+    detect_buttons_layout_->setVerticalSpacing(SC(6));
+    detect_buttons_layout_->addWidget(start_button_, 0, 0);
+    detect_buttons_layout_->addWidget(plc_test_button_, 0, 1);
+    detect_buttons_layout_->addWidget(plc_link_button_, 1, 0);
+    detect_buttons_layout_->addWidget(stop_button_, 1, 1);
+    detect_buttons_layout_->setColumnStretch(0, 1);
+    detect_buttons_layout_->setColumnStretch(1, 1);
+    detect_layout->addLayout(detect_buttons_layout_);
 
-    side_layout->addWidget(input_group);
+    side_layout->addWidget(input_group_);
     side_layout->addSpacing(SC(6));
     side_layout->addWidget(detect_group);
 }
@@ -1944,10 +1965,13 @@ void GraspMainWindow::setAdminMode(bool enabled)
 
 void GraspMainWindow::refreshAdminModeUi()
 {
-    if (!function_layout_ || !target_list_button_) {
+    if (!function_layout_ || !target_list_button_ || !detect_buttons_layout_) {
         return;
     }
 
+    while (QLayoutItem* item = detect_buttons_layout_->takeAt(0)) {
+        delete item;
+    }
     while (QLayoutItem* item = function_layout_->takeAt(0)) {
         delete item;
     }
@@ -1961,6 +1985,24 @@ void GraspMainWindow::refreshAdminModeUi()
     }
 
     if (admin_mode_) {
+        if (input_group_) {
+            input_group_->setVisible(true);
+        }
+        load_image_button_->setVisible(true);
+        open_camera_button_->setVisible(true);
+        start_button_->setVisible(true);
+        plc_test_button_->setVisible(true);
+        stop_button_->setVisible(true);
+        plc_link_button_->setVisible(true);
+        plc_link_button_->setMinimumHeight(SC(36));
+
+        detect_buttons_layout_->addWidget(start_button_, 0, 0);
+        detect_buttons_layout_->addWidget(plc_test_button_, 0, 1);
+        detect_buttons_layout_->addWidget(plc_link_button_, 1, 0);
+        detect_buttons_layout_->addWidget(stop_button_, 1, 1);
+        detect_buttons_layout_->setColumnStretch(0, 1);
+        detect_buttons_layout_->setColumnStretch(1, 1);
+
         display_mode_button_->setVisible(true);
         engineering_button_->setVisible(true);
         runtime_log_button_->setVisible(true);
@@ -1972,6 +2014,20 @@ void GraspMainWindow::refreshAdminModeUi()
         function_layout_->addWidget(engineering_button_, 1, 0);
         function_layout_->addWidget(runtime_log_button_, 1, 1);
     } else {
+        if (input_group_) {
+            input_group_->setVisible(false);
+        }
+        load_image_button_->setVisible(false);
+        open_camera_button_->setVisible(false);
+        start_button_->setVisible(false);
+        plc_test_button_->setVisible(false);
+        stop_button_->setVisible(false);
+        plc_link_button_->setVisible(true);
+        plc_link_button_->setMinimumHeight(SC(38));
+        detect_buttons_layout_->addWidget(plc_link_button_, 0, 0);
+        detect_buttons_layout_->setColumnStretch(0, 1);
+        detect_buttons_layout_->setColumnStretch(1, 0);
+
         display_mode_button_->setVisible(false);
         engineering_button_->setVisible(false);
         runtime_log_button_->setVisible(false);
@@ -1982,6 +2038,7 @@ void GraspMainWindow::refreshAdminModeUi()
 
     refreshActionButtonMetrics();
     if (!admin_mode_) {
+        plc_link_button_->setMinimumHeight(SC(38));
         target_list_button_->setMinimumHeight(SC(78));
     }
     refreshTopBarMetrics();
@@ -2019,13 +2076,13 @@ void GraspMainWindow::showCreateAdminAccountDialog()
     machine_code_edit->setCursorPosition(0);
     auto* copy_machine_button = new QPushButton(QStringLiteral("复制"), &dialog);
     copy_machine_button->setObjectName("secondaryAuthButton");
-    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("机 器 码："), &dialog), 0, 0);
+    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("机器码："), &dialog), 0, 0);
     auth_grid->addWidget(machine_code_edit, 0, 1);
     auth_grid->addWidget(copy_machine_button, 0, 2);
 
     auto* auth_code_edit = new QLineEdit(&dialog);
     auth_code_edit->setPlaceholderText(QStringLiteral("请输入工程师提供的授权码"));
-    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("授 权 码："), &dialog), 1, 0);
+    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("授权码："), &dialog), 1, 0);
     auth_grid->addWidget(auth_code_edit, 1, 1);
 
     auto* username_edit = new QLineEdit(&dialog);
@@ -2033,9 +2090,9 @@ void GraspMainWindow::showCreateAdminAccountDialog()
     auto* confirm_edit = new QLineEdit(&dialog);
     password_edit->setPlaceholderText(QStringLiteral("设置管理员密码"));
     confirm_edit->setPlaceholderText(QStringLiteral("再次输入密码"));
-    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("账      号："), &dialog), 2, 0);
+    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("账号："), &dialog), 2, 0);
     auth_grid->addWidget(username_edit, 2, 1);
-    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("密      码："), &dialog), 3, 0);
+    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("密码："), &dialog), 3, 0);
     auth_grid->addWidget(password_edit, 3, 1);
     auth_grid->addWidget(CreatePasswordVisibilityButton(password_edit, &dialog), 3, 2);
     auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("确认密码："), &dialog), 4, 0);
@@ -2116,9 +2173,9 @@ void GraspMainWindow::showAdminLoginDialog()
     auto* password_edit = new QLineEdit(rememberedAdminPassword(), &dialog);
     auto* remember_check = new QCheckBox(QStringLiteral("记住密码"), &dialog);
     remember_check->setChecked(!password_edit->text().isEmpty());
-    form->addWidget(CreateAuthFormLabel(QStringLiteral("账      号："), &dialog), 0, 0);
+    form->addWidget(CreateAuthFormLabel(QStringLiteral("账号："), &dialog), 0, 0);
     form->addWidget(username_edit, 0, 1);
-    form->addWidget(CreateAuthFormLabel(QStringLiteral("密      码："), &dialog), 1, 0);
+    form->addWidget(CreateAuthFormLabel(QStringLiteral("密码："), &dialog), 1, 0);
     form->addWidget(password_edit, 1, 1);
     form->addWidget(CreatePasswordVisibilityButton(password_edit, &dialog), 1, 2);
     form->addWidget(remember_check, 2, 1);
@@ -2189,7 +2246,7 @@ bool GraspMainWindow::showAdminResetDialog()
     machine_code_edit->setCursorPosition(0);
     auto* copy_machine_button = new QPushButton(QStringLiteral("复制"), &dialog);
     copy_machine_button->setObjectName("secondaryAuthButton");
-    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("机 器 码："), &dialog), 0, 0);
+    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("机器码："), &dialog), 0, 0);
     reset_grid->addWidget(machine_code_edit, 0, 1);
     reset_grid->addWidget(copy_machine_button, 0, 2);
 
@@ -2203,9 +2260,9 @@ bool GraspMainWindow::showAdminResetDialog()
     auto* confirm_edit = new QLineEdit(&dialog);
     password_edit->setPlaceholderText(QStringLiteral("新管理员密码"));
     confirm_edit->setPlaceholderText(QStringLiteral("再次输入新密码"));
-    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("账      号："), &dialog), 2, 0);
+    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("账号："), &dialog), 2, 0);
     reset_grid->addWidget(username_edit, 2, 1);
-    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("密      码："), &dialog), 3, 0);
+    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("密码："), &dialog), 3, 0);
     reset_grid->addWidget(password_edit, 3, 1);
     reset_grid->addWidget(CreatePasswordVisibilityButton(password_edit, &dialog), 3, 2);
     reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("确认密码："), &dialog), 4, 0);
