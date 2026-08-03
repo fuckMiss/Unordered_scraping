@@ -4,6 +4,7 @@
 #include "plc_result_contract.h"
 
 #include <string>
+#include <vector>
 
 struct LimitRange
 {
@@ -27,7 +28,17 @@ struct GrabLimitDecision
     std::string reason;
 };
 
+struct GrabLimitOverlayPolygon
+{
+    bool visible = false;
+    std::string reason;
+    std::vector<cv::Point2f> image_points;
+};
+
 void ResolveResultAfterFiltering(FrameInferenceResult& result);
+GrabLimitOverlayPolygon BuildGrabLimitOverlayPolygon(const GrabLimitConfig& limits,
+                                                     const CoordinateTransformState& coordinate_state,
+                                                     AxisMappingMode axis_mapping_mode);
 bool ApplyMechanicalRoiFilter(FrameInferenceResult& result,
                               const GrabLimitConfig& limits,
                               const CoordinateTransformState& coordinate_state,

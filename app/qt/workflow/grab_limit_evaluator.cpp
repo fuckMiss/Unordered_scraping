@@ -24,6 +24,17 @@ bool IsValueWithinRange(float value, const LimitRange& range)
     return value >= range.lower && value <= range.upper;
 }
 
+bool InnerLimitRange(const LimitRange& range, double roi_margin, double* lower, double* upper)
+{
+    if (lower == nullptr || upper == nullptr || !std::isfinite(roi_margin) || roi_margin < 0.0) {
+        return false;
+    }
+
+    *lower = range.lower + roi_margin;
+    *upper = range.upper - roi_margin;
+    return *lower <= *upper;
+}
+
 std::string FormatLimitReason(const char* label, float value, const LimitRange& range)
 {
     std::ostringstream message;
@@ -85,6 +96,58 @@ void ResolveResultAfterFiltering(FrameInferenceResult& result)
     }
 }
 
+GrabLimitOverlayPolygon BuildGrabLimitOverlayPolygon(const GrabLimitConfig& limits,
+                                                     const CoordinateTransformState& coordinate_state,
+                                                     AxisMappingMode axis_mapping_mode)
+{
+    GrabLimitOverlayPolygon polygon;
+    if (!limits.enabled) {
+        polygon.reason = "上下限保护未启用。";
+        return polygon;
+    }
+    if (!coordinate_state.enabled || !coordinate_state.valid) {
+        polygon.reason = "保护区域需有效坐标转换。";
+        return polygon;
+    }
+
+    double front_back_lower = 0.0;
+    double front_back_upper = 0.0;
+    double left_right_lower = 0.0;
+    double left_right_upper = 0.0;
+    if (!InnerLimitRange(limits.x, limits.roi_margin, &front_back_lower, &front_back_upper) ||
+        !InnerLimitRange(limits.y, limits.roi_margin, &left_right_lower, &left_right_upper)) {
+        polygon.reason = "ROI 留边后保护区域为空。";
+        return polygon;
+    }
+
+    const auto machine_point = [axis_mapping_mode](double front_back, double left_right) {
+        return axis_mapping_mode == AxisMappingMode::FrontBackMachineX
+            ? cv::Point2f(static_cast<float>(front_back), static_cast<float>(left_right))
+            : cv::Point2f(static_cast<float>(left_right), static_cast<float>(front_back));
+    };
+
+    const std::vector<cv::Point2f> machine_points = {
+        machine_point(front_back_lower, left_right_lower),
+        machine_point(front_back_upper, left_right_lower),
+        machine_point(front_back_upper, left_right_upper),
+        machine_point(front_back_lower, left_right_upper),
+    };
+
+    polygon.image_points.reserve(machine_points.size());
+    for (const cv::Point2f& point : machine_points) {
+        cv::Point2f image_point;
+        if (!TransformMachinePointToImage(coordinate_state, point, &image_point)) {
+            polygon.reason = "保护区域坐标反投影失败。";
+            polygon.image_points.clear();
+            return polygon;
+        }
+        polygon.image_points.push_back(image_point);
+    }
+
+    polygon.visible = polygon.image_points.size() == 4;
+    return polygon;
+}
+
 bool ApplyMechanicalRoiFilter(FrameInferenceResult& result,
                               const GrabLimitConfig& limits,
                               const CoordinateTransformState& coordinate_state,
@@ -104,11 +167,12 @@ bool ApplyMechanicalRoiFilter(FrameInferenceResult& result,
         return false;
     }
 
-    const double front_back_lower = limits.x.lower + limits.roi_margin;
-    const double front_back_upper = limits.x.upper - limits.roi_margin;
-    const double left_right_lower = limits.y.lower + limits.roi_margin;
-    const double left_right_upper = limits.y.upper - limits.roi_margin;
-    if (front_back_lower > front_back_upper || left_right_lower > left_right_upper) {
+    double front_back_lower = 0.0;
+    double front_back_upper = 0.0;
+    double left_right_lower = 0.0;
+    double left_right_upper = 0.0;
+    if (!InnerLimitRange(limits.x, limits.roi_margin, &front_back_lower, &front_back_upper) ||
+        !InnerLimitRange(limits.y, limits.roi_margin, &left_right_lower, &left_right_upper)) {
         if (error_message != nullptr) {
             *error_message = "ROI 留边过大，内缩后的机械 ROI 为空。";
         }

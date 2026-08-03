@@ -1,6 +1,7 @@
 #include "grab_limit_evaluator.h"
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
 
 namespace {
@@ -44,6 +45,24 @@ CoordinateTransformState ValidCoordinateState()
     state.enabled = true;
     state.valid = true;
     return state;
+}
+
+CoordinateTransformState OverlayCoordinateState()
+{
+    CoordinateTransformConfig config;
+    config.enabled = true;
+    config.points = {
+        { 0.0, 0.0, 100.0, 200.0 },
+        { 10.0, 0.0, 120.0, 200.0 },
+        { 0.0, 10.0, 100.0, 230.0 },
+        { 10.0, 10.0, 120.0, 230.0 },
+    };
+    return BuildCoordinateTransformState(config);
+}
+
+bool NearlyEqual(float left, float right)
+{
+    return std::fabs(left - right) < 0.02f;
 }
 
 void InRangeTargetIsAccepted()
@@ -124,6 +143,54 @@ void MechanicalRoiFiltersOutsideTargetsAndResolvesPrimary()
     assert(result.pick_status_code == 1);
 }
 
+void OverlayPolygonUsesInnerRoiAndDefaultAxisMapping()
+{
+    GrabLimitConfig limits;
+    limits.enabled = true;
+    limits.roi_margin = 5.0;
+    limits.x = { 200.0, 230.0 };
+    limits.y = { 100.0, 120.0 };
+
+    const GrabLimitOverlayPolygon polygon =
+        BuildGrabLimitOverlayPolygon(limits, OverlayCoordinateState(), AxisMappingMode::FrontBackMachineY);
+    assert(polygon.visible);
+    assert(polygon.image_points.size() == 4);
+    assert(NearlyEqual(polygon.image_points[0].x, 2.5f));
+    assert(NearlyEqual(polygon.image_points[0].y, 1.67f));
+    assert(NearlyEqual(polygon.image_points[2].x, 7.5f));
+    assert(NearlyEqual(polygon.image_points[2].y, 8.33f));
+}
+
+void OverlayPolygonUsesFrontBackMachineXMapping()
+{
+    GrabLimitConfig limits;
+    limits.enabled = true;
+    limits.roi_margin = 5.0;
+    limits.x = { 100.0, 120.0 };
+    limits.y = { 200.0, 230.0 };
+
+    const GrabLimitOverlayPolygon polygon =
+        BuildGrabLimitOverlayPolygon(limits, OverlayCoordinateState(), AxisMappingMode::FrontBackMachineX);
+    assert(polygon.visible);
+    assert(polygon.image_points.size() == 4);
+    assert(NearlyEqual(polygon.image_points[0].x, 2.5f));
+    assert(NearlyEqual(polygon.image_points[0].y, 1.67f));
+    assert(NearlyEqual(polygon.image_points[2].x, 7.5f));
+    assert(NearlyEqual(polygon.image_points[2].y, 8.33f));
+}
+
+void OverlayPolygonRejectsEmptyInnerRoi()
+{
+    GrabLimitConfig limits = MakeLimits();
+    limits.roi_margin = 1000.0;
+
+    const GrabLimitOverlayPolygon polygon =
+        BuildGrabLimitOverlayPolygon(limits, OverlayCoordinateState(), AxisMappingMode::FrontBackMachineY);
+    assert(!polygon.visible);
+    assert(polygon.image_points.empty());
+    assert(!polygon.reason.empty());
+}
+
 } // namespace
 
 int main()
@@ -134,6 +201,9 @@ int main()
     AngleLimitsUseCalibratedPlcAngle();
     MechanicalRoiRequiresValidCoordinateTransform();
     MechanicalRoiFiltersOutsideTargetsAndResolvesPrimary();
+    OverlayPolygonUsesInnerRoiAndDefaultAxisMapping();
+    OverlayPolygonUsesFrontBackMachineXMapping();
+    OverlayPolygonRejectsEmptyInnerRoi();
 
     std::cout << "grab_limit_evaluator_test passed" << std::endl;
     return 0;

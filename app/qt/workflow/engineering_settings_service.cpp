@@ -306,6 +306,26 @@ void EngineeringSettingsService::SaveAxisCompensationSettings(const AxisCompensa
     settings->sync();
 }
 
+UiOverlaySettings EngineeringSettingsService::LoadUiOverlaySettings()
+{
+    UiOverlaySettings overlays;
+    auto settings = CreateSettings();
+    settings->beginGroup(QStringLiteral("ui_overlay"));
+    overlays.show_grab_limit_overlay =
+        settings->value(QStringLiteral("show_grab_limit_overlay"), overlays.show_grab_limit_overlay).toBool();
+    settings->endGroup();
+    return overlays;
+}
+
+void EngineeringSettingsService::SaveUiOverlaySettings(const UiOverlaySettings& overlays)
+{
+    auto settings = CreateSettings();
+    settings->beginGroup(QStringLiteral("ui_overlay"));
+    settings->setValue(QStringLiteral("show_grab_limit_overlay"), overlays.show_grab_limit_overlay);
+    settings->endGroup();
+    settings->sync();
+}
+
 CoordinateTransformConfig EngineeringSettingsService::LoadCoordinateTransformSettings()
 {
     auto settings = CreateSettings();

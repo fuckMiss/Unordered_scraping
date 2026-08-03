@@ -161,6 +161,8 @@ private:
     void saveAngleCalibrationSettings() const;
     void loadObbPostprocessSettings();
     void saveObbPostprocessSettings() const;
+    void loadUiOverlaySettings();
+    void saveUiOverlaySettings() const;
     void loadAxisMappingSettings();
     void saveAxisMappingSettings() const;
     void loadAxisCompensationSettings();
@@ -279,6 +281,7 @@ private:
     bool show_plc_center_debug_ = false;
     bool show_head_ray_debug_ = true;
     bool postprocess_debug_logging_enabled_ = false;
+    bool show_grab_limit_overlay_ = true;
     bool angle_reverse_direction_ = false;
     AngleRangeMode angle_range_mode_ = AngleRangeMode::ZeroTo360;
     AxisMappingMode axis_mapping_mode_ = AxisMappingMode::FrontBackMachineY;

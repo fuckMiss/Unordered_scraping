@@ -259,6 +259,7 @@ if(BUILD_QT_APP)
     add_tankeye_test(grab_limit_evaluator_test
         SOURCES
             tests/grab_limit_evaluator_test.cpp
+            app/qt/workflow/coordinate_transform.cpp
             app/qt/workflow/grab_limit_evaluator.cpp
             app/qt/workflow/plc_result_contract.cpp
         INCLUDE_DIRS
@@ -286,6 +287,18 @@ if(BUILD_QT_APP)
             ${OpenCV_LIBS}
     )
 
+    add_tankeye_test(calibration_profile_store_test
+        SOURCES
+            tests/calibration_profile_store_test.cpp
+            app/qt/workflow/calibration_profile_store.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Core
+            ${OpenCV_LIBS}
+    )
+
     add_tankeye_test(runtime_status_presenter_test
         SOURCES
             tests/runtime_status_presenter_test.cpp
@@ -296,6 +309,19 @@ if(BUILD_QT_APP)
             ${OpenCV_INCLUDE_DIRS}
         LIBS
             Qt5::Widgets
+            ${OpenCV_LIBS}
+    )
+
+    add_tankeye_test(frame_overlay_test
+        SOURCES
+            tests/frame_overlay_test.cpp
+            app/qt/ui/frame_overlay.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${CMAKE_CURRENT_SOURCE_DIR}/core/common
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
             ${OpenCV_LIBS}
     )
 

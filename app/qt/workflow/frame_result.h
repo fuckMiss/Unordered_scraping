@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 struct SegRegion
@@ -48,6 +49,7 @@ struct PoseDetection
     cv::Rect bbox;
     std::vector<cv::Point2f> corners;
     std::vector<cv::Point2f> extended_corners;
+    std::vector<std::pair<cv::Rect, cv::Mat>> mask_collisions;
     bool can_grab = false;
 };
 

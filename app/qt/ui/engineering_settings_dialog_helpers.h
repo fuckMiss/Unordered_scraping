@@ -67,6 +67,7 @@ struct EngineeringSettingsControls
     QDoubleSpinBox* front_back_offset_spin = nullptr;
     QDoubleSpinBox* left_right_offset_spin = nullptr;
     QCheckBox* limit_enabled_check = nullptr;
+    QCheckBox* show_grab_limit_overlay_check = nullptr;
     QDoubleSpinBox* x_lower_spin = nullptr;
     QDoubleSpinBox* x_upper_spin = nullptr;
     QDoubleSpinBox* y_lower_spin = nullptr;
@@ -96,6 +97,7 @@ struct EngineeringSettingsDraft
     bool show_plc_center_debug = false;
     bool show_head_ray_debug = true;
     bool postprocess_debug_logging_enabled = false;
+    bool show_grab_limit_overlay = true;
     bool angle_reverse_direction = false;
     AngleRangeMode angle_range_mode = AngleRangeMode::ZeroTo360;
     AxisMappingMode axis_mapping_mode = AxisMappingMode::FrontBackMachineY;

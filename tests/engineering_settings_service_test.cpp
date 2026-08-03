@@ -82,6 +82,10 @@ void PlcRelatedSettingsRoundTrip()
     assert(!loaded_postprocess.show_head_ray_debug);
     assert(loaded_postprocess.debug_logging_enabled);
 
+    assert(EngineeringSettingsService::LoadUiOverlaySettings().show_grab_limit_overlay);
+    EngineeringSettingsService::SaveUiOverlaySettings({ false });
+    assert(!EngineeringSettingsService::LoadUiOverlaySettings().show_grab_limit_overlay);
+
     ModelThresholdSettings thresholds;
     thresholds.obb_conf_threshold = 0.62;
     thresholds.obb_nms_threshold = 0.35;

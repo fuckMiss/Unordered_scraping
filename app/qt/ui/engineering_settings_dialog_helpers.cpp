@@ -433,6 +433,7 @@ bool ReadEngineeringSettingsDraft(const EngineeringSettingsControls& controls,
     next_draft.show_plc_center_debug = controls.show_plc_center_debug_check->isChecked();
     next_draft.show_head_ray_debug = controls.show_head_ray_debug_check->isChecked();
     next_draft.postprocess_debug_logging_enabled = controls.postprocess_debug_logging_check->isChecked();
+    next_draft.show_grab_limit_overlay = controls.show_grab_limit_overlay_check->isChecked();
     next_draft.angle_reverse_direction = controls.angle_direction_combo->currentData().toBool();
     next_draft.angle_range_mode = static_cast<AngleRangeMode>(controls.angle_range_combo->currentData().toInt());
     next_draft.axis_mapping_mode = static_cast<AxisMappingMode>(controls.axis_mapping_combo->currentData().toInt());

@@ -12,13 +12,15 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFrame>
 #include <QFutureWatcher>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
@@ -31,6 +33,7 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QSpacerItem>
 #include <QStringList>
 #include <QTimer>
 #include <QToolButton>
@@ -63,6 +66,50 @@ QString BuildModelStatusText(const GraspWorkflow& workflow)
 {
     return QStringLiteral("模型状态：%1")
         .arg(workflow.areModelsLoaded() ? QStringLiteral("已加载") : QStringLiteral("加载失败"));
+}
+
+bool PromptCalibrationProfileName(QWidget* parent, const QString& default_name, QString* profile_name)
+{
+    if (profile_name == nullptr) {
+        return false;
+    }
+
+    QDialog dialog(parent);
+    dialog.setWindowTitle(QStringLiteral("另存为标定方案"));
+    dialog.setStyleSheet(QString(
+        "QDialog { background: #f4f6f8; }"
+        "QLabel { color: #111111; font-size: %1px; }"
+        "QLineEdit { background: #ffffff; color: #111111; border: 1px solid #8fa0ae; border-radius: %2px; padding: %3px %4px; font-size: %1px; min-height: %5px; }"
+        "QPushButton { background: #ffffff; color: #111111; border: 1px solid #9aa9b7; border-radius: %2px; padding: %3px %6px; font-size: %1px; font-weight: 600; min-height: %5px; }"
+        "QPushButton:hover { background: #e9eef3; }")
+        .arg(S(15))
+        .arg(S(8))
+        .arg(S(6))
+        .arg(S(8))
+        .arg(S(32))
+        .arg(S(14)));
+
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(SM(16, 16, 16, 16));
+    layout->setSpacing(S(10));
+    auto* label = new QLabel(QStringLiteral("方案名称"), &dialog);
+    auto* name_edit = new QLineEdit(default_name, &dialog);
+    name_edit->selectAll();
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确定"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    layout->addWidget(label);
+    layout->addWidget(name_edit);
+    layout->addWidget(buttons);
+
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted) {
+        return false;
+    }
+
+    *profile_name = name_edit->text().trimmed();
+    return !profile_name->isEmpty();
 }
 
 } // namespace
@@ -290,6 +337,9 @@ void EngineeringSettingsDialogController::show()
     axis_mapping_row->addWidget(left_right_offset_spin, 2, 1, Qt::AlignLeft);
     auto* limit_enabled_check = new QCheckBox(QStringLiteral("启用上下限保护"), dialog);
     limit_enabled_check->setChecked(owner->grab_limits_.enabled);
+    auto* show_grab_limit_overlay_check = new QCheckBox(QStringLiteral("显示保护区域"), dialog);
+    show_grab_limit_overlay_check->setChecked(owner->show_grab_limit_overlay_);
+    show_grab_limit_overlay_check->setToolTip(QStringLiteral("在主画面叠加显示扣除 ROI 留边后的最终可抓区域；不影响 PLC 或过滤逻辑。"));
     auto* x_lower_spin = CreateLimitSpinBox(dialog, owner->grab_limits_.x.lower);
     auto* x_upper_spin = CreateLimitSpinBox(dialog, owner->grab_limits_.x.upper);
     auto* y_lower_spin = CreateLimitSpinBox(dialog, owner->grab_limits_.y.lower);
@@ -301,8 +351,9 @@ void EngineeringSettingsDialogController::show()
     auto* coordinate_enabled_check = new QCheckBox(QStringLiteral("启用坐标转换"), dialog);
     coordinate_enabled_check->setChecked(owner->coordinate_transform_config_.enabled);
     auto* profile_combo = new QComboBox(dialog);
-    profile_combo->setFixedWidth(S(190));
+    profile_combo->setFixedWidth(S(170));
     auto* apply_profile_button = new QPushButton(QStringLiteral("应用"), dialog);
+    auto* import_profile_button = new QPushButton(QStringLiteral("导入"), dialog);
     auto* save_as_profile_button = new QPushButton(QStringLiteral("另存为"), dialog);
     auto* delete_profile_button = new QPushButton(QStringLiteral("删除"), dialog);
     QList<QDoubleSpinBox*> image_x_edits;
@@ -311,7 +362,7 @@ void EngineeringSettingsDialogController::show()
     QList<QDoubleSpinBox*> machine_y_edits;
     auto* coordinate_card = new QWidget(dialog);
     coordinate_card->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-    coordinate_card->setMaximumWidth(S(620));
+    coordinate_card->setMaximumWidth(S(660));
     auto* coordinate_card_layout = new QVBoxLayout(coordinate_card);
     coordinate_card_layout->setContentsMargins(0, 0, 0, 0);
     coordinate_card_layout->setSpacing(S(8));
@@ -322,6 +373,7 @@ void EngineeringSettingsDialogController::show()
     profile_row->addWidget(new QLabel(QStringLiteral("方案"), coordinate_card));
     profile_row->addWidget(profile_combo);
     profile_row->addWidget(apply_profile_button);
+    profile_row->addWidget(import_profile_button);
     profile_row->addWidget(save_as_profile_button);
     profile_row->addWidget(delete_profile_button);
     profile_row->addStretch(1);
@@ -329,12 +381,13 @@ void EngineeringSettingsDialogController::show()
 
     auto* coordinate_grid = CreateSettingsGrid(8, 8);
     SetGridColumnMinimumWidths(coordinate_grid, { 42 });
-    SetGridColumnStretches(coordinate_grid, { 0, 0, 0, 0, 0 });
+    SetGridColumnStretches(coordinate_grid, { 0, 0, 0, 0, 0, 1 });
     coordinate_grid->addWidget(new QLabel(QStringLiteral("点位"), dialog), 0, 0);
     coordinate_grid->addWidget(new QLabel(QStringLiteral("图像X"), dialog), 0, 1);
     coordinate_grid->addWidget(new QLabel(QStringLiteral("图像Y"), dialog), 0, 2);
     coordinate_grid->addWidget(new QLabel(QStringLiteral("机械X"), dialog), 0, 3);
     coordinate_grid->addWidget(new QLabel(QStringLiteral("机械Y"), dialog), 0, 4);
+    coordinate_grid->addItem(new QSpacerItem(S(1), S(1), QSizePolicy::Expanding, QSizePolicy::Minimum), 0, 5, 10, 1);
 
     image_x_edits.reserve(9);
     image_y_edits.reserve(9);
@@ -357,14 +410,15 @@ void EngineeringSettingsDialogController::show()
         coordinate_grid->addWidget(machine_y_edit, row + 1, 4);
     }
 
-    const auto populate_coordinate_fields = [owner](const QList<QDoubleSpinBox*>& image_x_edits,
-                                                    const QList<QDoubleSpinBox*>& image_y_edits,
-                                                    const QList<QDoubleSpinBox*>& machine_x_edits,
-                                                    const QList<QDoubleSpinBox*>& machine_y_edits) {
+    const auto populate_coordinate_fields = [](const CoordinateTransformConfig& config,
+                                               const QList<QDoubleSpinBox*>& image_x_edits,
+                                               const QList<QDoubleSpinBox*>& image_y_edits,
+                                               const QList<QDoubleSpinBox*>& machine_x_edits,
+                                               const QList<QDoubleSpinBox*>& machine_y_edits) {
         for (int row = 0; row < 9; ++row) {
             const CoordinateCalibrationPoint point =
-                row < static_cast<int>(owner->coordinate_transform_config_.points.size())
-                    ? owner->coordinate_transform_config_.points[row]
+                row < static_cast<int>(config.points.size())
+                    ? config.points[row]
                     : CoordinateCalibrationPoint{};
             SetCoordinateValue(image_x_edits, row, point.image_x);
             SetCoordinateValue(image_y_edits, row, point.image_y);
@@ -372,7 +426,11 @@ void EngineeringSettingsDialogController::show()
             SetCoordinateValue(machine_y_edits, row, point.machine_y);
         }
     };
-    populate_coordinate_fields(image_x_edits, image_y_edits, machine_x_edits, machine_y_edits);
+    populate_coordinate_fields(owner->coordinate_transform_config_,
+                               image_x_edits,
+                               image_y_edits,
+                               machine_x_edits,
+                               machine_y_edits);
     coordinate_card_layout->addLayout(coordinate_grid);
 
     auto* status_label = new QLabel(owner->models_loading_
@@ -418,6 +476,7 @@ void EngineeringSettingsDialogController::show()
     settings_controls.front_back_offset_spin = front_back_offset_spin;
     settings_controls.left_right_offset_spin = left_right_offset_spin;
     settings_controls.limit_enabled_check = limit_enabled_check;
+    settings_controls.show_grab_limit_overlay_check = show_grab_limit_overlay_check;
     settings_controls.x_lower_spin = x_lower_spin;
     settings_controls.x_upper_spin = x_upper_spin;
     settings_controls.y_lower_spin = y_lower_spin;
@@ -476,7 +535,8 @@ void EngineeringSettingsDialogController::show()
         owner->coordinate_transform_config_ = config;
         owner->rebuildCoordinateTransformState();
         coordinate_enabled_check->setChecked(owner->coordinate_transform_config_.enabled);
-        populate_coordinate_fields(image_x_edits,
+        populate_coordinate_fields(owner->coordinate_transform_config_,
+                                   image_x_edits,
                                    image_y_edits,
                                    machine_x_edits,
                                    machine_y_edits);
@@ -490,7 +550,6 @@ void EngineeringSettingsDialogController::show()
     };
     refresh_profile_combo();
     auto* load_button = new QPushButton(QStringLiteral("加载模型"), dialog);
-    auto* validate_transform_button = new QPushButton(QStringLiteral("计算矩阵"), dialog);
     auto* save_settings_button = new QPushButton(QStringLiteral("保存设置"), dialog);
 
     auto refresh_model_state = [owner, status_label, load_button]() {
@@ -566,6 +625,7 @@ void EngineeringSettingsDialogController::show()
     limit_content_layout->setSpacing(S(8));
     limit_content_layout->addLayout(axis_mapping_row);
     limit_content_layout->addWidget(limit_enabled_check);
+    limit_content_layout->addWidget(show_grab_limit_overlay_check);
 
     auto* limit_grid = CreateSettingsGrid(8, 8);
     SetGridColumnMinimumWidths(limit_grid, { 78 });
@@ -627,7 +687,6 @@ void EngineeringSettingsDialogController::show()
 
     auto* bottom_row = new QHBoxLayout();
     bottom_row->addWidget(status_label, 1);
-    bottom_row->addWidget(validate_transform_button);
     bottom_row->addWidget(save_settings_button);
     bottom_row->addWidget(load_button);
     layout->addLayout(bottom_row);
@@ -882,6 +941,7 @@ void EngineeringSettingsDialogController::show()
         owner->saveModelThresholdSettings();
         owner->saveAngleCalibrationSettings();
         owner->saveObbPostprocessSettings();
+        owner->saveUiOverlaySettings();
         owner->saveAxisMappingSettings();
         owner->saveAxisCompensationSettings();
         QString save_error;
@@ -902,13 +962,19 @@ void EngineeringSettingsDialogController::show()
                                  QStringLiteral("工程设置已保存。模型阈值需要重新加载模型后生效。"));
     });
 
-    QObject::connect(validate_transform_button, &QPushButton::clicked, dialog, [owner,
-                                                                       profile_combo,
-                                                                       coordinate_status_label,
-                                                                       read_transform_config_from_editor]() {
+    QObject::connect(apply_profile_button, &QPushButton::clicked, dialog, [owner,
+                                                                  profile_combo,
+                                                                  coordinate_status_label,
+                                                                  read_transform_config_from_editor,
+                                                                  refresh_profile_combo]() {
+        const QString profile_name = profile_combo->currentText().trimmed();
+        if (profile_name.isEmpty()) {
+            QMessageBox::warning(owner, QStringLiteral("方案为空"), QStringLiteral("请选择一个标定方案。"));
+            return;
+        }
+
         CoordinateTransformConfig next_transform_config;
         QString calibration_error;
-        const QString profile_name = profile_combo->currentText().trimmed();
         if (!read_transform_config_from_editor(profile_name, &next_transform_config, &calibration_error)) {
             QMessageBox::warning(owner, QStringLiteral("坐标转换错误"), calibration_error);
             return;
@@ -921,53 +987,93 @@ void EngineeringSettingsDialogController::show()
             QMessageBox::warning(owner,
                                  QStringLiteral("坐标转换无效"),
                                  QString::fromStdString(owner->coordinate_transform_state_.error_message));
-        } else {
-            owner->updateStatusMessage(CoordinateTransformStatusText(owner->coordinate_transform_state_), 5000);
-        }
-    });
-
-    QObject::connect(apply_profile_button, &QPushButton::clicked, dialog, [owner,
-                                                                  profile_combo,
-                                                                  coordinate_enabled_check,
-                                                                  image_x_edits,
-                                                                  image_y_edits,
-                                                                  machine_x_edits,
-                                                                  machine_y_edits,
-                                                                  coordinate_status_label,
-                                                                  refresh_profile_combo,
-                                                                  populate_coordinate_fields]() {
-        const QString profile_name = profile_combo->currentText().trimmed();
-        if (profile_name.isEmpty()) {
-            QMessageBox::warning(owner, QStringLiteral("方案为空"), QStringLiteral("请选择一个标定方案。"));
             return;
         }
 
+        EngineeringSettingsService::SaveLastCoordinateProfile(profile_name);
+
+        refresh_profile_combo();
+        owner->updateStatusMessage(QStringLiteral("已应用当前坐标方案并计算矩阵：%1").arg(profile_name), 5000);
+    });
+
+    QObject::connect(profile_combo,
+            static_cast<void (QComboBox::*)(int)>(&QComboBox::activated),
+            dialog,
+            [owner,
+             profile_combo,
+             coordinate_enabled_check,
+             image_x_edits,
+             image_y_edits,
+             machine_x_edits,
+             machine_y_edits,
+             coordinate_status_label,
+             populate_coordinate_fields](int) {
+        const QString profile_name = profile_combo->currentText().trimmed();
+        if (profile_name.isEmpty()) {
+            return;
+        }
         CoordinateTransformConfig loaded_config;
         QString load_error;
         if (!LoadCalibrationProfile(profile_name, &loaded_config, &load_error)) {
             QMessageBox::warning(owner, QStringLiteral("加载失败"), load_error);
             return;
         }
-
         owner->coordinate_transform_config_ = loaded_config;
         owner->rebuildCoordinateTransformState();
         coordinate_enabled_check->setChecked(owner->coordinate_transform_config_.enabled);
-        populate_coordinate_fields(image_x_edits, image_y_edits, machine_x_edits, machine_y_edits);
+        populate_coordinate_fields(owner->coordinate_transform_config_,
+                                   image_x_edits,
+                                   image_y_edits,
+                                   machine_x_edits,
+                                   machine_y_edits);
         RefreshCoordinateStatusLabel(coordinate_status_label, owner->coordinate_transform_state_);
-
         EngineeringSettingsService::SaveLastCoordinateProfile(profile_name);
-
-        refresh_profile_combo();
-        owner->updateStatusMessage(QStringLiteral("已应用标定方案：%1").arg(profile_name), 5000);
+        owner->updateStatusMessage(QStringLiteral("已载入标定方案：%1").arg(profile_name), 5000);
     });
 
-    QObject::connect(profile_combo,
-            static_cast<void (QComboBox::*)(int)>(&QComboBox::activated),
-            dialog,
-            [apply_profile_button](int) {
-        if (apply_profile_button != nullptr) {
-            apply_profile_button->click();
+    QObject::connect(import_profile_button, &QPushButton::clicked, dialog, [owner,
+                                                                   dialog,
+                                                                   profile_combo,
+                                                                   coordinate_enabled_check,
+                                                                   image_x_edits,
+                                                                   image_y_edits,
+                                                                   machine_x_edits,
+                                                                   machine_y_edits,
+                                                                   coordinate_status_label,
+                                                                   normalize_transform_config,
+                                                                   populate_coordinate_fields]() {
+        const QString path = QFileDialog::getOpenFileName(dialog,
+                                                          QStringLiteral("导入坐标转换方案"),
+                                                          QString(),
+                                                          QStringLiteral("Calibration Profile (*.json *.txt);;JSON Profile (*.json);;VisionMaster TXT (*.txt);;All Files (*)"));
+        if (path.isEmpty()) {
+            return;
         }
+
+        CoordinateTransformConfig imported_config;
+        QString import_error;
+        if (!LoadCalibrationProfileFromFile(path, &imported_config, &import_error)) {
+            QMessageBox::warning(owner, QStringLiteral("导入失败"), import_error);
+            return;
+        }
+
+        imported_config.profile_name = QFileInfo(path).completeBaseName();
+        normalize_transform_config(&imported_config);
+        coordinate_enabled_check->setChecked(imported_config.enabled);
+        populate_coordinate_fields(imported_config,
+                                   image_x_edits,
+                                   image_y_edits,
+                                   machine_x_edits,
+                                   machine_y_edits);
+        {
+            QSignalBlocker blocker(profile_combo);
+            if (profile_combo->findText(imported_config.profile_name) < 0) {
+                profile_combo->insertItem(0, imported_config.profile_name);
+            }
+            profile_combo->setCurrentText(imported_config.profile_name);
+        }
+        coordinate_status_label->setText(QStringLiteral("已导入坐标方案，尚未应用；点击“应用”后计算矩阵。"));
+        owner->updateStatusMessage(QStringLiteral("已导入坐标方案，点击“应用”计算矩阵：%1").arg(QFileInfo(path).fileName()), 6000);
     });
 
     QObject::connect(save_as_profile_button, &QPushButton::clicked, dialog, [owner,
@@ -975,17 +1081,11 @@ void EngineeringSettingsDialogController::show()
                                                                     coordinate_status_label,
                                                                     read_transform_config_from_editor,
                                                                     refresh_profile_combo]() {
-        bool ok = false;
         const QString default_name = profile_combo->currentText().trimmed().isEmpty()
                                           ? DefaultCalibrationProfileName()
                                           : profile_combo->currentText().trimmed();
-        const QString profile_name = QInputDialog::getText(owner,
-                                                           QStringLiteral("另存为标定方案"),
-                                                           QStringLiteral("方案名称"),
-                                                           QLineEdit::Normal,
-                                                           default_name,
-                                                           &ok).trimmed();
-        if (!ok || profile_name.isEmpty()) {
+        QString profile_name;
+        if (!PromptCalibrationProfileName(owner, default_name, &profile_name)) {
             return;
         }
 

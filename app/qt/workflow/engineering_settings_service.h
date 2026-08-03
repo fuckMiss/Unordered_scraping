@@ -42,6 +42,11 @@ struct AxisCompensationSettings
     double left_right_offset = 0.0;
 };
 
+struct UiOverlaySettings
+{
+    bool show_grab_limit_overlay = true;
+};
+
 class EngineeringSettingsService
 {
 public:
@@ -69,6 +74,9 @@ public:
     static AxisCompensationSettings LoadAxisCompensationSettings();
     static AxisCompensationSettings LoadAxisCompensationSettings(const AxisCompensationSettings& defaults);
     static void SaveAxisCompensationSettings(const AxisCompensationSettings& settings);
+
+    static UiOverlaySettings LoadUiOverlaySettings();
+    static void SaveUiOverlaySettings(const UiOverlaySettings& settings);
 
     static CoordinateTransformConfig LoadCoordinateTransformSettings();
     static bool SaveCoordinateTransformSettings(const CoordinateTransformConfig& config,

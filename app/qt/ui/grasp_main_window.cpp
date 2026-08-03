@@ -24,6 +24,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFontMetrics>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGuiApplication>
@@ -305,6 +306,43 @@ void ScalePoints(vector<Point2f>& points, double scale_x, double scale_y, int of
     }
 }
 
+vector<pair<Rect, Mat>> ScaleMaskCollisionOverlays(const vector<pair<Rect, Mat>>& collisions,
+                                                   double scale_x,
+                                                   double scale_y,
+                                                   const Size& display_size,
+                                                   int offset_x,
+                                                   int offset_y)
+{
+    vector<pair<Rect, Mat>> scaled_collisions;
+    const Rect display_rect(0, 0, display_size.width, display_size.height);
+    for (const auto& collision : collisions) {
+        const Rect scaled_roi = ScaleRect(collision.first, scale_x, scale_y, offset_x, offset_y);
+        if (scaled_roi.empty() || collision.second.empty()) {
+            continue;
+        }
+
+        Mat scaled_mask;
+        resize(collision.second,
+               scaled_mask,
+               Size(max(1, scaled_roi.width), max(1, scaled_roi.height)),
+               0.0,
+               0.0,
+               INTER_NEAREST);
+
+        const Rect clipped_roi = scaled_roi & display_rect;
+        if (clipped_roi.empty()) {
+            continue;
+        }
+
+        const Rect local_crop(clipped_roi.x - scaled_roi.x,
+                              clipped_roi.y - scaled_roi.y,
+                              clipped_roi.width,
+                              clipped_roi.height);
+        scaled_collisions.push_back({ clipped_roi, scaled_mask(local_crop).clone() });
+    }
+    return scaled_collisions;
+}
+
 FrameInferenceResult ScaleResultForDisplay(const FrameInferenceResult& result,
                                            double scale_x,
                                            double scale_y,
@@ -333,6 +371,14 @@ FrameInferenceResult ScaleResultForDisplay(const FrameInferenceResult& result,
         detection.bbox = ScaleRect(detection.bbox, scale_x, scale_y, offset_x, offset_y);
         ScalePoints(detection.corners, scale_x, scale_y, offset_x, offset_y);
         ScalePoints(detection.extended_corners, scale_x, scale_y, offset_x, offset_y);
+        detection.mask_collisions = include_segment_masks
+            ? ScaleMaskCollisionOverlays(detection.mask_collisions,
+                                         scale_x,
+                                         scale_y,
+                                         display_size,
+                                         offset_x,
+                                         offset_y)
+            : vector<pair<Rect, Mat>>{};
     }
 
     for (ObbRegion& region : scaled.raw_obb_regions) {
@@ -732,6 +778,7 @@ GraspMainWindow::GraspMainWindow(const AppConfig& app_config, QWidget* parent)
     loadModelThresholdSettings();
     loadAngleCalibrationSettings();
     loadObbPostprocessSettings();
+    loadUiOverlaySettings();
     loadAxisMappingSettings();
     loadAxisCompensationSettings();
     loadCoordinateTransformSettings();
@@ -2165,6 +2212,7 @@ void GraspMainWindow::applyEngineeringSettingsDraft(const EngineeringSettingsDra
     show_plc_center_debug_ = draft.show_plc_center_debug;
     show_head_ray_debug_ = draft.show_head_ray_debug;
     postprocess_debug_logging_enabled_ = draft.postprocess_debug_logging_enabled;
+    show_grab_limit_overlay_ = draft.show_grab_limit_overlay;
     angle_reverse_direction_ = draft.angle_reverse_direction;
     angle_range_mode_ = draft.angle_range_mode;
     axis_mapping_mode_ = draft.axis_mapping_mode;
@@ -2916,6 +2964,11 @@ void GraspMainWindow::loadObbPostprocessSettings()
     workflow_.setPostprocessDebugLoggingEnabled(postprocess_debug_logging_enabled_);
 }
 
+void GraspMainWindow::loadUiOverlaySettings()
+{
+    show_grab_limit_overlay_ = EngineeringSettingsService::LoadUiOverlaySettings().show_grab_limit_overlay;
+}
+
 void GraspMainWindow::loadAxisMappingSettings()
 {
     axis_mapping_mode_ = EngineeringSettingsService::LoadAxisMappingMode(app_config_.axis_mapping_mode);
@@ -2971,6 +3024,11 @@ void GraspMainWindow::saveObbPostprocessSettings() const
         show_head_ray_debug_,
         postprocess_debug_logging_enabled_,
     });
+}
+
+void GraspMainWindow::saveUiOverlaySettings() const
+{
+    EngineeringSettingsService::SaveUiOverlaySettings({ show_grab_limit_overlay_ });
 }
 
 void GraspMainWindow::saveAxisMappingSettings() const
@@ -3115,18 +3173,62 @@ void GraspMainWindow::renderCurrentFrame()
                                                                       0,
                                                                       0,
                                                                       show_all_detections_);
+    GrabLimitOverlayView grab_limit_overlay;
+    const GrabLimitOverlayView* grab_limit_overlay_view = nullptr;
+    QString grab_limit_overlay_label;
+    QPoint grab_limit_overlay_label_pos(12, 28);
+    if (show_grab_limit_overlay_ && grab_limits_.enabled) {
+        const GrabLimitOverlayPolygon polygon =
+            BuildGrabLimitOverlayPolygon(grab_limits_, coordinate_transform_state_, axis_mapping_mode_);
+        grab_limit_overlay.visible = polygon.visible;
+        grab_limit_overlay.polygon.reserve(polygon.image_points.size());
+        for (const Point2f& point : polygon.image_points) {
+            grab_limit_overlay.polygon.emplace_back(static_cast<float>(point.x * scale_x),
+                                                    static_cast<float>(point.y * scale_y));
+        }
+        if (grab_limit_overlay.visible && !grab_limit_overlay.polygon.empty()) {
+            const Point2f anchor = grab_limit_overlay.polygon.front();
+            grab_limit_overlay_label = QStringLiteral("允许抓取区");
+            grab_limit_overlay_label_pos = QPoint(qBound(8, qRound(anchor.x) + 8, qMax(8, display.cols - 96)),
+                                                  qBound(22, qRound(anchor.y) - 8, qMax(22, display.rows - 10)));
+        } else {
+            grab_limit_overlay.message = "ROI unavailable";
+            grab_limit_overlay_label = QStringLiteral("保护区域无法显示");
+        }
+        grab_limit_overlay_view = &grab_limit_overlay;
+    }
     DrawFrameOverlay(display,
                      display_result,
                      -1,
                      false,
                      show_all_detections_,
                      show_plc_center_debug_,
-                     show_head_ray_debug_);
+                     show_head_ray_debug_,
+                     grab_limit_overlay_view);
 
-    const QImage image = MatToQImage(display);
+    QImage image = MatToQImage(display);
     if (image.isNull()) {
         image_label_->setText(QStringLiteral("图像渲染失败"));
         return;
+    }
+    if (!grab_limit_overlay_label.isEmpty()) {
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        QFont label_font = painter.font();
+        label_font.setPointSize(qMax(10, qRound(11 * display_result.display_scale)));
+        label_font.setBold(true);
+        painter.setFont(label_font);
+        const QFontMetrics metrics(label_font);
+        const QRect text_rect = metrics.boundingRect(grab_limit_overlay_label).adjusted(-6, -4, 6, 4);
+        QRect background_rect(grab_limit_overlay_label_pos.x(),
+                              grab_limit_overlay_label_pos.y() - text_rect.height() + 4,
+                              text_rect.width(),
+                              text_rect.height());
+        background_rect.moveLeft(qBound(4, background_rect.left(), qMax(4, image.width() - background_rect.width() - 4)));
+        background_rect.moveTop(qBound(4, background_rect.top(), qMax(4, image.height() - background_rect.height() - 4)));
+        painter.fillRect(background_rect, QColor(0, 0, 0, 135));
+        painter.setPen(grab_limit_overlay.visible ? QColor(80, 245, 100) : QColor(255, 220, 80));
+        painter.drawText(background_rect.adjusted(6, 2, -6, -2), Qt::AlignCenter, grab_limit_overlay_label);
     }
 
     const QPixmap pixmap = QPixmap::fromImage(image);
@@ -3204,9 +3306,12 @@ void GraspMainWindow::createTargetCard(TargetCard& target_card)
 
 void GraspMainWindow::refreshTargetCard(TargetCard& target_card, const PoseDetection& detection, int detection_index)
 {
-    target_card.title_label->setText(show_all_detections_
-                                         ? QStringLiteral("序号 %1").arg(detection_index + 1)
-                                         : QStringLiteral("主目标"));
+    target_card.title_label->setText(
+        show_all_detections_
+            ? QStringLiteral("序号 %1").arg(detection_index + 1)
+            : (detection_index == current_result_.primary_index
+                   ? QStringLiteral("主目标")
+                   : QStringLiteral("目标 %1").arg(detection_index + 1)));
     SetValueText(target_card.image_x_label, FormatNumber(detection.center_x));
     SetValueText(target_card.image_y_label, FormatNumber(detection.center_y));
     SetValueText(target_card.machine_x_label, FormatMachineCoordinate(detection, true));
@@ -3235,9 +3340,9 @@ void GraspMainWindow::refreshTargetTable()
             visible_indices.append(i);
         }
     } else {
-        const int primary_index = current_result_.primary_index;
-        if (primary_index >= 0 && primary_index < static_cast<int>(current_result_.detections.size())) {
-            visible_indices.append(primary_index);
+        const vector<int> normal_indices = SelectNormalDisplayDetectionIndices(current_result_);
+        for (const int index : normal_indices) {
+            visible_indices.append(index);
         }
     }
 

@@ -104,6 +104,31 @@ bool TransformImagePointToMachine(const CoordinateTransformState& state,
     return true;
 }
 
+bool TransformMachinePointToImage(const CoordinateTransformState& state,
+                                  const Point2f& machine_point,
+                                  Point2f* image_point)
+{
+    if (image_point == nullptr || !state.enabled || !state.valid || state.homography.empty()) {
+        return false;
+    }
+
+    Mat inverse_homography;
+    const double det = invert(state.homography, inverse_homography);
+    if (inverse_homography.empty() || !isfinite(det) || fabs(det) < 1e-12) {
+        return false;
+    }
+
+    vector<Point2f> src = { machine_point };
+    vector<Point2f> dst;
+    perspectiveTransform(src, dst, inverse_homography);
+    if (dst.empty() || !isfinite(dst[0].x) || !isfinite(dst[0].y)) {
+        return false;
+    }
+
+    *image_point = dst[0];
+    return true;
+}
+
 void ApplyCoordinateTransform(FrameInferenceResult& result, const CoordinateTransformState& state)
 {
     for (PoseDetection& detection : result.detections) {

@@ -51,6 +51,43 @@ SegDetection MakeSegment(const cv::Rect& rect = cv::Rect(20, 20, 180, 180))
     return segment;
 }
 
+SegDetection MakeSegmentWithMask(const cv::Rect& bbox, const std::vector<cv::Rect>& mask_rects)
+{
+    SegDetection segment;
+    segment.class_id = 0;
+    segment.conf = 0.99f;
+    segment.bbox = bbox;
+    segment.mask = cv::Mat(kImageSize, kImageSize, CV_8U, cv::Scalar(0));
+    const cv::Rect image_rect(0, 0, kImageSize, kImageSize);
+    for (const cv::Rect& rect : mask_rects) {
+        const cv::Rect clipped = rect & image_rect;
+        if (!clipped.empty()) {
+            segment.mask(clipped).setTo(cv::Scalar(255));
+        }
+    }
+    return segment;
+}
+
+SegDetection MakeEmptyMaskSegment(const cv::Rect& bbox)
+{
+    SegDetection segment;
+    segment.class_id = 0;
+    segment.conf = 0.99f;
+    segment.bbox = bbox;
+    segment.mask = cv::Mat();
+    return segment;
+}
+
+SegDetection MakeWrongSizeMaskSegment(const cv::Rect& bbox)
+{
+    SegDetection segment;
+    segment.class_id = 0;
+    segment.conf = 0.99f;
+    segment.bbox = bbox;
+    segment.mask = cv::Mat(20, 20, CV_8U, cv::Scalar(255));
+    return segment;
+}
+
 FrameInferenceResult RunPostprocess(const std::vector<OBBDetection>& obb_output,
                                     const std::vector<SegDetection>& seg_output = { MakeSegment() },
                                     FramePostprocessConfig config = {})
@@ -172,6 +209,138 @@ void ExtendedGripTouchingOtherSegmentRejects()
     assert(result.detections.size() == 1);
     assert(!result.detections.front().can_grab);
     assert(result.detections.front().extended_corners.size() == 4);
+    assert(result.detections.front().mask_collisions.size() == 1);
+}
+
+void ExtendedGripOnlyTouchingOtherSegmentBboxStaysGrabbable()
+{
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 70.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 100, 120)),
+        MakeSegmentWithMask(cv::Rect(130, 20, 70, 120), { cv::Rect(180, 20, 20, 20) }),
+    });
+
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index == 0);
+    assert(result.detections.size() == 1);
+    assert(result.detections.front().can_grab);
+    assert(result.detections.front().mask_collisions.empty());
+}
+
+void ExtendedGripThroughMaskHoleStaysGrabbable()
+{
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 70.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 100, 120)),
+        MakeSegmentWithMask(cv::Rect(130, 20, 70, 120), {
+            cv::Rect(130, 20, 70, 20),
+            cv::Rect(130, 120, 70, 20),
+            cv::Rect(180, 20, 20, 120),
+        }),
+    });
+
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index == 0);
+    assert(result.detections.front().can_grab);
+    assert(result.detections.front().mask_collisions.empty());
+}
+
+void NeighborMaskInsideMatchedMaskStaysGrabbable()
+{
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 70.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 100, 120)),
+        MakeSegmentWithMask(cv::Rect(100, 85, 40, 30), { cv::Rect(100, 85, 10, 10) }),
+    });
+
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index == 0);
+    assert(result.detections.size() == 1);
+    assert(result.detections.front().can_grab);
+    assert(result.detections.front().mask_collisions.empty());
+}
+
+void ExpandedGripCollisionOnlyRejectsSweepingTarget()
+{
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 70.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+        MakeObb(kGripClass, 0.88f, { 185.0f, 160.0f }, { 20.0f, 10.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.82f, { 170.0f, 145.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 100, 120)),
+        MakeSegmentWithMask(cv::Rect(150, 85, 60, 115), {
+            cv::Rect(150, 85, 10, 10),
+            cv::Rect(160, 130, 50, 70),
+        }),
+    });
+
+    assert(result.pick_status_code == 1);
+    assert(result.detections.size() == 2);
+
+    const PoseDetection* sweeping_target = nullptr;
+    const PoseDetection* swept_target = nullptr;
+    for (const PoseDetection& detection : result.detections) {
+        if (NearlyEqual(detection.obb_center.x, 80.0f)) {
+            sweeping_target = &detection;
+        } else if (NearlyEqual(detection.obb_center.x, 185.0f)) {
+            swept_target = &detection;
+        }
+    }
+
+    assert(sweeping_target != nullptr);
+    assert(swept_target != nullptr);
+    assert(!sweeping_target->can_grab);
+    assert(sweeping_target->mask_collisions.size() == 1);
+    assert(swept_target->can_grab);
+    assert(swept_target->mask_collisions.empty());
+    assert(result.detections[result.primary_index].obb_center.x == swept_target->obb_center.x);
+}
+
+void EmptyOrWrongSizeNeighborMaskDoesNotFallbackToBbox()
+{
+    const FrameInferenceResult empty_mask = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 70.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 100, 120)),
+        MakeEmptyMaskSegment(cv::Rect(130, 20, 70, 120)),
+    });
+    assert(empty_mask.pick_status_code == 1);
+    assert(empty_mask.detections.front().mask_collisions.empty());
+
+    const FrameInferenceResult wrong_size_mask = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 70.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 100, 120)),
+        MakeWrongSizeMaskSegment(cv::Rect(130, 20, 70, 120)),
+    });
+    assert(wrong_size_mask.pick_status_code == 1);
+    assert(wrong_size_mask.detections.front().mask_collisions.empty());
+}
+
+void MultipleNeighborMaskCollisionsAreRecorded()
+{
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 70.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 100, 120)),
+        MakeSegmentWithMask(cv::Rect(130, 20, 70, 120), { cv::Rect(130, 85, 10, 10) }),
+        MakeSegmentWithMask(cv::Rect(145, 20, 70, 120), { cv::Rect(145, 85, 10, 10) }),
+    });
+
+    assert(result.pick_status_code == 3);
+    assert(result.primary_index == -1);
+    assert(!result.detections.front().can_grab);
+    assert(result.detections.front().mask_collisions.size() == 2);
 }
 
 void SegmentWithBothBigAndSmallRejects()
@@ -314,6 +483,12 @@ int main()
     MissingHeadRejects();
     GripMustMatchExactlyOneSegment();
     ExtendedGripTouchingOtherSegmentRejects();
+    ExtendedGripOnlyTouchingOtherSegmentBboxStaysGrabbable();
+    ExtendedGripThroughMaskHoleStaysGrabbable();
+    NeighborMaskInsideMatchedMaskStaysGrabbable();
+    ExpandedGripCollisionOnlyRejectsSweepingTarget();
+    EmptyOrWrongSizeNeighborMaskDoesNotFallbackToBbox();
+    MultipleNeighborMaskCollisionsAreRecorded();
     SegmentWithBothBigAndSmallRejects();
     SegmentWithMultipleLeftRejects();
     MultipleCompleteTargetsChooseBestConfidence();

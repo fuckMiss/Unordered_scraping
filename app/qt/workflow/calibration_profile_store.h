@@ -13,6 +13,9 @@ QStringList ListCalibrationProfileNames();
 bool LoadCalibrationProfile(const QString& name,
                             CoordinateTransformConfig* config,
                             QString* error_message);
+bool LoadCalibrationProfileFromFile(const QString& path,
+                                    CoordinateTransformConfig* config,
+                                    QString* error_message);
 bool SaveCalibrationProfile(const CoordinateTransformConfig& config,
                             QString* saved_name,
                             QString* error_message);

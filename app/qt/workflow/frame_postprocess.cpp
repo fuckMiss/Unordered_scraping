@@ -354,29 +354,6 @@ bool ConvexPolygonsIntersect(const vector<Point2f>& first, const vector<Point2f>
            PointInsideConvexPolygon(second.front(), first);
 }
 
-vector<Point2f> SegmentCollisionCorners(const SegRegion& segment)
-{
-    if (segment.min_rect_corners.size() >= 3) {
-        return segment.min_rect_corners;
-    }
-
-    const Rect& rect = segment.bbox;
-    if (rect.empty()) {
-        return {};
-    }
-    return {
-        Point2f(static_cast<float>(rect.x), static_cast<float>(rect.y)),
-        Point2f(static_cast<float>(rect.x + rect.width), static_cast<float>(rect.y)),
-        Point2f(static_cast<float>(rect.x + rect.width), static_cast<float>(rect.y + rect.height)),
-        Point2f(static_cast<float>(rect.x), static_cast<float>(rect.y + rect.height)),
-    };
-}
-
-bool ExtendedObbTouchesSegment(const vector<Point2f>& extended_corners, const SegRegion& segment)
-{
-    return ConvexPolygonsIntersect(extended_corners, SegmentCollisionCorners(segment));
-}
-
 int ResolveHeadSide(const Point2f& left_center,
                     const Point2f& keep_point,
                     const Point2f& head_center)
@@ -402,6 +379,74 @@ int ResolveHeadTypeCode(int head_class_id, int side)
         return side >= 0 ? 4 : 2;
     }
     return 0;
+}
+
+bool ExtendedObbTouchesSegmentMask(const vector<Point2f>& extended_corners,
+                                   const SegRegion& matched_segment,
+                                   const SegRegion& segment,
+                                   int image_width,
+                                   int image_height,
+                                   int segment_index,
+                                   bool debug_enabled,
+                                   vector<pair<Rect, Mat>>* collisions)
+{
+    if (extended_corners.size() < 3 || segment.mask.empty()) {
+        return false;
+    }
+    if (segment.mask.type() != CV_8U ||
+        segment.mask.cols != image_width ||
+        segment.mask.rows != image_height) {
+        if (debug_enabled) {
+            cout << "[PostprocessDebug] mask_collision_skip"
+                 << " segment_index=" << segment_index
+                 << " reason=invalid_mask"
+                 << " mask_size=" << segment.mask.cols << "x" << segment.mask.rows
+                 << " image_size=" << image_width << "x" << image_height
+                 << endl;
+        }
+        return false;
+    }
+    if (matched_segment.mask.empty() ||
+        matched_segment.mask.type() != CV_8U ||
+        matched_segment.mask.cols != image_width ||
+        matched_segment.mask.rows != image_height) {
+        if (debug_enabled) {
+            cout << "[PostprocessDebug] mask_collision_skip"
+                 << " segment_index=" << segment_index
+                 << " reason=invalid_matched_mask"
+                 << " matched_mask_size=" << matched_segment.mask.cols << "x" << matched_segment.mask.rows
+                 << " image_size=" << image_width << "x" << image_height
+                 << endl;
+        }
+        return false;
+    }
+
+    const Rect image_rect(0, 0, image_width, image_height);
+    const Rect roi = boundingRect(extended_corners) & image_rect;
+    if (roi.empty()) {
+        return false;
+    }
+
+    vector<Point> polygon;
+    polygon.reserve(extended_corners.size());
+    for (const Point2f& point : extended_corners) {
+        polygon.emplace_back(cvRound(point.x) - roi.x, cvRound(point.y) - roi.y);
+    }
+
+    Mat extended_mask(roi.height, roi.width, CV_8U, Scalar(0));
+    fillConvexPoly(extended_mask, polygon, Scalar(255), LINE_8);
+
+    Mat overlap;
+    bitwise_and(extended_mask, segment.mask(roi), overlap);
+    overlap.setTo(Scalar(0), matched_segment.mask(roi));
+    if (countNonZero(overlap) <= 0) {
+        return false;
+    }
+
+    if (collisions != nullptr) {
+        collisions->push_back({ roi, overlap.clone() });
+    }
+    return true;
 }
 
 string ResolveHeadTypeText(int head_type_code)
@@ -476,6 +521,7 @@ PoseDetection BuildPoseDetection(const OBBDetection& detection,
                                  int small_ray_quadrant,
                                  int head_type_code,
                                  int head_class_id,
+                                 vector<pair<Rect, Mat>> mask_collisions,
                                  bool can_grab,
                                  const Point2f& keep_point,
                                  double center_ray_offset_px)
@@ -514,6 +560,7 @@ PoseDetection BuildPoseDetection(const OBBDetection& detection,
     pose.corners = detection.corners;
     pose.extended_corners = BuildExtendedObbCorners(detection);
     pose.bbox = BuildPoseBoundingRect(pose.corners, image_width, image_height);
+    pose.mask_collisions = std::move(mask_collisions);
     pose.can_grab = can_grab;
     return pose;
 }
@@ -631,20 +678,29 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
         }
 
         const vector<Point2f> extended_corners = BuildExtendedObbCorners(detection);
+        const SegRegion& matched_segment = segments[matched_segment_index];
         bool touches_other = false;
         int touched_segment_index = -1;
+        vector<pair<Rect, Mat>> mask_collisions;
         for (int i = 0; i < static_cast<int>(segments.size()); ++i) {
             if (i == matched_segment_index) {
                 continue;
             }
-            if (ExtendedObbTouchesSegment(extended_corners, segments[i])) {
+            if (ExtendedObbTouchesSegmentMask(extended_corners,
+                                             matched_segment,
+                                             segments[i],
+                                             image_width,
+                                             image_height,
+                                             i,
+                                             debug_enabled,
+                                             &mask_collisions)) {
                 touches_other = true;
-                touched_segment_index = i;
-                break;
+                if (touched_segment_index < 0) {
+                    touched_segment_index = i;
+                }
             }
         }
 
-        const SegRegion& matched_segment = segments[matched_segment_index];
         const int left_count_in_segment =
             CountClassDetectionsInsideSegment(obb_output, kClassLeft, matched_segment);
         const int big_count_in_segment =
@@ -718,7 +774,7 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
             }
             cout << " can_grab=" << BoolText(can_grab);
             if (touches_other) {
-                cout << " reason=extended_touches_other_segment";
+                cout << " reason=extended_touches_other_mask";
             } else if (!segment_structure_valid) {
                 cout << " reason=invalid_segment_obb_structure";
             } else if (head_detection == nullptr) {
@@ -749,6 +805,7 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
                                                 head_side,
                                                 head_type_code,
                                                 head_detection != nullptr ? head_detection->class_id : -1,
+                                                std::move(mask_collisions),
                                                 can_grab,
                                                 keep_point,
                                                 config.center_ray_offset_px));

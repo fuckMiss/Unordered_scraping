@@ -108,6 +108,87 @@ void DrawCenterReticle(Mat& image)
     line(image, Point(center.x, center.y + gap), Point(center.x, center.y + ring_radius + arm), cross_color, 6, LINE_AA);
 }
 
+Point ClampTextOrigin(const Mat& image, const Point2f& point)
+{
+    return Point(max(6, min(image.cols - 90, cvRound(point.x) + 8)),
+                 max(18, min(image.rows - 8, cvRound(point.y) - 8)));
+}
+
+void DrawDashedLine(Mat& image,
+                    const Point2f& start,
+                    const Point2f& end,
+                    const Scalar& color,
+                    int thickness)
+{
+    const Point2f delta = end - start;
+    const double length = std::hypot(delta.x, delta.y);
+    if (length < 1.0) {
+        return;
+    }
+
+    const Point2f direction(delta.x / static_cast<float>(length), delta.y / static_cast<float>(length));
+    const double dash = max(8.0, length / 28.0);
+    const double gap = dash * 0.55;
+    for (double offset = 0.0; offset < length; offset += dash + gap) {
+        const double next = min(length, offset + dash);
+        line(image,
+             start + direction * static_cast<float>(offset),
+             start + direction * static_cast<float>(next),
+             color,
+             thickness,
+             LINE_AA);
+    }
+}
+
+void DrawGrabLimitOverlay(Mat& image, const GrabLimitOverlayView& overlay)
+{
+    if (!overlay.visible || overlay.polygon.size() != 4) {
+        if (!overlay.message.empty()) {
+            putText(image,
+                    overlay.message,
+                    Point(12, 28),
+                    FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    Scalar(60, 220, 255),
+                    2,
+                    LINE_AA);
+        }
+        return;
+    }
+
+    vector<Point> polygon;
+    polygon.reserve(overlay.polygon.size());
+    for (const Point2f& point : overlay.polygon) {
+        polygon.emplace_back(cvRound(point.x), cvRound(point.y));
+    }
+
+    Mat fill_layer = image.clone();
+    const vector<vector<Point>> polygons = { polygon };
+    fillPoly(fill_layer, polygons, Scalar(90, 210, 80), LINE_AA);
+    addWeighted(fill_layer, 0.16, image, 0.84, 0.0, image);
+
+    const int thickness = ScaledStroke(1.0, 2);
+    const Scalar outline(45, 245, 80);
+    const Scalar shadow(0, 0, 0);
+    for (size_t i = 0; i < overlay.polygon.size(); ++i) {
+        const Point2f start = overlay.polygon[i];
+        const Point2f end = overlay.polygon[(i + 1) % overlay.polygon.size()];
+        DrawDashedLine(image, start, end, shadow, thickness + 2);
+        DrawDashedLine(image, start, end, outline, thickness);
+    }
+
+    if (!overlay.message.empty()) {
+        putText(image,
+                overlay.message,
+                ClampTextOrigin(image, overlay.polygon.front()),
+                FONT_HERSHEY_SIMPLEX,
+                0.55,
+                Scalar(45, 245, 80),
+                2,
+                LINE_AA);
+    }
+}
+
 void DrawSegmentationOverlay(Mat& image, const FrameInferenceResult& result, bool show_all_detections)
 {
     if (!show_all_detections || result.segments.empty()) {
@@ -168,9 +249,62 @@ void DrawRawObbOverlay(Mat& image, const FrameInferenceResult& result)
     }
 }
 
+void DrawMaskCollisionOverlay(Mat& image, const FrameInferenceResult& result)
+{
+    Mat overlay = image.clone();
+    bool has_collision = false;
+    const Rect image_rect(0, 0, image.cols, image.rows);
+    for (const PoseDetection& detection : result.detections) {
+        for (const auto& collision : detection.mask_collisions) {
+            const Rect roi = collision.first & image_rect;
+            if (roi.empty() || collision.second.empty()) {
+                continue;
+            }
+
+            const Rect local_crop(roi.x - collision.first.x,
+                                  roi.y - collision.first.y,
+                                  roi.width,
+                                  roi.height);
+            if (local_crop.x < 0 ||
+                local_crop.y < 0 ||
+                local_crop.x + local_crop.width > collision.second.cols ||
+                local_crop.y + local_crop.height > collision.second.rows) {
+                continue;
+            }
+
+            Mat display_mask = collision.second(local_crop).clone();
+            dilate(display_mask, display_mask, Mat(), Point(-1, -1), 1);
+            overlay(roi).setTo(Scalar(40, 40, 255), display_mask);
+            has_collision = true;
+        }
+    }
+
+    if (has_collision) {
+        addWeighted(overlay, 0.45, image, 0.55, 0.0, image);
+    }
+}
+
 bool IsPrimaryDetection(const FrameInferenceResult& result, int detection_index)
 {
     return detection_index >= 0 && detection_index == result.primary_index;
+}
+
+bool DisplayCandidateBeats(const FrameInferenceResult& result, int candidate_index, int current_index)
+{
+    if (current_index < 0 ||
+        current_index >= static_cast<int>(result.detections.size())) {
+        return true;
+    }
+    if (IsPrimaryDetection(result, candidate_index) != IsPrimaryDetection(result, current_index)) {
+        return IsPrimaryDetection(result, candidate_index);
+    }
+
+    const PoseDetection& candidate = result.detections[candidate_index];
+    const PoseDetection& current = result.detections[current_index];
+    if (candidate.can_grab != current.can_grab) {
+        return candidate.can_grab;
+    }
+    return candidate.confidence > current.confidence;
 }
 
 Scalar DetectionStateColor(const PoseDetection& detection, bool primary)
@@ -250,21 +384,53 @@ void DrawDetectionPolygon(Mat& image,
 
 }  // namespace
 
+vector<int> SelectNormalDisplayDetectionIndices(const FrameInferenceResult& result)
+{
+    vector<int> indices;
+    vector<int> segment_indices;
+    for (int i = 0; i < static_cast<int>(result.detections.size()); ++i) {
+        const int segment_index = result.detections[i].matched_segment_index;
+        if (segment_index < 0) {
+            indices.push_back(i);
+            segment_indices.push_back(segment_index);
+            continue;
+        }
+
+        auto found = find(segment_indices.begin(), segment_indices.end(), segment_index);
+        if (found == segment_indices.end()) {
+            indices.push_back(i);
+            segment_indices.push_back(segment_index);
+            continue;
+        }
+
+        const int output_index = static_cast<int>(distance(segment_indices.begin(), found));
+        if (DisplayCandidateBeats(result, i, indices[output_index])) {
+            indices[output_index] = i;
+        }
+    }
+    return indices;
+}
+
 void DrawFrameOverlay(Mat& image,
                       const FrameInferenceResult& result,
                       int selected_index,
                       bool draw_center_reticle,
                       bool show_all_detections,
                       bool show_plc_center_debug,
-                      bool show_head_ray_debug)
+                      bool show_head_ray_debug,
+                      const GrabLimitOverlayView* grab_limit_overlay)
 {
     if (draw_center_reticle) {
         DrawCenterReticle(image);
+    }
+    if (grab_limit_overlay != nullptr) {
+        DrawGrabLimitOverlay(image, *grab_limit_overlay);
     }
 
     const int active_index = ResolveSelectionIndex(result, selected_index);
     if (show_all_detections) {
         DrawSegmentationOverlay(image, result, true);
+        DrawMaskCollisionOverlay(image, result);
         DrawRawObbOverlay(image, result);
         for (int i = 0; i < static_cast<int>(result.detections.size()); ++i) {
             const bool primary = IsPrimaryDetection(result, i);
@@ -283,7 +449,8 @@ void DrawFrameOverlay(Mat& image,
     }
 
     DrawAllSegmentMinRects(image, result);
-    for (int i = 0; i < static_cast<int>(result.detections.size()); ++i) {
+    const vector<int> normal_indices = SelectNormalDisplayDetectionIndices(result);
+    for (const int i : normal_indices) {
         const bool primary = IsPrimaryDetection(result, i);
         const bool draw_rays = primary && result.detections[i].can_grab;
         const bool draw_plc_debug = show_plc_center_debug && draw_rays;

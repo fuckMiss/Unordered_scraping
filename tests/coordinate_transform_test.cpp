@@ -35,6 +35,22 @@ void ValidTransformMapsImageToMachine()
     assert(TransformImagePointToMachine(state, { 5.0f, 5.0f }, &machine));
     assert(NearlyEqual(machine.x, 110.0f));
     assert(NearlyEqual(machine.y, 215.0f));
+
+    cv::Point2f image;
+    assert(TransformMachinePointToImage(state, { 110.0f, 215.0f }, &image));
+    assert(NearlyEqual(image.x, 5.0f));
+    assert(NearlyEqual(image.y, 5.0f));
+}
+
+void InvalidTransformDoesNotMapMachineToImage()
+{
+    CoordinateTransformConfig config;
+    config.enabled = true;
+    const CoordinateTransformState state = BuildCoordinateTransformState(config);
+
+    cv::Point2f image;
+    assert(!TransformMachinePointToImage(state, { 110.0f, 215.0f }, &image));
+    assert(!TransformMachinePointToImage(state, { 110.0f, 215.0f }, nullptr));
 }
 
 void InvalidPointCountFails()
@@ -78,6 +94,7 @@ void ApplyTransformDoesNotInventMachineCoordinatesOnFailure()
 int main()
 {
     ValidTransformMapsImageToMachine();
+    InvalidTransformDoesNotMapMachineToImage();
     InvalidPointCountFails();
     ApplyTransformDoesNotInventMachineCoordinatesOnFailure();
 

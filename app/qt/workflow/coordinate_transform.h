@@ -44,4 +44,7 @@ CoordinateTransformState BuildCoordinateTransformState(const CoordinateTransform
 bool TransformImagePointToMachine(const CoordinateTransformState& state,
                                   const cv::Point2f& image_point,
                                   cv::Point2f* machine_point);
+bool TransformMachinePointToImage(const CoordinateTransformState& state,
+                                  const cv::Point2f& machine_point,
+                                  cv::Point2f* image_point);
 void ApplyCoordinateTransform(FrameInferenceResult& result, const CoordinateTransformState& state);
