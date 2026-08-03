@@ -6,6 +6,7 @@
 #include "calibration_profile_store.h"
 #include "engineering_settings_dialog_helpers.h"
 #include "engineering_settings_service.h"
+#include "ui_scale_utils.h"
 
 #include <QtConcurrent/QtConcurrent>
 #include <QCheckBox>
@@ -16,7 +17,6 @@
 #include <QFutureWatcher>
 #include <QFormLayout>
 #include <QGridLayout>
-#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
@@ -27,9 +27,7 @@
 #include <QPoint>
 #include <QPointer>
 #include <QPushButton>
-#include <QRect>
 #include <QScrollArea>
-#include <QScreen>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSizePolicy>
@@ -46,50 +44,19 @@
 
 namespace {
 
-constexpr int kDesignWidth = 1360;
-constexpr int kDesignHeight = 820;
-
-double UiScale()
-{
-    if (!QString::fromLocal8Bit(qgetenv("QT_SCALE_FACTOR")).trimmed().isEmpty()) {
-        return 1.0;
-    }
-
-    const QString override_scale = QString::fromLocal8Bit(qgetenv("TANKEYE_UI_SCALE")).trimmed();
-    if (!override_scale.isEmpty()) {
-        bool ok = false;
-        const double value = override_scale.toDouble(&ok);
-        if (ok && value > 0.0) {
-            return qBound(0.65, value, 1.20);
-        }
-    }
-
-    if (QScreen* screen = QGuiApplication::primaryScreen()) {
-        const QRect available = screen->availableGeometry();
-        const double width_scale = static_cast<double>(available.width()) / kDesignWidth;
-        const double height_scale = static_cast<double>(available.height()) / kDesignHeight;
-        double scale = qMin(width_scale, height_scale);
-        if (available.width() <= 1366 || available.height() <= 720) {
-            scale *= 0.88;
-        }
-        return qBound(0.65, scale, 1.0);
-    }
-    return 1.0;
-}
-
 int S(int value)
 {
-    return qMax(1, qRound(value * UiScale()));
+    return ScalePx(value);
 }
 
 QSize SS(int width, int height)
 {
-    return QSize(S(width), S(height));
+    return ScaleSize(width, height);
 }
 
 QMargins SM(int left, int top, int right, int bottom)
 {
-    return QMargins(S(left), S(top), S(right), S(bottom));
+    return ScaleMargins(left, top, right, bottom);
 }
 
 QString BuildModelStatusText(const GraspWorkflow& workflow)
@@ -197,14 +164,9 @@ void EngineeringSettingsDialogController::show()
     obb_nms_threshold_spin->setToolTip(QStringLiteral("模型A过滤阈值：调低会更积极合并重叠框。"));
     seg_conf_threshold_spin->setToolTip(QStringLiteral("模型B判断阈值：调高可减少误检，但可能增加漏检。"));
     seg_nms_threshold_spin->setToolTip(QStringLiteral("模型B过滤阈值：调低会更积极合并重叠区域。"));
-    auto* model_threshold_grid = new QGridLayout();
-    model_threshold_grid->setHorizontalSpacing(S(10));
-    model_threshold_grid->setVerticalSpacing(S(8));
-    model_threshold_grid->setColumnMinimumWidth(0, S(170));
-    model_threshold_grid->setColumnMinimumWidth(1, S(100));
-    model_threshold_grid->setColumnMinimumWidth(2, S(170));
-    model_threshold_grid->setColumnMinimumWidth(3, S(100));
-    model_threshold_grid->setColumnStretch(4, 1);
+    auto* model_threshold_grid = CreateSettingsGrid(10, 8);
+    SetGridColumnMinimumWidths(model_threshold_grid, { 170, 100, 170, 100 });
+    SetGridColumnStretches(model_threshold_grid, { 0, 0, 0, 0, 1 });
     model_threshold_grid->addWidget(new QLabel(QStringLiteral("模型A判断阈值"), dialog), 0, 0);
     model_threshold_grid->addWidget(obb_conf_threshold_spin, 0, 1, Qt::AlignLeft);
     model_threshold_grid->addWidget(new QLabel(QStringLiteral("模型A过滤阈值"), dialog), 0, 2);
@@ -294,40 +256,13 @@ void EngineeringSettingsDialogController::show()
     admin_button_row->addWidget(save_admin_button);
     admin_card_layout->addLayout(admin_button_row);
     admin_layout->addWidget(admin_card);
-    auto* angle_debug_grid = new QGridLayout();
-    angle_debug_grid->setHorizontalSpacing(S(10));
-    angle_debug_grid->setVerticalSpacing(S(10));
+    auto* angle_debug_grid = CreateSettingsGrid(10, 10);
     angle_debug_grid->setColumnMinimumWidth(0, S(120));
     angle_debug_grid->setColumnMinimumWidth(1, angle_control_width);
     angle_debug_grid->setColumnMinimumWidth(2, S(120));
-    angle_debug_grid->setColumnStretch(0, 0);
-    angle_debug_grid->setColumnStretch(1, 0);
-    angle_debug_grid->setColumnStretch(2, 0);
-    angle_debug_grid->setColumnStretch(3, 1);
-    auto create_angle_label = [dialog](QString text) {
-        text.remove(QLatin1Char(' '));
-        text.remove(QChar(0x3000));
-        text.remove(QStringLiteral("："));
-        text.remove(QLatin1Char(':'));
-
-        auto* container = new QWidget(dialog);
-        container->setMinimumWidth(S(132));
-        container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        auto* layout = new QHBoxLayout(container);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(0);
-        for (int i = 0; i < text.size(); ++i) {
-            auto* char_label = new QLabel(QString(text.at(i)), container);
-            char_label->setAlignment(Qt::AlignCenter);
-            layout->addWidget(char_label, 0);
-            if (i + 1 < text.size()) {
-                layout->addStretch(1);
-            }
-        }
-        auto* colon_label = new QLabel(QStringLiteral("："), container);
-        colon_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        layout->addWidget(colon_label, 0);
-        return container;
+    SetGridColumnStretches(angle_debug_grid, { 0, 0, 0, 1 });
+    const auto create_angle_label = [dialog](const QString& text) {
+        return CreateDistributedFieldLabel(text, dialog, 132);
     };
     angle_debug_grid->addWidget(create_angle_label(QStringLiteral("当前显示角度：")), 0, 0);
     angle_debug_grid->addWidget(angle_reference_current_spin, 0, 1);
@@ -344,12 +279,9 @@ void EngineeringSettingsDialogController::show()
     angle_debug_grid->addWidget(create_angle_label(QStringLiteral("中心偏移：")), 5, 0);
     angle_debug_grid->addWidget(center_ray_offset_spin, 5, 1);
     angle_debug_grid->addWidget(show_plc_center_debug_check, 6, 1, 1, 2, Qt::AlignLeft);
-    auto* axis_mapping_row = new QGridLayout();
-    axis_mapping_row->setHorizontalSpacing(S(10));
-    axis_mapping_row->setVerticalSpacing(S(10));
-    axis_mapping_row->setColumnMinimumWidth(0, S(120));
-    axis_mapping_row->setColumnMinimumWidth(1, S(170));
-    axis_mapping_row->setColumnStretch(3, 1);
+    auto* axis_mapping_row = CreateSettingsGrid(10, 10);
+    SetGridColumnMinimumWidths(axis_mapping_row, { 120, 170 });
+    SetGridColumnStretches(axis_mapping_row, { 0, 0, 0, 1 });
     axis_mapping_row->addWidget(new QLabel(QStringLiteral("轴向映射"), dialog), 0, 0);
     axis_mapping_row->addWidget(axis_mapping_combo, 0, 1, 1, 2, Qt::AlignLeft);
     axis_mapping_row->addWidget(new QLabel(QStringLiteral("前后补偿"), dialog), 1, 0);
@@ -395,15 +327,9 @@ void EngineeringSettingsDialogController::show()
     profile_row->addStretch(1);
     coordinate_card_layout->addLayout(profile_row);
 
-    auto* coordinate_grid = new QGridLayout();
-    coordinate_grid->setHorizontalSpacing(S(8));
-    coordinate_grid->setVerticalSpacing(S(8));
-    coordinate_grid->setColumnMinimumWidth(0, S(42));
-    coordinate_grid->setColumnStretch(0, 0);
-    coordinate_grid->setColumnStretch(1, 0);
-    coordinate_grid->setColumnStretch(2, 0);
-    coordinate_grid->setColumnStretch(3, 0);
-    coordinate_grid->setColumnStretch(4, 0);
+    auto* coordinate_grid = CreateSettingsGrid(8, 8);
+    SetGridColumnMinimumWidths(coordinate_grid, { 42 });
+    SetGridColumnStretches(coordinate_grid, { 0, 0, 0, 0, 0 });
     coordinate_grid->addWidget(new QLabel(QStringLiteral("点位"), dialog), 0, 0);
     coordinate_grid->addWidget(new QLabel(QStringLiteral("图像X"), dialog), 0, 1);
     coordinate_grid->addWidget(new QLabel(QStringLiteral("图像Y"), dialog), 0, 2);
@@ -641,14 +567,9 @@ void EngineeringSettingsDialogController::show()
     limit_content_layout->addLayout(axis_mapping_row);
     limit_content_layout->addWidget(limit_enabled_check);
 
-    auto* limit_grid = new QGridLayout();
-    limit_grid->setHorizontalSpacing(S(8));
-    limit_grid->setVerticalSpacing(S(8));
-    limit_grid->setColumnMinimumWidth(0, S(78));
-    limit_grid->setColumnStretch(0, 0);
-    limit_grid->setColumnStretch(1, 0);
-    limit_grid->setColumnStretch(2, 0);
-    limit_grid->setColumnStretch(3, 1);
+    auto* limit_grid = CreateSettingsGrid(8, 8);
+    SetGridColumnMinimumWidths(limit_grid, { 78 });
+    SetGridColumnStretches(limit_grid, { 0, 0, 0, 1 });
     limit_grid->addWidget(new QLabel(QStringLiteral("轴向"), dialog), 0, 0);
     limit_grid->addWidget(new QLabel(QStringLiteral("下限"), dialog), 0, 1);
     limit_grid->addWidget(new QLabel(QStringLiteral("上限"), dialog), 0, 2);

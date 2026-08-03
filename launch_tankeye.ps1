@@ -182,21 +182,7 @@ if ($UiScale -gt 0) {
     $env:QT_SCALE_FACTOR = [string]$UiScale
 } else {
     Remove-Item Env:\TANKEYE_UI_SCALE -ErrorAction SilentlyContinue
-    Add-Type -AssemblyName System.Windows.Forms
-    $WorkingArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-    $ScaleByWidth = [double]$WorkingArea.Width / 1360.0
-    $ScaleByHeight = [double]$WorkingArea.Height / 820.0
-    $AutoUiScale = [Math]::Min($ScaleByWidth, $ScaleByHeight)
-    if (($WorkingArea.Width -le 1366) -or ($WorkingArea.Height -le 720)) {
-        $AutoUiScale = $AutoUiScale * 0.82
-    }
-    if ($AutoUiScale -lt 0.65) {
-        $AutoUiScale = 0.65
-    }
-    if ($AutoUiScale -gt 1.0) {
-        $AutoUiScale = 1.0
-    }
-    $env:QT_SCALE_FACTOR = $AutoUiScale.ToString("0.00", [Globalization.CultureInfo]::InvariantCulture)
+    Remove-Item Env:\QT_SCALE_FACTOR -ErrorAction SilentlyContinue
 }
 
 Write-Host "[TankEye] App: $AppExe"
@@ -213,7 +199,7 @@ $PlcDisplay = if ($env:TANKEYE_PLC_HOST) {
 }
 Write-Host "[TankEye] PLC: $PlcDisplay"
 Write-Host "[TankEye] Camera IP: $(if ($env:TANKEYE_CAMERA_IP) { $env:TANKEYE_CAMERA_IP } else { "first enumerated camera" })"
-Write-Host "[TankEye] UI scale: $(if ($UiScale -gt 0) { $UiScale } else { "AUTO $env:QT_SCALE_FACTOR" })"
+Write-Host "[TankEye] UI scale: $(if ($UiScale -gt 0) { $UiScale } else { "Qt/Windows auto" })"
 Write-Host "[TankEye] Postprocess debug: $(if ($env:TANKEYE_DEBUG_POSTPROCESS -eq "1") { "ON" } else { "OFF" })"
 Write-Host "[TankEye] Log: $LogFile"
 Write-Host "[TankEye] OpenVINO cache: $OpenVinoCacheDir"

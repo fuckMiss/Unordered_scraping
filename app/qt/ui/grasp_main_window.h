@@ -72,6 +72,18 @@ private:
         cv::Mat image;
     };
 
+    struct TargetCard {
+        QFrame* card = nullptr;
+        QLabel* title_label = nullptr;
+        QLabel* image_x_label = nullptr;
+        QLabel* image_y_label = nullptr;
+        QLabel* machine_x_label = nullptr;
+        QLabel* machine_y_label = nullptr;
+        QLabel* angle_label = nullptr;
+        QLabel* pick_status_label = nullptr;
+        QLabel* head_type_label = nullptr;
+    };
+
     void setupUi();
     void buildTopBar(QVBoxLayout* root_layout);
     void buildDisplayPanel(QSplitter* splitter);
@@ -167,14 +179,8 @@ private:
     void renderCurrentFrame();
     void refreshInfoPanel();
     void refreshTargetTable();
-    QFrame* createTargetCard(QLabel*& title_label,
-                             QLabel*& image_x_label,
-                             QLabel*& image_y_label,
-                             QLabel*& machine_x_label,
-                             QLabel*& machine_y_label,
-                             QLabel*& angle_label,
-                             QLabel*& pick_status_label,
-                             QLabel*& head_type_label);
+    void createTargetCard(TargetCard& target_card);
+    void refreshTargetCard(TargetCard& target_card, const PoseDetection& detection, int detection_index);
     void refreshRuntimePresentation();
     void refreshResultPresentation(bool render_frame);
     RuntimeStatusSnapshot runtimeStatusSnapshot() const;
@@ -241,17 +247,6 @@ private:
     QWidget* target_list_content_ = nullptr;
     QVBoxLayout* target_list_content_layout_ = nullptr;
     QLabel* target_empty_label_ = nullptr;
-    struct TargetCard {
-        QFrame* card = nullptr;
-        QLabel* title_label = nullptr;
-        QLabel* image_x_label = nullptr;
-        QLabel* image_y_label = nullptr;
-        QLabel* machine_x_label = nullptr;
-        QLabel* machine_y_label = nullptr;
-        QLabel* angle_label = nullptr;
-        QLabel* pick_status_label = nullptr;
-        QLabel* head_type_label = nullptr;
-    };
     QList<TargetCard> target_cards_;
     QLabel* camera_status_dot_ = nullptr;
     QLabel* camera_status_value_ = nullptr;

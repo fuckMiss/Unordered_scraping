@@ -1,11 +1,12 @@
 #include "engineering_settings_dialog_helpers.h"
 
 #include "calibration_profile_store.h"
+#include "ui_scale_utils.h"
 
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFrame>
-#include <QGuiApplication>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIntValidator>
 #include <QLabel>
@@ -13,7 +14,6 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QPushButton>
-#include <QScreen>
 #include <QSettings>
 #include <QSizePolicy>
 #include <QToolButton>
@@ -24,50 +24,9 @@
 
 namespace {
 
-constexpr int kDesignWidth = 1360;
-constexpr int kDesignHeight = 820;
-
-double UiScale()
-{
-    if (!QString::fromLocal8Bit(qgetenv("QT_SCALE_FACTOR")).trimmed().isEmpty()) {
-        return 1.0;
-    }
-
-    const QString override_scale = QString::fromLocal8Bit(qgetenv("TANKEYE_UI_SCALE")).trimmed();
-    if (!override_scale.isEmpty()) {
-        bool ok = false;
-        const double value = override_scale.toDouble(&ok);
-        if (ok && value > 0.0) {
-            return qBound(0.65, value, 1.20);
-        }
-    }
-
-    if (QScreen* screen = QGuiApplication::primaryScreen()) {
-        const QRect available = screen->availableGeometry();
-        const double width_scale = static_cast<double>(available.width()) / kDesignWidth;
-        const double height_scale = static_cast<double>(available.height()) / kDesignHeight;
-        double scale = qMin(width_scale, height_scale);
-        if (available.width() <= 1366 || available.height() <= 720) {
-            scale *= 0.88;
-        }
-        return qBound(0.65, scale, 1.0);
-    }
-    return 1.0;
-}
-
 int S(int value)
 {
-    return qMax(1, qRound(value * UiScale()));
-}
-
-QSize SS(int width, int height)
-{
-    return QSize(S(width), S(height));
-}
-
-QMargins SM(int left, int top, int right, int bottom)
-{
-    return QMargins(S(left), S(top), S(right), S(bottom));
+    return ScalePx(value);
 }
 
 QLineEdit* CreateIpOctetEdit(QWidget* parent)
@@ -81,6 +40,31 @@ QLineEdit* CreateIpOctetEdit(QWidget* parent)
     return edit;
 }
 
+QDoubleSpinBox* CreateSpinBox(QWidget* parent,
+                              double value,
+                              double minimum,
+                              double maximum,
+                              int decimals,
+                              double single_step,
+                              int fixed_width,
+                              const QString& suffix = QString(),
+                              const QString& special_value_text = QString())
+{
+    auto* spin_box = new QDoubleSpinBox(parent);
+    spin_box->setRange(minimum, maximum);
+    spin_box->setDecimals(decimals);
+    spin_box->setSingleStep(single_step);
+    if (!suffix.isEmpty()) {
+        spin_box->setSuffix(suffix);
+    }
+    if (!special_value_text.isEmpty()) {
+        spin_box->setSpecialValueText(special_value_text);
+    }
+    spin_box->setValue(value);
+    spin_box->setFixedWidth(S(fixed_width));
+    return spin_box;
+}
+
 } // namespace
 
 QLabel* CreateGroupCaption(const QString& text, QWidget* parent)
@@ -88,6 +72,59 @@ QLabel* CreateGroupCaption(const QString& text, QWidget* parent)
     auto* label = new QLabel(text, parent);
     label->setObjectName("groupCaption");
     return label;
+}
+
+QGridLayout* CreateSettingsGrid(int horizontal_spacing, int vertical_spacing)
+{
+    auto* grid = new QGridLayout();
+    grid->setHorizontalSpacing(S(horizontal_spacing));
+    grid->setVerticalSpacing(S(vertical_spacing));
+    return grid;
+}
+
+void SetGridColumnMinimumWidths(QGridLayout* grid, std::initializer_list<int> widths)
+{
+    int column = 0;
+    for (const int width : widths) {
+        grid->setColumnMinimumWidth(column++, S(width));
+    }
+}
+
+void SetGridColumnStretches(QGridLayout* grid, std::initializer_list<int> stretches)
+{
+    int column = 0;
+    for (const int stretch : stretches) {
+        grid->setColumnStretch(column++, stretch);
+    }
+}
+
+QWidget* CreateDistributedFieldLabel(QString text, QWidget* parent, int minimum_width)
+{
+    text.remove(QLatin1Char(' '));
+    text.remove(QChar(0x3000));
+    text.remove(QStringLiteral("："));
+    text.remove(QLatin1Char(':'));
+
+    auto* container = new QWidget(parent);
+    container->setMinimumWidth(S(minimum_width));
+    container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto* layout = new QHBoxLayout(container);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+
+    for (int i = 0; i < text.size(); ++i) {
+        auto* char_label = new QLabel(QString(text.at(i)), container);
+        char_label->setAlignment(Qt::AlignCenter);
+        layout->addWidget(char_label, 0);
+        if (i + 1 < text.size()) {
+            layout->addStretch(1);
+        }
+    }
+
+    auto* colon_label = new QLabel(QStringLiteral("："), container);
+    colon_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    layout->addWidget(colon_label, 0);
+    return container;
 }
 
 QFrame* CreateCollapsibleSection(QWidget* parent,
@@ -155,13 +192,7 @@ QHBoxLayout* CreatePathRow(QDialog* dialog, QLineEdit* path_edit, const QString&
 
 QDoubleSpinBox* CreateLimitSpinBox(QWidget* parent, double value)
 {
-    auto* spin_box = new QDoubleSpinBox(parent);
-    spin_box->setRange(-999999.0, 999999.0);
-    spin_box->setDecimals(2);
-    spin_box->setSingleStep(1.0);
-    spin_box->setValue(value);
-    spin_box->setFixedWidth(S(104));
-    return spin_box;
+    return CreateSpinBox(parent, value, -999999.0, 999999.0, 2, 1.0, 104);
 }
 
 QDoubleSpinBox* CreateExposureSpinBox(QWidget* parent, double value)
@@ -179,60 +210,27 @@ QDoubleSpinBox* CreateExposureSpinBox(QWidget* parent, double value)
 
 QDoubleSpinBox* CreateAngleOffsetSpinBox(QWidget* parent, double value)
 {
-    auto* spin_box = new QDoubleSpinBox(parent);
-    spin_box->setRange(-360.0, 360.0);
-    spin_box->setDecimals(2);
-    spin_box->setSingleStep(1.0);
-    spin_box->setSuffix(QStringLiteral(" deg"));
-    spin_box->setValue(value);
-    spin_box->setFixedWidth(S(150));
-    return spin_box;
+    return CreateSpinBox(parent, value, -360.0, 360.0, 2, 1.0, 150, QStringLiteral(" deg"));
 }
 
 QDoubleSpinBox* CreateAngleReferenceSpinBox(QWidget* parent, double value)
 {
-    auto* spin_box = new QDoubleSpinBox(parent);
-    spin_box->setRange(-3600.0, 3600.0);
-    spin_box->setDecimals(2);
-    spin_box->setSingleStep(1.0);
-    spin_box->setSuffix(QStringLiteral(" deg"));
-    spin_box->setValue(value);
-    spin_box->setFixedWidth(S(125));
-    return spin_box;
+    return CreateSpinBox(parent, value, -3600.0, 3600.0, 2, 1.0, 125, QStringLiteral(" deg"));
 }
 
 QDoubleSpinBox* CreateCenterRayOffsetSpinBox(QWidget* parent, double value)
 {
-    auto* spin_box = new QDoubleSpinBox(parent);
-    spin_box->setRange(-100.0, 100.0);
-    spin_box->setDecimals(2);
-    spin_box->setSingleStep(1.0);
-    spin_box->setSuffix(QStringLiteral(" px"));
-    spin_box->setValue(value);
-    spin_box->setFixedWidth(S(150));
-    return spin_box;
+    return CreateSpinBox(parent, value, -100.0, 100.0, 2, 1.0, 150, QStringLiteral(" px"));
 }
 
 QDoubleSpinBox* CreateThresholdSpinBox(QWidget* parent, double value)
 {
-    auto* spin_box = new QDoubleSpinBox(parent);
-    spin_box->setRange(0.01, 0.99);
-    spin_box->setDecimals(2);
-    spin_box->setSingleStep(0.05);
-    spin_box->setValue(qBound(0.01, value, 0.99));
-    spin_box->setFixedWidth(S(96));
-    return spin_box;
+    return CreateSpinBox(parent, qBound(0.01, value, 0.99), 0.01, 0.99, 2, 0.05, 96);
 }
 
 QDoubleSpinBox* CreateCoordinateSpinBox(QWidget* parent, double value)
 {
-    auto* spin_box = new QDoubleSpinBox(parent);
-    spin_box->setRange(-9999999.0, 9999999.0);
-    spin_box->setDecimals(3);
-    spin_box->setSingleStep(1.0);
-    spin_box->setValue(value);
-    spin_box->setFixedWidth(S(96));
-    return spin_box;
+    return CreateSpinBox(parent, value, -9999999.0, 9999999.0, 3, 1.0, 96);
 }
 
 double CoordinateValueAt(const QList<QDoubleSpinBox*>& edits, int index)

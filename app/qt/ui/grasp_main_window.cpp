@@ -1,26 +1,23 @@
 #include "grasp_main_window.h"
 
+#include "admin_auth_dialogs.h"
+#include "admin_auth_helpers.h"
 #include "engineering_settings_dialog_controller.h"
 #include "engineering_settings_dialog_helpers.h"
 #include "engineering_settings_service.h"
-#include "admin_auth_helpers.h"
 #include "frame_overlay.h"
 #include "frame_processing_service.h"
 #include "plc_trigger_coordinator.h"
+#include "runtime_log_dialog.h"
 #include "runtime_status_presenter.h"
 
 #include <QApplication>
-#include <QClipboard>
 #include <QtConcurrent/QtConcurrent>
-#include <QCheckBox>
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QComboBox>
-#include <QCryptographicHash>
 #include <QDateTime>
-#include <QDateTimeEdit>
 #include <QDialog>
-#include <QDialogButtonBox>
 #include <QDir>
 #include <QEvent>
 #include <QFile>
@@ -28,7 +25,6 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
-#include <QGraphicsOpacityEffect>
 #include <QGridLayout>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -42,13 +38,11 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
-#include <QPropertyAnimation>
 #include <QScreen>
 #include <QSettings>
 #include <QTimer>
 #include <QPixmap>
 #include <QPushButton>
-#include <QRandomGenerator>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QSizePolicy>
@@ -57,7 +51,6 @@
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTextEdit>
-#include <QTextCursor>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -89,35 +82,6 @@ constexpr int kDensityBaseHeight = 720;
 
 double g_responsive_ui_scale = 1.0;
 double g_sidebar_compact_scale = 1.0;
-
-constexpr int kAdminSaltBytes = 16;
-
-QByteArray RandomSalt()
-{
-    QByteArray salt;
-    salt.resize(kAdminSaltBytes);
-    for (int i = 0; i < salt.size(); ++i) {
-        salt[i] = static_cast<char>(QRandomGenerator::global()->bounded(256));
-    }
-    return salt;
-}
-
-QString HashAdminPassword(const QString& password, const QByteArray& salt)
-{
-    QByteArray payload = salt;
-    payload.append(password.toUtf8());
-    return QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha256).toHex());
-}
-
-QString EncodeRememberedPassword(const QString& password)
-{
-    return QString::fromLatin1(password.toUtf8().toBase64());
-}
-
-QString DecodeRememberedPassword(const QString& encoded)
-{
-    return QString::fromUtf8(QByteArray::fromBase64(encoded.toLatin1()));
-}
 
 double MsSince(const std::chrono::steady_clock::time_point& start,
                const std::chrono::steady_clock::time_point& end)
@@ -272,87 +236,6 @@ QFrame* CreateKeyValueRow(const QString& name, QLabel*& value_label, QWidget* pa
     return row;
 }
 
-QString AdminAuthDialogStyle()
-{
-    return QString(
-               "QDialog { background: #101720; }"
-               "QLabel { color: #edf4fb; font-size: %1px; }"
-               "QLabel#authHintLabel { color: #a7b9c9; font-size: %2px; }"
-               "QLineEdit { background: #f8fafc; color: #10202d; border: 1px solid #6e86a0; border-radius: %3px; padding: %4px %5px; font-size: %1px; min-height: %6px; selection-background-color: #2c7be5; }"
-               "QLineEdit[readOnly=\"true\"] { background: #dce6ef; color: #243444; }"
-               "QPushButton { background: #1f79db; color: #ffffff; border: 1px solid #5b97e2; border-radius: %3px; padding: %4px %5px; font-size: %1px; font-weight: 600; min-height: %6px; }"
-               "QPushButton:hover { background: #2f87e5; }"
-               "QPushButton#secondaryAuthButton { background: #2a3440; color: #eef4fb; border: 1px solid #556679; }"
-               "QPushButton#secondaryAuthButton:hover { background: #344150; }"
-               "QCheckBox { color: #edf4fb; font-size: %2px; spacing: %7px; }"
-               "QLabel#authCopyToast { color: #9be7b0; font-size: %2px; font-weight: 600; }"
-               "QToolButton#passwordEyeButton { background: transparent; border: none; padding: 0px; }"
-               "QToolButton#passwordEyeButton:hover { background: transparent; }")
-        .arg(S(15))
-        .arg(S(13))
-        .arg(S(8))
-        .arg(S(8))
-        .arg(S(10))
-        .arg(S(32))
-        .arg(S(8));
-}
-
-QWidget* CreateAuthFormLabel(QString text, QWidget* parent)
-{
-    text.remove(QLatin1Char(' '));
-    text.remove(QChar(0x3000));
-    text.remove(QStringLiteral("："));
-    text.remove(QLatin1Char(':'));
-
-    auto* container = new QWidget(parent);
-    container->setMinimumWidth(S(112));
-    container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    auto* layout = new QHBoxLayout(container);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-
-    for (int i = 0; i < text.size(); ++i) {
-        auto* char_label = new QLabel(QString(text.at(i)), container);
-        char_label->setAlignment(Qt::AlignCenter);
-        layout->addWidget(char_label, 0);
-        if (i + 1 < text.size()) {
-            layout->addStretch(1);
-        }
-    }
-
-    auto* colon_label = new QLabel(QStringLiteral("："), container);
-    colon_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    layout->addWidget(colon_label, 0);
-    return container;
-}
-
-void ShowCopyToast(QLabel* toast)
-{
-    if (!toast) {
-        return;
-    }
-
-    auto* effect = qobject_cast<QGraphicsOpacityEffect*>(toast->graphicsEffect());
-    if (!effect) {
-        effect = new QGraphicsOpacityEffect(toast);
-        toast->setGraphicsEffect(effect);
-    }
-    effect->setOpacity(1.0);
-    toast->setVisible(true);
-
-    auto* animation = new QPropertyAnimation(effect, "opacity", toast);
-    animation->setDuration(1200);
-    animation->setStartValue(1.0);
-    animation->setEndValue(0.0);
-    animation->setEasingCurve(QEasingCurve::OutCubic);
-    QObject::connect(animation, &QPropertyAnimation::finished, toast, [toast]() {
-        toast->setVisible(false);
-    });
-    QTimer::singleShot(650, toast, [animation]() {
-        animation->start(QAbstractAnimation::DeleteWhenStopped);
-    });
-}
-
 void SetValueText(QLabel* label, const QString& text)
 {
     if (!label) {
@@ -497,6 +380,13 @@ QString FormatPrimaryCoordinate(const PoseDetection& detection, bool x_axis)
     return FormatNumber(x_axis ? detection.center_x : detection.center_y);
 }
 
+QString FormatHeadType(int code, const std::string& text)
+{
+    return code > 0
+        ? QStringLiteral("%1 %2").arg(code).arg(QString::fromStdString(text))
+        : QStringLiteral("--");
+}
+
 QString FormatPlcWriteResult(const PlcWriteResult& result, const PlcRegisterMap& registers)
 {
     const QString machine_text = result.has_machine_coords
@@ -569,7 +459,6 @@ QIcon CreateAvatarIcon(const QSize& size, const QColor& color)
     QPixmap pixmap = CreateIconPixmap(size);
 
     QPainter painter(&pixmap);
-    painter.scale(IconDevicePixelRatio(), IconDevicePixelRatio());
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter.setBrush(Qt::NoBrush);
@@ -590,7 +479,6 @@ QIcon CreateGearIcon(const QSize& size, const QColor& color)
     QPixmap pixmap = CreateIconPixmap(size);
 
     QPainter painter(&pixmap);
-    painter.scale(IconDevicePixelRatio(), IconDevicePixelRatio());
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.translate(size.width() / 2.0, size.height() / 2.0);
 
@@ -615,7 +503,6 @@ QIcon CreateMinimizeIcon(const QSize& size, const QColor& color)
     QPixmap pixmap = CreateIconPixmap(size);
 
     QPainter painter(&pixmap);
-    painter.scale(IconDevicePixelRatio(), IconDevicePixelRatio());
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setPen(QPen(color, 1.9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter.drawLine(QPointF(size.width() * 0.24, size.height() * 0.68),
@@ -628,7 +515,6 @@ QIcon CreateMaximizeIcon(const QSize& size, const QColor& color)
     QPixmap pixmap = CreateIconPixmap(size);
 
     QPainter painter(&pixmap);
-    painter.scale(IconDevicePixelRatio(), IconDevicePixelRatio());
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter.setBrush(Qt::NoBrush);
@@ -646,7 +532,6 @@ QIcon CreateRestoreIcon(const QSize& size, const QColor& color)
     QPixmap pixmap = CreateIconPixmap(size);
 
     QPainter painter(&pixmap);
-    painter.scale(IconDevicePixelRatio(), IconDevicePixelRatio());
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setPen(QPen(color, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter.setBrush(Qt::NoBrush);
@@ -670,7 +555,6 @@ QIcon CreateCloseIcon(const QSize& size, const QColor& color)
     QPixmap pixmap = CreateIconPixmap(size);
 
     QPainter painter(&pixmap);
-    painter.scale(IconDevicePixelRatio(), IconDevicePixelRatio());
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setPen(QPen(color, 1.9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter.drawLine(QPointF(size.width() * 0.28, size.height() * 0.28),
@@ -678,6 +562,45 @@ QIcon CreateCloseIcon(const QSize& size, const QColor& color)
     painter.drawLine(QPointF(size.width() * 0.72, size.height() * 0.28),
                      QPointF(size.width() * 0.28, size.height() * 0.72));
     return QIcon(pixmap);
+}
+
+using IconFactory = QIcon (*)(const QSize&, const QColor&);
+
+QToolButton* CreateIconToolButton(QWidget* parent,
+                                  const QSize& icon_size,
+                                  const QSize& button_size,
+                                  const QColor& icon_color,
+                                  const QString& tooltip,
+                                  const char* property_name,
+                                  IconFactory icon_factory)
+{
+    auto* button = new QToolButton(parent);
+    button->setCursor(Qt::PointingHandCursor);
+    button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    button->setFixedSize(button_size);
+    button->setIconSize(icon_size);
+    button->setToolTip(tooltip);
+    button->setProperty(property_name, true);
+    if (icon_factory) {
+        button->setIcon(icon_factory(icon_size, icon_color));
+    }
+    return button;
+}
+
+void RefreshIconToolButton(QToolButton* button,
+                           const QSize& icon_size,
+                           const QSize& button_size,
+                           const QColor& icon_color,
+                           IconFactory icon_factory)
+{
+    if (!button) {
+        return;
+    }
+    button->setFixedSize(button_size);
+    button->setIconSize(icon_size);
+    if (icon_factory) {
+        button->setIcon(icon_factory(icon_size, icon_color));
+    }
 }
 
 int SidebarMinWidth()
@@ -1142,35 +1065,11 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
     const QSize icon_size = TSS(18, 18);
     const QSize button_size = TSS(34, 34);
     const QColor icon_color(QStringLiteral("#f0e9e1"));
-    const auto init_button = [icon_size, button_size](QToolButton* button,
-                                                      const QString& tooltip,
-                                                      const char* property_name) {
-        button->setCursor(Qt::PointingHandCursor);
-        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
-        button->setFixedSize(button_size);
-        button->setIconSize(icon_size);
-        button->setToolTip(tooltip);
-        button->setProperty(property_name, true);
-    };
-
-    user_button_ = new QToolButton(top_bar_);
-    init_button(user_button_, QStringLiteral("用户"), "topBarButton");
-    user_button_->setIcon(CreateAvatarIcon(icon_size, icon_color));
-
-    settings_icon_button_ = new QToolButton(top_bar_);
-    init_button(settings_icon_button_, QStringLiteral("工程设置"), "topBarButton");
-    settings_icon_button_->setIcon(CreateGearIcon(icon_size, icon_color));
-
-    minimize_window_button_ = new QToolButton(top_bar_);
-    init_button(minimize_window_button_, QStringLiteral("最小化"), "windowButton");
-    minimize_window_button_->setIcon(CreateMinimizeIcon(icon_size, icon_color));
-
-    maximize_window_button_ = new QToolButton(top_bar_);
-    init_button(maximize_window_button_, QStringLiteral("最大化"), "windowButton");
-
-    close_window_button_ = new QToolButton(top_bar_);
-    init_button(close_window_button_, QStringLiteral("关闭"), "closeWindowButton");
-    close_window_button_->setIcon(CreateCloseIcon(icon_size, icon_color));
+    user_button_ = CreateIconToolButton(top_bar_, icon_size, button_size, icon_color, QStringLiteral("用户"), "topBarButton", CreateAvatarIcon);
+    settings_icon_button_ = CreateIconToolButton(top_bar_, icon_size, button_size, icon_color, QStringLiteral("工程设置"), "topBarButton", CreateGearIcon);
+    minimize_window_button_ = CreateIconToolButton(top_bar_, icon_size, button_size, icon_color, QStringLiteral("最小化"), "windowButton", CreateMinimizeIcon);
+    maximize_window_button_ = CreateIconToolButton(top_bar_, icon_size, button_size, icon_color, QStringLiteral("最大化"), "windowButton", nullptr);
+    close_window_button_ = CreateIconToolButton(top_bar_, icon_size, button_size, icon_color, QStringLiteral("关闭"), "closeWindowButton", CreateCloseIcon);
 
     right_layout->addWidget(user_button_);
     right_layout->addWidget(settings_icon_button_);
@@ -1697,6 +1596,7 @@ void GraspMainWindow::refreshTopBarMetrics()
     }
     if (brand_label_) {
         brand_label_->setMinimumWidth(0);
+        brand_label_->setMaximumWidth(TS(160));
         brand_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     }
     if (title_label_) {
@@ -1711,19 +1611,24 @@ void GraspMainWindow::refreshTopBarMetrics()
         user_button_, settings_icon_button_, minimize_window_button_, maximize_window_button_, close_window_button_
     };
     for (QToolButton* button : buttons) {
-        if (!button) {
-            continue;
-        }
-        button->setFixedSize(button_size);
-        button->setIconSize(icon_size);
+        RefreshIconToolButton(button, icon_size, button_size, icon_color, nullptr);
     }
     if (top_right_controls_) {
         if (auto* right_layout = qobject_cast<QHBoxLayout*>(top_right_controls_->layout())) {
             right_layout->setSpacing(TS(6));
             right_layout->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         }
-        constexpr int kReservedTopButtonCount = 5;
-        const int controls_width = button_size.width() * kReservedTopButtonCount + TS(6) * (kReservedTopButtonCount - 1) + TS(2);
+        int visible_button_count = 0;
+        for (QToolButton* button : buttons) {
+            if (button && !button->isHidden()) {
+                ++visible_button_count;
+            }
+        }
+        visible_button_count = qMax(1, visible_button_count);
+        const int controls_width =
+            button_size.width() * visible_button_count +
+            TS(6) * qMax(0, visible_button_count - 1) +
+            TS(2);
         top_right_controls_->setMinimumWidth(controls_width);
         top_right_controls_->setMaximumWidth(controls_width);
         if (auto* top_layout = qobject_cast<QGridLayout*>(top_bar_->layout())) {
@@ -1735,18 +1640,10 @@ void GraspMainWindow::refreshTopBarMetrics()
             top_layout->setAlignment(top_right_controls_, Qt::AlignRight | Qt::AlignVCenter);
         }
     }
-    if (user_button_) {
-        user_button_->setIcon(CreateAvatarIcon(icon_size, icon_color));
-    }
-    if (settings_icon_button_) {
-        settings_icon_button_->setIcon(CreateGearIcon(icon_size, icon_color));
-    }
-    if (minimize_window_button_) {
-        minimize_window_button_->setIcon(CreateMinimizeIcon(icon_size, icon_color));
-    }
-    if (close_window_button_) {
-        close_window_button_->setIcon(CreateCloseIcon(icon_size, icon_color));
-    }
+    RefreshIconToolButton(user_button_, icon_size, button_size, icon_color, CreateAvatarIcon);
+    RefreshIconToolButton(settings_icon_button_, icon_size, button_size, icon_color, CreateGearIcon);
+    RefreshIconToolButton(minimize_window_button_, icon_size, button_size, icon_color, CreateMinimizeIcon);
+    RefreshIconToolButton(close_window_button_, icon_size, button_size, icon_color, CreateCloseIcon);
 }
 
 void GraspMainWindow::refreshActionButtonMetrics()
@@ -1849,49 +1746,17 @@ void GraspMainWindow::logHighDpiMetrics(const QString& context) const
 
 bool GraspMainWindow::hasAdminAccount() const
 {
-    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
-    settings.beginGroup(QStringLiteral("admin_auth"));
-    const bool result = !settings.value(QStringLiteral("username")).toString().trimmed().isEmpty() &&
-                        !settings.value(QStringLiteral("password_hash")).toString().trimmed().isEmpty() &&
-                        !settings.value(QStringLiteral("salt")).toString().trimmed().isEmpty();
-    settings.endGroup();
-    return result;
+    return AdminAuthHasAccount();
 }
 
 QString GraspMainWindow::adminUsername() const
 {
-    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
-    settings.beginGroup(QStringLiteral("admin_auth"));
-    const QString username = settings.value(QStringLiteral("username")).toString().trimmed();
-    settings.endGroup();
-    return username;
+    return AdminAuthUsername();
 }
 
 bool GraspMainWindow::setAdminCredentials(const QString& username, const QString& password, QString* error_message)
 {
-    const QString trimmed_username = username.trimmed();
-    if (trimmed_username.isEmpty()) {
-        if (error_message) {
-            *error_message = QStringLiteral("管理员账号不能为空。");
-        }
-        return false;
-    }
-    if (password.size() < 4) {
-        if (error_message) {
-            *error_message = QStringLiteral("管理员密码至少需要 4 位。");
-        }
-        return false;
-    }
-
-    const QByteArray salt = RandomSalt();
-    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
-    settings.beginGroup(QStringLiteral("admin_auth"));
-    settings.setValue(QStringLiteral("username"), trimmed_username);
-    settings.setValue(QStringLiteral("salt"), QString::fromLatin1(salt.toBase64()));
-    settings.setValue(QStringLiteral("password_hash"), HashAdminPassword(password, salt));
-    settings.endGroup();
-    settings.sync();
-    return true;
+    return AdminAuthSetCredentials(username, password, error_message);
 }
 
 bool GraspMainWindow::changeAdminCredentials(const QString& current_password,
@@ -1899,51 +1764,22 @@ bool GraspMainWindow::changeAdminCredentials(const QString& current_password,
                                              const QString& new_password,
                                              QString* error_message)
 {
-    if (hasAdminAccount() && !validateAdminCredentials(adminUsername(), current_password)) {
-        if (error_message) {
-            *error_message = QStringLiteral("当前密码不正确。");
-        }
-        return false;
-    }
-    return setAdminCredentials(username, new_password, error_message);
+    return AdminAuthChangeCredentials(current_password, username, new_password, error_message);
 }
 
 bool GraspMainWindow::validateAdminCredentials(const QString& username, const QString& password) const
 {
-    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
-    settings.beginGroup(QStringLiteral("admin_auth"));
-    const QString saved_username = settings.value(QStringLiteral("username")).toString().trimmed();
-    const QByteArray salt = QByteArray::fromBase64(settings.value(QStringLiteral("salt")).toString().toLatin1());
-    const QString saved_hash = settings.value(QStringLiteral("password_hash")).toString();
-    settings.endGroup();
-    if (saved_username.isEmpty() || saved_hash.isEmpty() || salt.isEmpty()) {
-        return false;
-    }
-    return username.trimmed() == saved_username && HashAdminPassword(password, salt) == saved_hash;
+    return AdminAuthValidateCredentials(username, password);
 }
 
 QString GraspMainWindow::rememberedAdminPassword() const
 {
-    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
-    settings.beginGroup(QStringLiteral("admin_auth"));
-    const bool remember = settings.value(QStringLiteral("remember_password"), false).toBool();
-    const QString encoded = settings.value(QStringLiteral("remembered_password")).toString();
-    settings.endGroup();
-    return remember ? DecodeRememberedPassword(encoded) : QString();
+    return AdminAuthRememberedPassword();
 }
 
 void GraspMainWindow::saveRememberedAdminPassword(bool remember, const QString& password)
 {
-    QSettings settings(QStringLiteral("TankEye"), QStringLiteral("TankEye-Iris"));
-    settings.beginGroup(QStringLiteral("admin_auth"));
-    settings.setValue(QStringLiteral("remember_password"), remember);
-    if (remember) {
-        settings.setValue(QStringLiteral("remembered_password"), EncodeRememberedPassword(password));
-    } else {
-        settings.remove(QStringLiteral("remembered_password"));
-    }
-    settings.endGroup();
-    settings.sync();
+    AdminAuthSaveRememberedPassword(remember, password);
 }
 
 void GraspMainWindow::setAdminMode(bool enabled)
@@ -2046,273 +1882,54 @@ void GraspMainWindow::refreshAdminModeUi()
 
 void GraspMainWindow::showCreateAdminAccountDialog()
 {
-    const QString machine_code = AdminAuthMachineCode();
-    QString auth_secret_warning;
-    const QString auth_secret = AdminAuthSecret(&auth_secret_warning);
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("创建管理员账号"));
-    dialog.setWindowFlags(Qt::Window | Qt::Dialog);
-    dialog.setStyleSheet(AdminAuthDialogStyle());
-
-    auto* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(SM(18, 18, 18, 18));
-    layout->setSpacing(S(12));
-
-    auto* hint_label = new QLabel(QStringLiteral("首次授权：把机器码发给工程师，拿到授权码后才能创建管理员。"), &dialog);
-    hint_label->setObjectName("authHintLabel");
-    hint_label->setWordWrap(true);
-    layout->addWidget(hint_label);
-
-    auto* auth_grid = new QGridLayout();
-    auth_grid->setHorizontalSpacing(S(8));
-    auth_grid->setVerticalSpacing(S(10));
-    auth_grid->setColumnStretch(0, 0);
-    auth_grid->setColumnStretch(1, 1);
-    auth_grid->setColumnStretch(2, 0);
-
-    auto* machine_code_edit = new QLineEdit(machine_code, &dialog);
-    machine_code_edit->setReadOnly(true);
-    machine_code_edit->setCursorPosition(0);
-    auto* copy_machine_button = new QPushButton(QStringLiteral("复制"), &dialog);
-    copy_machine_button->setObjectName("secondaryAuthButton");
-    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("机器码："), &dialog), 0, 0);
-    auth_grid->addWidget(machine_code_edit, 0, 1);
-    auth_grid->addWidget(copy_machine_button, 0, 2);
-
-    auto* auth_code_edit = new QLineEdit(&dialog);
-    auth_code_edit->setPlaceholderText(QStringLiteral("请输入工程师提供的授权码"));
-    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("授权码："), &dialog), 1, 0);
-    auth_grid->addWidget(auth_code_edit, 1, 1);
-
-    auto* username_edit = new QLineEdit(&dialog);
-    auto* password_edit = new QLineEdit(&dialog);
-    auto* confirm_edit = new QLineEdit(&dialog);
-    password_edit->setPlaceholderText(QStringLiteral("设置管理员密码"));
-    confirm_edit->setPlaceholderText(QStringLiteral("再次输入密码"));
-    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("账号："), &dialog), 2, 0);
-    auth_grid->addWidget(username_edit, 2, 1);
-    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("密码："), &dialog), 3, 0);
-    auth_grid->addWidget(password_edit, 3, 1);
-    auth_grid->addWidget(CreatePasswordVisibilityButton(password_edit, &dialog), 3, 2);
-    auth_grid->addWidget(CreateAuthFormLabel(QStringLiteral("确认密码："), &dialog), 4, 0);
-    auth_grid->addWidget(confirm_edit, 4, 1);
-    auth_grid->addWidget(CreatePasswordVisibilityButton(confirm_edit, &dialog), 4, 2);
-    layout->addLayout(auth_grid);
-
-    auto* copy_toast = new QLabel(QStringLiteral("机器码已复制"), &dialog);
-    copy_toast->setObjectName("authCopyToast");
-    copy_toast->setVisible(false);
-    layout->addWidget(copy_toast, 0, Qt::AlignRight);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("创建并登录"));
-    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-    layout->addWidget(buttons);
-
-    connect(copy_machine_button, &QPushButton::clicked, &dialog, [machine_code_edit, copy_toast]() {
-        QApplication::clipboard()->setText(machine_code_edit->text());
-        ShowCopyToast(copy_toast);
-    });
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
-        if (auth_code_edit->text().trimmed().isEmpty()) {
-            QMessageBox::warning(&dialog, QStringLiteral("创建失败"), QStringLiteral("请输入授权码。"));
-            return;
-        }
-        if (password_edit->text() != confirm_edit->text()) {
-            QMessageBox::warning(&dialog, QStringLiteral("创建失败"), QStringLiteral("两次输入的密码不一致。"));
-            return;
-        }
-        if (!VerifyAdminAuthCode(machine_code_edit->text(), auth_code_edit->text(), auth_secret, QStringLiteral("INIT"))) {
-            QString message = QStringLiteral("授权码无效。");
-            if (!auth_secret_warning.isEmpty()) {
-                message += QStringLiteral("\n\n当前为开发默认密钥，测试授权码应为：%1")
-                               .arg(BuildAdminAuthCode(machine_code_edit->text(), auth_secret, QStringLiteral("INIT")));
-            }
-            QMessageBox::warning(&dialog, QStringLiteral("创建失败"), message);
-            return;
-        }
-        QString error;
-        if (!setAdminCredentials(username_edit->text(), password_edit->text(), &error)) {
-            QMessageBox::warning(&dialog, QStringLiteral("创建失败"), error);
-            return;
-        }
-        saveRememberedAdminPassword(false, QString());
-        dialog.accept();
-    });
-
-    if (dialog.exec() == QDialog::Accepted) {
+    const bool accepted = ::ShowCreateAdminAccountDialog(
+        this,
+        UiScale(),
+        [this](const QString& username, const QString& password, QString* error_message) {
+            return setAdminCredentials(username, password, error_message);
+        },
+        [this](bool remember, const QString& password) {
+            saveRememberedAdminPassword(remember, password);
+        });
+    if (accepted) {
         setAdminMode(true);
     }
 }
 
 void GraspMainWindow::showAdminLoginDialog()
 {
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("管理员登录"));
-    dialog.setWindowFlags(Qt::Window | Qt::Dialog);
-    dialog.setStyleSheet(AdminAuthDialogStyle());
-
-    auto* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(SM(18, 18, 18, 18));
-    layout->setSpacing(S(12));
-
-    auto* hint_label = new QLabel(QStringLiteral("管理员模式用于调试入口；普通模式下只保留目标列表。"), &dialog);
-    hint_label->setObjectName("authHintLabel");
-    hint_label->setWordWrap(true);
-    layout->addWidget(hint_label);
-
-    auto* form = new QGridLayout();
-    form->setHorizontalSpacing(S(8));
-    form->setVerticalSpacing(S(10));
-    form->setColumnStretch(0, 0);
-    form->setColumnStretch(1, 1);
-    form->setColumnStretch(2, 0);
-    auto* username_edit = new QLineEdit(adminUsername(), &dialog);
-    auto* password_edit = new QLineEdit(rememberedAdminPassword(), &dialog);
-    auto* remember_check = new QCheckBox(QStringLiteral("记住密码"), &dialog);
-    remember_check->setChecked(!password_edit->text().isEmpty());
-    form->addWidget(CreateAuthFormLabel(QStringLiteral("账号："), &dialog), 0, 0);
-    form->addWidget(username_edit, 0, 1);
-    form->addWidget(CreateAuthFormLabel(QStringLiteral("密码："), &dialog), 1, 0);
-    form->addWidget(password_edit, 1, 1);
-    form->addWidget(CreatePasswordVisibilityButton(password_edit, &dialog), 1, 2);
-    form->addWidget(remember_check, 2, 1);
-    layout->addLayout(form);
-
-    auto* button_row = new QHBoxLayout();
-    button_row->setSpacing(S(8));
-    auto* reset_button = new QPushButton(QStringLiteral("忘记密码"), &dialog);
-    reset_button->setObjectName("secondaryAuthButton");
-    auto* login_button = new QPushButton(QStringLiteral("登录"), &dialog);
-    auto* cancel_button = new QPushButton(QStringLiteral("取消"), &dialog);
-    cancel_button->setObjectName("secondaryAuthButton");
-    button_row->addWidget(reset_button, 0, Qt::AlignLeft);
-    button_row->addStretch(1);
-    button_row->addWidget(login_button);
-    button_row->addWidget(cancel_button);
-    layout->addLayout(button_row);
-
-    connect(reset_button, &QPushButton::clicked, &dialog, [this, &dialog]() {
-        if (showAdminResetDialog()) {
-            dialog.accept();
-        }
-    });
-    connect(cancel_button, &QPushButton::clicked, &dialog, &QDialog::reject);
-    connect(login_button, &QPushButton::clicked, &dialog, [&]() {
-        if (!validateAdminCredentials(username_edit->text(), password_edit->text())) {
-            QMessageBox::warning(&dialog, QStringLiteral("登录失败"), QStringLiteral("管理员账号或密码错误。"));
-            return;
-        }
-        saveRememberedAdminPassword(remember_check->isChecked(), password_edit->text());
-        dialog.accept();
-    });
-
-    if (dialog.exec() == QDialog::Accepted) {
+    const bool accepted = ::ShowAdminLoginDialog(
+        this,
+        UiScale(),
+        adminUsername(),
+        rememberedAdminPassword(),
+        [this](const QString& username, const QString& password) {
+            return validateAdminCredentials(username, password);
+        },
+        [this](bool remember, const QString& password) {
+            saveRememberedAdminPassword(remember, password);
+        },
+        [this]() {
+            return showAdminResetDialog();
+        });
+    if (accepted) {
         setAdminMode(true);
     }
 }
 
 bool GraspMainWindow::showAdminResetDialog()
 {
-    const QString machine_code = AdminAuthMachineCode();
-    QString auth_secret_warning;
-    const QString auth_secret = AdminAuthSecret(&auth_secret_warning);
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("重置管理员"));
-    dialog.setWindowFlags(Qt::Window | Qt::Dialog);
-    dialog.setStyleSheet(AdminAuthDialogStyle());
-
-    auto* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(SM(18, 18, 18, 18));
-    layout->setSpacing(S(12));
-
-    auto* hint_label = new QLabel(QStringLiteral("忘记密码时，使用机器码和重置码重新设置管理员账号。"), &dialog);
-    hint_label->setObjectName("authHintLabel");
-    hint_label->setWordWrap(true);
-    layout->addWidget(hint_label);
-
-    auto* reset_grid = new QGridLayout();
-    reset_grid->setHorizontalSpacing(S(8));
-    reset_grid->setVerticalSpacing(S(10));
-    reset_grid->setColumnStretch(0, 0);
-    reset_grid->setColumnStretch(1, 1);
-    reset_grid->setColumnStretch(2, 0);
-
-    auto* machine_code_edit = new QLineEdit(machine_code, &dialog);
-    machine_code_edit->setReadOnly(true);
-    machine_code_edit->setCursorPosition(0);
-    auto* copy_machine_button = new QPushButton(QStringLiteral("复制"), &dialog);
-    copy_machine_button->setObjectName("secondaryAuthButton");
-    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("机器码："), &dialog), 0, 0);
-    reset_grid->addWidget(machine_code_edit, 0, 1);
-    reset_grid->addWidget(copy_machine_button, 0, 2);
-
-    auto* reset_code_edit = new QLineEdit(&dialog);
-    reset_code_edit->setPlaceholderText(QStringLiteral("请输入维护重置码"));
-    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("重置码："), &dialog), 1, 0);
-    reset_grid->addWidget(reset_code_edit, 1, 1);
-
-    auto* username_edit = new QLineEdit(adminUsername(), &dialog);
-    auto* password_edit = new QLineEdit(&dialog);
-    auto* confirm_edit = new QLineEdit(&dialog);
-    password_edit->setPlaceholderText(QStringLiteral("新管理员密码"));
-    confirm_edit->setPlaceholderText(QStringLiteral("再次输入新密码"));
-    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("账号："), &dialog), 2, 0);
-    reset_grid->addWidget(username_edit, 2, 1);
-    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("密码："), &dialog), 3, 0);
-    reset_grid->addWidget(password_edit, 3, 1);
-    reset_grid->addWidget(CreatePasswordVisibilityButton(password_edit, &dialog), 3, 2);
-    reset_grid->addWidget(CreateAuthFormLabel(QStringLiteral("确认密码："), &dialog), 4, 0);
-    reset_grid->addWidget(confirm_edit, 4, 1);
-    reset_grid->addWidget(CreatePasswordVisibilityButton(confirm_edit, &dialog), 4, 2);
-    layout->addLayout(reset_grid);
-
-    auto* copy_toast = new QLabel(QStringLiteral("机器码已复制"), &dialog);
-    copy_toast->setObjectName("authCopyToast");
-    copy_toast->setVisible(false);
-    layout->addWidget(copy_toast, 0, Qt::AlignRight);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("重置并登录"));
-    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-    layout->addWidget(buttons);
-
-    connect(copy_machine_button, &QPushButton::clicked, &dialog, [machine_code_edit, copy_toast]() {
-        QApplication::clipboard()->setText(machine_code_edit->text());
-        ShowCopyToast(copy_toast);
-    });
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
-        if (reset_code_edit->text().trimmed().isEmpty()) {
-            QMessageBox::warning(&dialog, QStringLiteral("重置失败"), QStringLiteral("请输入重置码。"));
-            return;
-        }
-        if (password_edit->text() != confirm_edit->text()) {
-            QMessageBox::warning(&dialog, QStringLiteral("重置失败"), QStringLiteral("两次输入的新密码不一致。"));
-            return;
-        }
-        if (!VerifyAdminAuthCode(machine_code_edit->text(), reset_code_edit->text(), auth_secret, QStringLiteral("RESET"))) {
-            QString message = QStringLiteral("重置码无效。");
-            if (!auth_secret_warning.isEmpty()) {
-                message += QStringLiteral("\n\n当前为开发默认密钥，测试重置码应为：%1")
-                               .arg(BuildAdminAuthCode(machine_code_edit->text(), auth_secret, QStringLiteral("RESET")));
-            }
-            QMessageBox::warning(&dialog, QStringLiteral("重置失败"), message);
-            return;
-        }
-        QString error;
-        if (!setAdminCredentials(username_edit->text(), password_edit->text(), &error)) {
-            QMessageBox::warning(&dialog, QStringLiteral("重置失败"), error);
-            return;
-        }
-        saveRememberedAdminPassword(false, QString());
-        dialog.accept();
-    });
-
-    if (dialog.exec() == QDialog::Accepted) {
+    const bool accepted = ::ShowAdminResetDialog(
+        this,
+        UiScale(),
+        adminUsername(),
+        [this](const QString& username, const QString& password, QString* error_message) {
+            return setAdminCredentials(username, password, error_message);
+        },
+        [this](bool remember, const QString& password) {
+            saveRememberedAdminPassword(remember, password);
+        });
+    if (accepted) {
         setAdminMode(true);
         return true;
     }
@@ -2529,341 +2146,7 @@ void GraspMainWindow::openEngineeringSettings()
 
 void GraspMainWindow::showRuntimeLogs()
 {
-    {
-        auto* dialog = new QDialog(this);
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
-        dialog->setWindowTitle(QString::fromUtf8("运行日志"));
-        dialog->resize(SS(1080, 680));
-
-        auto* layout = new QVBoxLayout(dialog);
-        layout->setContentsMargins(SM(14, 14, 14, 14));
-        layout->setSpacing(S(8));
-
-        auto* selector_row = new QHBoxLayout();
-        selector_row->setSpacing(S(8));
-        selector_row->addWidget(new QLabel(QString::fromUtf8("日志文件"), dialog));
-        auto* log_selector = new QComboBox(dialog);
-        log_selector->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        selector_row->addWidget(log_selector, 1);
-        layout->addLayout(selector_row);
-
-        auto* filter_row = new QHBoxLayout();
-        filter_row->setSpacing(S(8));
-        auto* search_edit = new QLineEdit(dialog);
-        search_edit->setPlaceholderText(QString::fromUtf8("搜索关键词，例如 error / warning / PLC / camera"));
-        auto* level_selector = new QComboBox(dialog);
-        level_selector->addItem(QString::fromUtf8("全部"), QString());
-        level_selector->addItem(QStringLiteral("ERROR"), QStringLiteral("error|failed|fail|失败"));
-        level_selector->addItem(QStringLiteral("WARNING"), QStringLiteral("warning|warn|警告"));
-        level_selector->addItem(QStringLiteral("PLC"), QStringLiteral("plc|modbus|register|d500|d502|d506"));
-        level_selector->addItem(QString::fromUtf8("相机"), QStringLiteral("camera|hik|frame|相机"));
-        level_selector->addItem(QString::fromUtf8("模型"), QStringLiteral("model|openvino|obb|seg|模型"));
-        auto* from_time = new QDateTimeEdit(dialog);
-        auto* to_time = new QDateTimeEdit(dialog);
-        const QDateTime now = QDateTime::currentDateTime();
-        from_time->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-        to_time->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-        from_time->setCalendarPopup(true);
-        to_time->setCalendarPopup(true);
-        from_time->setDateTime(now.addDays(-7));
-        to_time->setDateTime(now.addDays(1));
-        filter_row->addWidget(search_edit, 2);
-        filter_row->addWidget(level_selector);
-        filter_row->addWidget(new QLabel(QString::fromUtf8("从"), dialog));
-        filter_row->addWidget(from_time);
-        filter_row->addWidget(new QLabel(QString::fromUtf8("到"), dialog));
-        filter_row->addWidget(to_time);
-        layout->addLayout(filter_row);
-
-        auto* log_location_label = new QLabel(dialog);
-        log_location_label->setWordWrap(true);
-        log_location_label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        layout->addWidget(log_location_label);
-
-        auto* log_view = new QTextEdit(dialog);
-        log_view->setReadOnly(true);
-        log_view->setLineWrapMode(QTextEdit::NoWrap);
-        log_view->setObjectName("logTextView");
-        layout->addWidget(log_view, 1);
-
-        auto* page_row = new QHBoxLayout();
-        page_row->setSpacing(S(8));
-        auto* prev_button = new QPushButton(QString::fromUtf8("上一页"), dialog);
-        auto* next_button = new QPushButton(QString::fromUtf8("下一页"), dialog);
-        auto* latest_button = new QPushButton(QString::fromUtf8("最新"), dialog);
-        auto* page_label = new QLabel(dialog);
-        auto* close_button = new QPushButton(QString::fromUtf8("关闭"), dialog);
-        page_row->addWidget(prev_button);
-        page_row->addWidget(next_button);
-        page_row->addWidget(latest_button);
-        page_row->addWidget(page_label, 1);
-        page_row->addWidget(close_button);
-        layout->addLayout(page_row);
-
-        dialog->setStyleSheet(QString(
-            "QDialog { background: #0f141a; color: #e6edf7; }"
-            "QLabel { color: #dbe7f1; font-size: %1px; font-weight: 600; }"
-            "QComboBox, QDateTimeEdit, QLineEdit { background: #181f29; color: #f4f8fc; border: 1px solid #354b60; border-radius: %2px; padding: %3px %4px; font-size: %1px; }"
-            "QTextEdit#logTextView { background: #080d12; color: #dce7f1; border: 1px solid #27303d; border-radius: %5px; font-family: Consolas, 'Courier New'; font-size: %6px; }"
-            "QPushButton { background: #2a4365; color: #ecf4fa; border: 1px solid #36546b; border-radius: %7px; padding: %8px %9px; font-size: %1px; font-weight: 600; }")
-            .arg(S(13)).arg(S(6)).arg(S(6)).arg(S(8)).arg(S(8)).arg(S(12)).arg(S(7)).arg(S(6)).arg(S(12)));
-
-        const QDir app_log_dir(QCoreApplication::applicationDirPath() + QStringLiteral("/logs"));
-        const QDir cwd_log_dir(QDir::current().filePath(QStringLiteral("logs")));
-        const QString env_log_file = QString::fromLocal8Bit(qgetenv("TANKEYE_LOG_FILE")).trimmed();
-        const auto add_log_file = [log_selector](const QString& path) {
-            const QFileInfo info(path);
-            if (!info.exists() || !info.isFile()) {
-                return;
-            }
-            for (int i = 0; i < log_selector->count(); ++i) {
-                if (log_selector->itemData(i).toString() == info.absoluteFilePath()) {
-                    return;
-                }
-            }
-            const QString label = QStringLiteral("%1  %2")
-                                      .arg(info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")))
-                                      .arg(info.absoluteFilePath());
-            log_selector->addItem(label, info.absoluteFilePath());
-        };
-        const auto add_log_dir = [add_log_file](const QDir& dir) {
-            const QFileInfoList logs = dir.entryInfoList({ QStringLiteral("*.log") }, QDir::Files, QDir::Time);
-            for (const QFileInfo& info : logs) {
-                add_log_file(info.absoluteFilePath());
-            }
-        };
-        if (!env_log_file.isEmpty()) {
-            add_log_file(env_log_file);
-        }
-        add_log_dir(app_log_dir);
-        add_log_dir(cwd_log_dir);
-        log_location_label->setText(QString::fromUtf8("日志位置：%1；%2")
-                                        .arg(app_log_dir.absolutePath(), cwd_log_dir.absolutePath()));
-
-        const int page_size = 1000;
-        const qint64 max_read_bytes = 4 * 1024 * 1024;
-        auto* page_index = new int(0);
-        auto* latest_mode = new bool(true);
-        const auto parse_line_time = [](const QString& line) -> QDateTime {
-            int index = line.indexOf(QStringLiteral("20"));
-            while (index >= 0 && index + 19 <= line.size()) {
-                const QString candidate = line.mid(index, 19);
-                QDateTime parsed = QDateTime::fromString(candidate, Qt::ISODate);
-                if (!parsed.isValid()) {
-                    parsed = QDateTime::fromString(candidate, QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-                }
-                if (parsed.isValid()) {
-                    return parsed;
-                }
-                index = line.indexOf(QStringLiteral("20"), index + 1);
-            }
-            return QDateTime();
-        };
-        const auto refresh_log = [=]() {
-            const QString path = log_selector->currentData().toString();
-            if (path.isEmpty()) {
-                log_view->setPlainText(QString::fromUtf8("暂无日志。\n%1").arg(log_location_label->text()));
-                return;
-            }
-            QFile file(path);
-            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                log_view->setPlainText(QString::fromUtf8("日志打开失败：%1\n原因：%2").arg(path, file.errorString()));
-                return;
-            }
-            if (file.size() > max_read_bytes) {
-                file.seek(file.size() - max_read_bytes);
-                file.readLine();
-            }
-            const QStringList raw_lines = QString::fromLocal8Bit(file.readAll()).split(QLatin1Char('\n'));
-            const QString keyword = search_edit->text().trimmed();
-            const QStringList level_terms = level_selector->currentData().toString().split(QLatin1Char('|'), Qt::SkipEmptyParts);
-            QStringList filtered;
-            filtered.reserve(raw_lines.size());
-            for (const QString& raw_line : raw_lines) {
-                const QString line = raw_line.trimmed();
-                if (line.isEmpty()) {
-                    continue;
-                }
-                if (!keyword.isEmpty() && !line.contains(keyword, Qt::CaseInsensitive)) {
-                    continue;
-                }
-                bool level_match = level_terms.isEmpty();
-                for (const QString& term : level_terms) {
-                    if (line.contains(term, Qt::CaseInsensitive)) {
-                        level_match = true;
-                        break;
-                    }
-                }
-                if (!level_match) {
-                    continue;
-                }
-                const QDateTime line_time = parse_line_time(line);
-                if (line_time.isValid() && (line_time < from_time->dateTime() || line_time > to_time->dateTime())) {
-                    continue;
-                }
-                filtered.push_back(line);
-            }
-            const int page_count = qMax(1, (filtered.size() + page_size - 1) / page_size);
-            if (*latest_mode) {
-                *page_index = page_count - 1;
-            }
-            *page_index = qBound(0, *page_index, page_count - 1);
-            log_view->setPlainText(filtered.mid((*page_index) * page_size, page_size).join(QStringLiteral("\n")));
-            log_view->moveCursor(QTextCursor::End);
-            page_label->setText(QString::fromUtf8("第 %1/%2 页，每页 %3 行；匹配 %4 行；当前：%5")
-                                    .arg(*page_index + 1)
-                                    .arg(page_count)
-                                    .arg(page_size)
-                                    .arg(filtered.size())
-                                    .arg(QFileInfo(path).fileName()));
-        };
-
-        connect(log_selector, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, [=](int) { *latest_mode = true; refresh_log(); });
-        connect(search_edit, &QLineEdit::textChanged, dialog, [=]() { *latest_mode = true; refresh_log(); });
-        connect(level_selector, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, [=](int) { *latest_mode = true; refresh_log(); });
-        connect(from_time, &QDateTimeEdit::dateTimeChanged, dialog, [=](const QDateTime&) { *latest_mode = true; refresh_log(); });
-        connect(to_time, &QDateTimeEdit::dateTimeChanged, dialog, [=](const QDateTime&) { *latest_mode = true; refresh_log(); });
-        connect(prev_button, &QPushButton::clicked, dialog, [=]() { *latest_mode = false; --(*page_index); refresh_log(); });
-        connect(next_button, &QPushButton::clicked, dialog, [=]() { *latest_mode = false; ++(*page_index); refresh_log(); });
-        connect(latest_button, &QPushButton::clicked, dialog, [=]() { *latest_mode = true; refresh_log(); });
-        connect(close_button, &QPushButton::clicked, dialog, &QDialog::accept);
-
-        refresh_log();
-        auto* auto_refresh_timer = new QTimer(dialog);
-        auto_refresh_timer->setInterval(500);
-        connect(auto_refresh_timer, &QTimer::timeout, dialog, refresh_log);
-        auto_refresh_timer->start();
-        dialog->show();
-        dialog->raise();
-        dialog->activateWindow();
-        return;
-    }
-
-    auto* dialog = new QDialog(this);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle(QStringLiteral("运行日志"));
-    dialog->resize(SS(880, 560));
-
-    auto* layout = new QVBoxLayout(dialog);
-    layout->setContentsMargins(SM(14, 14, 14, 14));
-    layout->setSpacing(S(10));
-
-    auto* selector_row = new QHBoxLayout();
-    selector_row->setSpacing(S(8));
-    auto* selector_label = new QLabel(QStringLiteral("日志文件"), dialog);
-    selector_label->setObjectName("statusStackName");
-    auto* log_selector = new QComboBox(dialog);
-    log_selector->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    selector_row->addWidget(selector_label);
-    selector_row->addWidget(log_selector, 1);
-    layout->addLayout(selector_row);
-
-    auto* log_location_label = new QLabel(dialog);
-    log_location_label->setObjectName("statusStackName");
-    log_location_label->setWordWrap(true);
-    log_location_label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    layout->addWidget(log_location_label);
-
-    auto* log_view = new QTextEdit(dialog);
-    log_view->setReadOnly(true);
-    log_view->setLineWrapMode(QTextEdit::NoWrap);
-    log_view->setObjectName("logTextView");
-    layout->addWidget(log_view, 1);
-
-    auto* close_row = new QHBoxLayout();
-    close_row->addStretch();
-    auto* close_button = new QPushButton(QStringLiteral("关闭"), dialog);
-    close_button->setObjectName("secondaryActionButton");
-    close_button->setMinimumHeight(S(36));
-    close_row->addWidget(close_button);
-    layout->addLayout(close_row);
-
-    dialog->setStyleSheet(QString(
-        "QDialog { background: #0f141a; color: #e6edf7; }"
-        "QLabel { color: #dbe7f1; font-size: %1px; font-weight: 600; }"
-        "QComboBox { background: #181f29; color: #f4f8fc; border: 1px solid #354b60; border-radius: %2px; padding: %3px %4px; font-size: %1px; }"
-        "QTextEdit#logTextView { background: #080d12; color: #dce7f1; border: 1px solid #27303d; border-radius: %5px; font-family: Consolas, 'Courier New'; font-size: %6px; }"
-        "QPushButton { background: #2a4365; color: #ecf4fa; border: 1px solid #36546b; border-radius: %7px; padding: %8px %9px; font-size: %1px; font-weight: 600; }")
-        .arg(S(13)).arg(S(6)).arg(S(6)).arg(S(8)).arg(S(8)).arg(S(12)).arg(S(7)).arg(S(6)).arg(S(12)));
-
-    const QDir log_dir(QCoreApplication::applicationDirPath() + QStringLiteral("/logs"));
-    const QFileInfoList logs = log_dir.entryInfoList({ QStringLiteral("*.log") },
-                                                     QDir::Files | QDir::Readable,
-                                                     QDir::Time);
-    for (const QFileInfo& info : logs) {
-        const QString label = QStringLiteral("%1  %2")
-                                  .arg(info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")))
-                                  .arg(info.fileName());
-        log_selector->addItem(label, info.absoluteFilePath());
-    }
-
-    const QStringList extra_log_files = {
-        QString::fromLocal8Bit(qgetenv("TANKEYE_LOG_FILE")).trimmed()
-    };
-    const auto add_log_file = [log_selector](const QString& path) {
-        const QFileInfo info(path);
-        if (!info.exists() || !info.isFile()) {
-            return;
-        }
-        for (int i = 0; i < log_selector->count(); ++i) {
-            if (log_selector->itemData(i).toString() == info.absoluteFilePath()) {
-                return;
-            }
-        }
-        const QString label = QStringLiteral("%1  %2")
-                                  .arg(info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")))
-                                  .arg(info.absoluteFilePath());
-        log_selector->addItem(label, info.absoluteFilePath());
-    };
-    const auto add_log_dir = [add_log_file](const QString& path) {
-        const QDir dir(path);
-        const QFileInfoList logs = dir.entryInfoList({ QStringLiteral("*.log") },
-                                                     QDir::Files,
-                                                     QDir::Time);
-        for (const QFileInfo& info : logs) {
-            add_log_file(info.absoluteFilePath());
-        }
-    };
-    for (const QString& path : extra_log_files) {
-        if (!path.isEmpty()) {
-            add_log_file(path);
-        }
-    }
-    add_log_dir(QDir::current().filePath(QStringLiteral("logs")));
-    log_location_label->setText(QStringLiteral("日志位置：%1；%2")
-                                    .arg(log_dir.absolutePath(),
-                                         QDir(QDir::current().filePath(QStringLiteral("logs"))).absolutePath()));
-
-    const auto load_selected_log = [log_selector, log_view, log_location_label]() {
-        const QString path = log_selector->currentData().toString();
-        if (path.isEmpty()) {
-            log_view->setPlainText(QStringLiteral("暂无日志。"));
-            return;
-        }
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            log_view->setPlainText(QStringLiteral("日志打开失败：%1").arg(path));
-            return;
-        }
-        log_view->setPlainText(QString::fromLocal8Bit(file.readAll()));
-        log_view->moveCursor(QTextCursor::End);
-    };
-
-    connect(log_selector, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, [load_selected_log](int) {
-        load_selected_log();
-    });
-    connect(close_button, &QPushButton::clicked, dialog, &QDialog::accept);
-
-    load_selected_log();
-    auto* auto_refresh_timer = new QTimer(dialog);
-    auto_refresh_timer->setInterval(500);
-    connect(auto_refresh_timer, &QTimer::timeout, dialog, [load_selected_log]() {
-        load_selected_log();
-    });
-    auto_refresh_timer->start();
-    dialog->show();
-    dialog->raise();
-    dialog->activateWindow();
+    ShowRuntimeLogDialog(this, UiScale());
 }
 
 
@@ -3859,12 +3142,7 @@ void GraspMainWindow::refreshInfoPanel()
         SetValueText(machine_y_value_label_, QStringLiteral("--"));
         SetValueText(angle_value_label_, QStringLiteral("--"));
         SetValueText(pick_status_value_label_, QString::number(current_result_.pick_status_code));
-        SetValueText(head_type_value_label_,
-                     current_result_.head_type_code > 0
-                         ? QStringLiteral("%1 %2")
-                               .arg(current_result_.head_type_code)
-                               .arg(QString::fromStdString(current_result_.head_type_text))
-                         : QStringLiteral("--"));
+        SetValueText(head_type_value_label_, FormatHeadType(current_result_.head_type_code, current_result_.head_type_text));
         return;
     }
 
@@ -3873,22 +3151,10 @@ void GraspMainWindow::refreshInfoPanel()
     SetValueText(machine_y_value_label_, FormatPrimaryCoordinate(detection, false));
     SetValueText(angle_value_label_, FormatNumber(calibratedAngle(detection.angle_deg)) + QStringLiteral(" deg"));
     SetValueText(pick_status_value_label_, QString::number(detection.pick_status_code));
-    SetValueText(head_type_value_label_,
-                 detection.head_type_code > 0
-                     ? QStringLiteral("%1 %2")
-                           .arg(detection.head_type_code)
-                           .arg(QString::fromStdString(detection.head_type_text))
-                     : QStringLiteral("--"));
+    SetValueText(head_type_value_label_, FormatHeadType(detection.head_type_code, detection.head_type_text));
 }
 
-QFrame* GraspMainWindow::createTargetCard(QLabel*& title_label,
-                                          QLabel*& image_x_label,
-                                          QLabel*& image_y_label,
-                                          QLabel*& machine_x_label,
-                                          QLabel*& machine_y_label,
-                                          QLabel*& angle_label,
-                                          QLabel*& pick_status_label,
-                                          QLabel*& head_type_label)
+void GraspMainWindow::createTargetCard(TargetCard& target_card)
 {
     const PlcRegisterMap registers = robot_controller_.plcRegisterMap();
     auto* card = new QFrame(target_list_content_);
@@ -3898,9 +3164,9 @@ QFrame* GraspMainWindow::createTargetCard(QLabel*& title_label,
     card_layout->setContentsMargins(SM(12, 12, 12, 12));
     card_layout->setSpacing(S(8));
 
-    title_label = new QLabel(card);
-    title_label->setObjectName("statusStackName");
-    card_layout->addWidget(title_label);
+    target_card.title_label = new QLabel(card);
+    target_card.title_label->setObjectName("statusStackName");
+    card_layout->addWidget(target_card.title_label);
 
     auto* metrics_layout = new QHBoxLayout();
     metrics_layout->setSpacing(S(8));
@@ -3924,16 +3190,30 @@ QFrame* GraspMainWindow::createTargetCard(QLabel*& title_label,
         metrics_layout->addWidget(metric_card);
     };
 
-    create_metric(QStringLiteral("图像X"), image_x_label);
-    create_metric(QStringLiteral("图像Y"), image_y_label);
-    create_metric(QStringLiteral("机械X"), machine_x_label);
-    create_metric(QStringLiteral("机械Y"), machine_y_label);
-    create_metric(QStringLiteral("角度"), angle_label);
-    create_metric(QStringLiteral("D%1").arg(registers.pick_status), pick_status_label);
-    create_metric(QStringLiteral("D%1").arg(registers.head_type), head_type_label);
+    create_metric(QStringLiteral("图像X"), target_card.image_x_label);
+    create_metric(QStringLiteral("图像Y"), target_card.image_y_label);
+    create_metric(QStringLiteral("机械X"), target_card.machine_x_label);
+    create_metric(QStringLiteral("机械Y"), target_card.machine_y_label);
+    create_metric(QStringLiteral("角度"), target_card.angle_label);
+    create_metric(QStringLiteral("D%1").arg(registers.pick_status), target_card.pick_status_label);
+    create_metric(QStringLiteral("D%1").arg(registers.head_type), target_card.head_type_label);
 
     card_layout->addLayout(metrics_layout);
-    return card;
+    target_card.card = card;
+}
+
+void GraspMainWindow::refreshTargetCard(TargetCard& target_card, const PoseDetection& detection, int detection_index)
+{
+    target_card.title_label->setText(show_all_detections_
+                                         ? QStringLiteral("序号 %1").arg(detection_index + 1)
+                                         : QStringLiteral("主目标"));
+    SetValueText(target_card.image_x_label, FormatNumber(detection.center_x));
+    SetValueText(target_card.image_y_label, FormatNumber(detection.center_y));
+    SetValueText(target_card.machine_x_label, FormatMachineCoordinate(detection, true));
+    SetValueText(target_card.machine_y_label, FormatMachineCoordinate(detection, false));
+    SetValueText(target_card.angle_label, FormatNumber(calibratedAngle(detection.angle_deg)) + QStringLiteral(" deg"));
+    SetValueText(target_card.pick_status_label, QString::number(detection.pick_status_code));
+    SetValueText(target_card.head_type_label, FormatHeadType(detection.head_type_code, detection.head_type_text));
 }
 
 void GraspMainWindow::refreshTargetTable()
@@ -3964,14 +3244,7 @@ void GraspMainWindow::refreshTargetTable()
     const int required_cards = visible_indices.size();
     while (target_cards_.size() < required_cards) {
         TargetCard target_card;
-        target_card.card = createTargetCard(target_card.title_label,
-                                            target_card.image_x_label,
-                                            target_card.image_y_label,
-                                            target_card.machine_x_label,
-                                            target_card.machine_y_label,
-                                            target_card.angle_label,
-                                            target_card.pick_status_label,
-                                            target_card.head_type_label);
+        createTargetCard(target_card);
         int insert_index = target_list_content_layout_->count();
         if (insert_index > 0 &&
             target_list_content_layout_->itemAt(insert_index - 1)->spacerItem() != nullptr) {
@@ -3991,22 +3264,7 @@ void GraspMainWindow::refreshTargetTable()
         }
 
         const int detection_index = visible_indices[i];
-        const auto& detection = current_result_.detections[detection_index];
-        target_card.title_label->setText(show_all_detections_
-                                             ? QStringLiteral("序号 %1").arg(detection_index + 1)
-                                             : QStringLiteral("主目标"));
-        SetValueText(target_card.image_x_label, FormatNumber(detection.center_x));
-        SetValueText(target_card.image_y_label, FormatNumber(detection.center_y));
-        SetValueText(target_card.machine_x_label, FormatMachineCoordinate(detection, true));
-        SetValueText(target_card.machine_y_label, FormatMachineCoordinate(detection, false));
-        SetValueText(target_card.angle_label, FormatNumber(calibratedAngle(detection.angle_deg)) + QStringLiteral(" deg"));
-        SetValueText(target_card.pick_status_label, QString::number(detection.pick_status_code));
-        SetValueText(target_card.head_type_label,
-                     detection.head_type_code > 0
-                         ? QStringLiteral("%1 %2")
-                               .arg(detection.head_type_code)
-                               .arg(QString::fromStdString(detection.head_type_text))
-                         : QStringLiteral("--"));
+        refreshTargetCard(target_card, current_result_.detections[detection_index], detection_index);
     }
 
     if (target_list_content_layout_->count() == 0 ||

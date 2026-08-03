@@ -180,147 +180,148 @@ add_executable(${PROJECT_NAME}_seg app/cli/main_seg.cpp)
 target_link_libraries(${PROJECT_NAME}_seg ${PROJECT_NAME}_deploy_seg)
 
 enable_testing()
-add_executable(${PROJECT_NAME}_frame_postprocess_smoke
-    tests/frame_postprocess_smoke.cpp
-    app/qt/workflow/frame_postprocess.cpp
-)
-target_include_directories(${PROJECT_NAME}_frame_postprocess_smoke PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/common
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/inference
-    ${OpenCV_INCLUDE_DIRS}
-)
-target_link_libraries(${PROJECT_NAME}_frame_postprocess_smoke
-    ${OpenCV_LIBS}
-    openvino::runtime
-)
-add_test(NAME frame_postprocess_smoke COMMAND ${PROJECT_NAME}_frame_postprocess_smoke)
 
-add_executable(${PROJECT_NAME}_plc_result_contract_test
-    tests/plc_result_contract_test.cpp
-    app/qt/workflow/plc_result_contract.cpp
+function(add_tankeye_test test_name)
+    cmake_parse_arguments(TEST "" "" "SOURCES;INCLUDE_DIRS;LIBS" ${ARGN})
+    set(target_name ${PROJECT_NAME}_${test_name})
+    add_executable(${target_name} ${TEST_SOURCES})
+    target_include_directories(${target_name} PRIVATE ${TEST_INCLUDE_DIRS})
+    target_link_libraries(${target_name} ${TEST_LIBS})
+    add_test(NAME ${test_name} COMMAND ${target_name})
+endfunction()
+
+add_tankeye_test(frame_postprocess_smoke
+    SOURCES
+        tests/frame_postprocess_smoke.cpp
+        app/qt/workflow/frame_postprocess.cpp
+    INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/inference
+        ${OpenCV_INCLUDE_DIRS}
+    LIBS
+        ${OpenCV_LIBS}
+        openvino::runtime
 )
-target_include_directories(${PROJECT_NAME}_plc_result_contract_test PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
-    ${OpenCV_INCLUDE_DIRS}
+
+add_tankeye_test(plc_result_contract_test
+    SOURCES
+        tests/plc_result_contract_test.cpp
+        app/qt/workflow/plc_result_contract.cpp
+    INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+        ${OpenCV_INCLUDE_DIRS}
+    LIBS
+        ${OpenCV_LIBS}
 )
-target_link_libraries(${PROJECT_NAME}_plc_result_contract_test
-    ${OpenCV_LIBS}
-)
-add_test(NAME plc_result_contract_test COMMAND ${PROJECT_NAME}_plc_result_contract_test)
 
 if(BUILD_QT_APP)
-    add_executable(${PROJECT_NAME}_app_config_service_test
-        tests/app_config_service_test.cpp
-        app/qt/workflow/app_config_service.cpp
+    add_tankeye_test(app_config_service_test
+        SOURCES
+            tests/app_config_service_test.cpp
+            app/qt/workflow/app_config_service.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Core
+            ${OpenCV_LIBS}
     )
-    target_include_directories(${PROJECT_NAME}_app_config_service_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
-        ${OpenCV_INCLUDE_DIRS}
-    )
-    target_link_libraries(${PROJECT_NAME}_app_config_service_test
-        Qt5::Core
-        ${OpenCV_LIBS}
-    )
-    add_test(NAME app_config_service_test COMMAND ${PROJECT_NAME}_app_config_service_test)
 
-    add_executable(${PROJECT_NAME}_robot_controller_register_map_test
-        tests/robot_controller_register_map_test.cpp
-        app/qt/hardware/robot_controller.cpp
-        app/qt/workflow/app_config_service.cpp
-        app/qt/workflow/plc_result_contract.cpp
+    add_tankeye_test(robot_controller_register_map_test
+        SOURCES
+            tests/robot_controller_register_map_test.cpp
+            app/qt/hardware/robot_controller.cpp
+            app/qt/workflow/app_config_service.cpp
+            app/qt/workflow/plc_result_contract.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/hardware
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Core
+            Qt5::Network
+            ${OpenCV_LIBS}
     )
-    target_include_directories(${PROJECT_NAME}_robot_controller_register_map_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/hardware
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
-        ${OpenCV_INCLUDE_DIRS}
-    )
-    target_link_libraries(${PROJECT_NAME}_robot_controller_register_map_test
-        Qt5::Core
-        Qt5::Network
-        ${OpenCV_LIBS}
-    )
-    add_test(NAME robot_controller_register_map_test
-        COMMAND ${PROJECT_NAME}_robot_controller_register_map_test)
 
-    add_executable(${PROJECT_NAME}_coordinate_transform_test
-        tests/coordinate_transform_test.cpp
-        app/qt/workflow/coordinate_transform.cpp
+    add_tankeye_test(coordinate_transform_test
+        SOURCES
+            tests/coordinate_transform_test.cpp
+            app/qt/workflow/coordinate_transform.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Core
+            ${OpenCV_LIBS}
     )
-    target_include_directories(${PROJECT_NAME}_coordinate_transform_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
-        ${OpenCV_INCLUDE_DIRS}
-    )
-    target_link_libraries(${PROJECT_NAME}_coordinate_transform_test
-        Qt5::Core
-        ${OpenCV_LIBS}
-    )
-    add_test(NAME coordinate_transform_test COMMAND ${PROJECT_NAME}_coordinate_transform_test)
 
-    add_executable(${PROJECT_NAME}_grab_limit_evaluator_test
-        tests/grab_limit_evaluator_test.cpp
-        app/qt/workflow/grab_limit_evaluator.cpp
-        app/qt/workflow/plc_result_contract.cpp
+    add_tankeye_test(grab_limit_evaluator_test
+        SOURCES
+            tests/grab_limit_evaluator_test.cpp
+            app/qt/workflow/grab_limit_evaluator.cpp
+            app/qt/workflow/plc_result_contract.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Core
+            ${OpenCV_LIBS}
     )
-    target_include_directories(${PROJECT_NAME}_grab_limit_evaluator_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
-        ${OpenCV_INCLUDE_DIRS}
-    )
-    target_link_libraries(${PROJECT_NAME}_grab_limit_evaluator_test
-        Qt5::Core
-        ${OpenCV_LIBS}
-    )
-    add_test(NAME grab_limit_evaluator_test COMMAND ${PROJECT_NAME}_grab_limit_evaluator_test)
 
-    add_executable(${PROJECT_NAME}_engineering_settings_service_test
-        tests/engineering_settings_service_test.cpp
-        app/qt/workflow/app_config_service.cpp
-        app/qt/workflow/engineering_settings_service.cpp
-        app/qt/workflow/calibration_profile_store.cpp
-        app/qt/workflow/coordinate_transform.cpp
-        app/qt/workflow/grab_limit_evaluator.cpp
-        app/qt/workflow/plc_result_contract.cpp
+    add_tankeye_test(engineering_settings_service_test
+        SOURCES
+            tests/engineering_settings_service_test.cpp
+            app/qt/workflow/app_config_service.cpp
+            app/qt/workflow/engineering_settings_service.cpp
+            app/qt/workflow/calibration_profile_store.cpp
+            app/qt/workflow/coordinate_transform.cpp
+            app/qt/workflow/grab_limit_evaluator.cpp
+            app/qt/workflow/plc_result_contract.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Core
+            ${OpenCV_LIBS}
     )
-    target_include_directories(${PROJECT_NAME}_engineering_settings_service_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
-        ${OpenCV_INCLUDE_DIRS}
-    )
-    target_link_libraries(${PROJECT_NAME}_engineering_settings_service_test
-        Qt5::Core
-        ${OpenCV_LIBS}
-    )
-    add_test(NAME engineering_settings_service_test COMMAND ${PROJECT_NAME}_engineering_settings_service_test)
 
-    add_executable(${PROJECT_NAME}_runtime_status_presenter_test
-        tests/runtime_status_presenter_test.cpp
-        app/qt/ui/runtime_status_presenter.cpp
+    add_tankeye_test(runtime_status_presenter_test
+        SOURCES
+            tests/runtime_status_presenter_test.cpp
+            app/qt/ui/runtime_status_presenter.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Widgets
+            ${OpenCV_LIBS}
     )
-    target_include_directories(${PROJECT_NAME}_runtime_status_presenter_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
-        ${OpenCV_INCLUDE_DIRS}
-    )
-    target_link_libraries(${PROJECT_NAME}_runtime_status_presenter_test
-        Qt5::Widgets
-        ${OpenCV_LIBS}
-    )
-    add_test(NAME runtime_status_presenter_test COMMAND ${PROJECT_NAME}_runtime_status_presenter_test)
 
-    add_executable(${PROJECT_NAME}_plc_runtime_state_test
-        tests/plc_runtime_state_test.cpp
-        app/qt/ui/plc_runtime_state.cpp
-        app/qt/ui/runtime_status_presenter.cpp
+    add_tankeye_test(admin_auth_helpers_test
+        SOURCES
+            tests/admin_auth_helpers_test.cpp
+            app/qt/ui/admin_auth_helpers.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui
+        LIBS
+            Qt5::Widgets
     )
-    target_include_directories(${PROJECT_NAME}_plc_runtime_state_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
-        ${OpenCV_INCLUDE_DIRS}
+
+    add_tankeye_test(plc_runtime_state_test
+        SOURCES
+            tests/plc_runtime_state_test.cpp
+            app/qt/ui/plc_runtime_state.cpp
+            app/qt/ui/runtime_status_presenter.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Widgets
+            ${OpenCV_LIBS}
     )
-    target_link_libraries(${PROJECT_NAME}_plc_runtime_state_test
-        Qt5::Widgets
-        ${OpenCV_LIBS}
-    )
-    add_test(NAME plc_runtime_state_test COMMAND ${PROJECT_NAME}_plc_runtime_state_test)
 endif()
 
 if(BUILD_QT_APP)
@@ -334,10 +335,14 @@ if(BUILD_QT_APP)
         app/qt/hardware/robot_controller.h
         app/qt/ui/grasp_main_window.cpp
         app/qt/ui/grasp_main_window.h
+        app/qt/ui/admin_auth_dialogs.cpp
+        app/qt/ui/admin_auth_dialogs.h
         app/qt/ui/admin_auth_helpers.cpp
         app/qt/ui/admin_auth_helpers.h
         app/qt/ui/engineering_settings_dialog.cpp
         app/qt/ui/engineering_settings_dialog_controller.h
+        app/qt/ui/runtime_log_dialog.cpp
+        app/qt/ui/runtime_log_dialog.h
         app/qt/ui/runtime_status_presenter.cpp
         app/qt/ui/runtime_status_presenter.h
         app/qt/ui/plc_runtime_state.cpp

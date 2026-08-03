@@ -13,6 +13,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
+#include <QRandomGenerator>
 #include <QScreen>
 #include <QSettings>
 #include <QSizePolicy>
@@ -25,7 +26,11 @@
 namespace {
 
 constexpr int kAuthIconBaseSize = 18;
+constexpr int kAdminSaltBytes = 16;
 constexpr const char* kDefaultAdminSecret = "TankEye-Iris-Admin-Dev-Secret-v1";
+constexpr const char* kSettingsOrganization = "TankEye";
+constexpr const char* kSettingsApplication = "TankEye-Iris";
+constexpr const char* kAdminAuthGroup = "admin_auth";
 
 QString NormalizeCode(QString code)
 {
@@ -57,6 +62,38 @@ QString ToGroupedCode(const QByteArray& digest, int length = 16)
         grouped += hex.at(i);
     }
     return grouped;
+}
+
+QByteArray RandomSalt()
+{
+    QByteArray salt;
+    salt.resize(kAdminSaltBytes);
+    for (int i = 0; i < salt.size(); ++i) {
+        salt[i] = static_cast<char>(QRandomGenerator::global()->bounded(256));
+    }
+    return salt;
+}
+
+QString HashAdminPassword(const QString& password, const QByteArray& salt)
+{
+    QByteArray payload = salt;
+    payload.append(password.toUtf8());
+    return QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha256).toHex());
+}
+
+QString EncodeRememberedPassword(const QString& password)
+{
+    return QString::fromLatin1(password.toUtf8().toBase64());
+}
+
+QString DecodeRememberedPassword(const QString& encoded)
+{
+    return QString::fromUtf8(QByteArray::fromBase64(encoded.toLatin1()));
+}
+
+QSettings AdminAuthSettings()
+{
+    return QSettings(QString::fromLatin1(kSettingsOrganization), QString::fromLatin1(kSettingsApplication));
 }
 
 QIcon CreateEyeIcon(bool visible)
@@ -154,6 +191,105 @@ bool VerifyAdminAuthCode(const QString& machine_code,
                          const QString& purpose)
 {
     return NormalizeCode(provided_code) == NormalizeCode(BuildAdminAuthCode(machine_code, secret, purpose));
+}
+
+bool AdminAuthHasAccount()
+{
+    QSettings settings = AdminAuthSettings();
+    settings.beginGroup(QString::fromLatin1(kAdminAuthGroup));
+    const bool result = !settings.value(QStringLiteral("username")).toString().trimmed().isEmpty() &&
+                        !settings.value(QStringLiteral("password_hash")).toString().trimmed().isEmpty() &&
+                        !settings.value(QStringLiteral("salt")).toString().trimmed().isEmpty();
+    settings.endGroup();
+    return result;
+}
+
+QString AdminAuthUsername()
+{
+    QSettings settings = AdminAuthSettings();
+    settings.beginGroup(QString::fromLatin1(kAdminAuthGroup));
+    const QString username = settings.value(QStringLiteral("username")).toString().trimmed();
+    settings.endGroup();
+    return username;
+}
+
+bool AdminAuthSetCredentials(const QString& username, const QString& password, QString* error_message)
+{
+    const QString trimmed_username = username.trimmed();
+    if (trimmed_username.isEmpty()) {
+        if (error_message) {
+            *error_message = QStringLiteral("管理员账号不能为空。");
+        }
+        return false;
+    }
+    if (password.size() < 4) {
+        if (error_message) {
+            *error_message = QStringLiteral("管理员密码至少需要 4 位。");
+        }
+        return false;
+    }
+
+    const QByteArray salt = RandomSalt();
+    QSettings settings = AdminAuthSettings();
+    settings.beginGroup(QString::fromLatin1(kAdminAuthGroup));
+    settings.setValue(QStringLiteral("username"), trimmed_username);
+    settings.setValue(QStringLiteral("salt"), QString::fromLatin1(salt.toBase64()));
+    settings.setValue(QStringLiteral("password_hash"), HashAdminPassword(password, salt));
+    settings.endGroup();
+    settings.sync();
+    return true;
+}
+
+bool AdminAuthChangeCredentials(const QString& current_password,
+                                const QString& username,
+                                const QString& new_password,
+                                QString* error_message)
+{
+    if (AdminAuthHasAccount() && !AdminAuthValidateCredentials(AdminAuthUsername(), current_password)) {
+        if (error_message) {
+            *error_message = QStringLiteral("当前密码不正确。");
+        }
+        return false;
+    }
+    return AdminAuthSetCredentials(username, new_password, error_message);
+}
+
+bool AdminAuthValidateCredentials(const QString& username, const QString& password)
+{
+    QSettings settings = AdminAuthSettings();
+    settings.beginGroup(QString::fromLatin1(kAdminAuthGroup));
+    const QString saved_username = settings.value(QStringLiteral("username")).toString().trimmed();
+    const QByteArray salt = QByteArray::fromBase64(settings.value(QStringLiteral("salt")).toString().toLatin1());
+    const QString saved_hash = settings.value(QStringLiteral("password_hash")).toString();
+    settings.endGroup();
+    if (saved_username.isEmpty() || saved_hash.isEmpty() || salt.isEmpty()) {
+        return false;
+    }
+    return username.trimmed() == saved_username && HashAdminPassword(password, salt) == saved_hash;
+}
+
+QString AdminAuthRememberedPassword()
+{
+    QSettings settings = AdminAuthSettings();
+    settings.beginGroup(QString::fromLatin1(kAdminAuthGroup));
+    const bool remember = settings.value(QStringLiteral("remember_password"), false).toBool();
+    const QString encoded = settings.value(QStringLiteral("remembered_password")).toString();
+    settings.endGroup();
+    return remember ? DecodeRememberedPassword(encoded) : QString();
+}
+
+void AdminAuthSaveRememberedPassword(bool remember, const QString& password)
+{
+    QSettings settings = AdminAuthSettings();
+    settings.beginGroup(QString::fromLatin1(kAdminAuthGroup));
+    settings.setValue(QStringLiteral("remember_password"), remember);
+    if (remember) {
+        settings.setValue(QStringLiteral("remembered_password"), EncodeRememberedPassword(password));
+    } else {
+        settings.remove(QStringLiteral("remembered_password"));
+    }
+    settings.endGroup();
+    settings.sync();
 }
 
 QAction* AttachPasswordVisibilityAction(QLineEdit* edit, QWidget* parent)

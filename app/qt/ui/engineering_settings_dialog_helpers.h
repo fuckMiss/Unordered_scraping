@@ -9,17 +9,24 @@
 #include <QSize>
 #include <QString>
 
+#include <initializer_list>
+
 class QCheckBox;
 class QComboBox;
 class QDialog;
 class QDoubleSpinBox;
 class QFrame;
+class QGridLayout;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QWidget;
 
 QLabel* CreateGroupCaption(const QString& text, QWidget* parent);
+QGridLayout* CreateSettingsGrid(int horizontal_spacing, int vertical_spacing);
+void SetGridColumnMinimumWidths(QGridLayout* grid, std::initializer_list<int> widths);
+void SetGridColumnStretches(QGridLayout* grid, std::initializer_list<int> stretches);
+QWidget* CreateDistributedFieldLabel(QString text, QWidget* parent, int minimum_width);
 QFrame* CreateCollapsibleSection(QWidget* parent,
                                  const QString& title,
                                  QWidget* content,
