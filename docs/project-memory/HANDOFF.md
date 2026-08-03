@@ -6,7 +6,7 @@
 
 - 已建立项目协作档案体系。
 - 本次文档整理不依赖 README，事实来源为源码、CMake、配置、脚本和测试。
-- 现有业务代码改动未被回滚或覆盖。
+- 当前本地工作区干净，`Unordered_Scraping_V5` 已同步到 `origin/Unordered_Scraping_V5`。
 - 已完成第一批代码清理：运行日志查看器从 `GraspMainWindow` 抽离到 `app/qt/ui/runtime_log_dialog.h/.cpp`。
 - 已完成第二批代码清理：管理员创建、登录、重置弹窗从 `GraspMainWindow` 抽离到 `app/qt/ui/admin_auth_dialogs.h/.cpp`。
 - 已完成第二批补充清理：创建/重置管理员弹窗重复结构已合并，日志/管理员弹窗复用 `app/qt/ui/ui_scale_utils.h`。
@@ -26,7 +26,7 @@
 
 ## 继续工作建议
 
-1. 执行 `git status --short`，确认当前脏工作区。
+1. 执行 `git status --short`，确认工作区仍保持干净。
 2. 人工或桌面自动化点击“运行日志”，验证新抽离模块的 UI 行为。
 3. 人工或桌面自动化打开管理员创建/登录/重置弹窗，验证新抽离模块的 UI 行为。
 4. 先审查 `app/qt/ui/grasp_main_window.cpp` 与 `launch_tankeye.ps1` 的既有改动。
@@ -41,4 +41,4 @@
 - CLI 重复入口合并已完成 OBB/SEG 目标构建、Release 全部构建、默认测试和后处理冒烟测试；usage/错误输出文字尚未自动断言。
 - CMake/管理员存储/工程设置 helper 合并已完成 Release 全部构建、默认测试、后处理冒烟测试和真实启动验证；工程设置/管理员/运行日志弹窗尚需人工或桌面自动化点检。
 - 顶部栏/目标卡片 helper 合并已完成 `tankeye-openvino_qt_app` Release 构建、默认测试和模拟 PLC 真实启动验证，日志：`build/Release/logs/codex_target_card_smoke_20260803_123043.log`。
-- 未判断既有业务代码改动是否应保留。
+- 当前源码与协作文档改动已纳入 Git 并推送到 V5 分支；后续继续改动时仍需避免覆盖用户新增变更。

@@ -17,34 +17,30 @@
 
 ## 当前工作区状态
 
-- 已知未提交业务代码改动：
-  - `app/qt/ui/grasp_main_window.cpp`
-  - `launch_tankeye.ps1`
-- 已知新增协作文档：
+- 当前本地工作区干净，`Unordered_Scraping_V5` 已推送到 `origin/Unordered_Scraping_V5`。
+- 本轮已纳入 Git 的协作文档：
   - `AGENTS.md`
   - `docs/project-memory/PROJECT_CONFIGURATION.md`
   - `docs/project-memory/TASK_HISTORY.md`
   - `docs/project-memory/MEMORY.md`
   - `docs/project-memory/OPERATING_LIMITS.md`
   - `docs/project-memory/HANDOFF.md`
-- 本批新增代码结构：
+- 本轮已纳入 Git 的新增代码结构：
   - `app/cli/cli_inference_runner.h`
   - `app/qt/ui/runtime_log_dialog.h`
   - `app/qt/ui/runtime_log_dialog.cpp`
   - `app/qt/ui/admin_auth_dialogs.h`
   - `app/qt/ui/admin_auth_dialogs.cpp`
   - `app/qt/ui/ui_scale_utils.h`
-- 本批新增测试：
+- 本轮已纳入 Git 的新增测试：
   - `tests/admin_auth_helpers_test.cpp`
-- 本批修改构建配置：
+- 本轮已纳入 Git 的构建配置修改：
   - `CMakeLists.txt`
-- 本次不回滚、不覆盖既有业务代码改动。
 
 ## 未完成决策
 
 - 是否保留 `app/qt/ui/grasp_main_window.cpp` 当前 UI/图标缩放相关改动，需要后续结合真实窗口运行效果决定。
 - 是否保留 `launch_tankeye.ps1` 中移除自动 `QT_SCALE_FACTOR` 的改动，需要后续实机验证不同分辨率下 UI 缩放表现。
-- 是否需要把当前协作文档体系纳入 Git 提交，由用户决定。
 
 ## 已知问题与风险
 
@@ -61,6 +57,5 @@
 - 顶部栏和目标卡片 helper 合并后，已完成模拟 PLC 启动冒烟；后续可人工或桌面自动化点检用户、工程设置、目标列表、最小化、最大化/还原、关闭按钮。
 - 后续清理优先“合并重复逻辑、减少总代码”，不要只做文件搬迁；每次拆模块后检查是否产生重复 helper。
 - 下一批高收益候选：继续压缩 `GraspMainWindow` 中目标列表/状态刷新重复显示逻辑；合并 `app/qt/main.cpp` 和启动脚本中的日志/启动参数说明重复；审查 OpenVINO OBB/SEG 推理类中可共享的预处理/运行时状态。
-- 先审查当前两个业务代码改动的意图和影响，再决定是否拆分提交。
 - 若继续 UI 调整，先构建 `tankeye-openvino_qt_app`，再实机启动截图确认窗口、右侧栏、标题栏和缩放表现。
 - 若继续启动脚本调整，需在目标分辨率或目标机器上验证 Qt/Windows 自动缩放效果。

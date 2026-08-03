@@ -69,3 +69,11 @@
 - 结果：顶部栏按钮和目标列表刷新逻辑都收敛为单点维护；本轮未新增文件，属于原文件内重复代码合并。当前 `grasp_main_window.cpp/.h` 累计 diff 为 `+161/-908`。
 - 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；模拟 PLC 真实启动 Qt 程序，主窗口创建、显示、进入事件循环并正常退出，日志为 `build/Release/logs/codex_target_card_smoke_20260803_123043.log`。
 - 遗留：本轮只做启动冒烟，没有截图或人工点击目标列表、最小化/最大化/关闭按钮；管理员、工程设置、运行日志弹窗逐项点检仍待执行。
+
+## 2026-08-03 - 上传 GitHub 并校准动态文档
+
+- 目标：把当前项目源码和协作文档上传到用户确认的 GitHub V5 分支，并确认文档状态与当前仓库状态一致。
+- 修改：先提交并推送瘦身与协作文档改动到 `origin/Unordered_Scraping_V5`；随后修正 `MEMORY.md`、`HANDOFF.md` 中推送前遗留的“未提交改动/脏工作区”描述。
+- 结果：本地分支和 `origin/Unordered_Scraping_V5` 保持同步；project-memory 文档不再描述已过期的未提交状态。
+- 验证：推送前检查 `.gitignore` 与 staged 文件，未纳入 `build/`、`dist/`、`_deps/`、`vendor/`、模型权重或真实 `config/admin_auth.key`；`git status --short --branch`、`git rev-parse HEAD`、`git rev-parse origin/Unordered_Scraping_V5`、`git diff HEAD origin/Unordered_Scraping_V5` 已确认 V5 与本地一致。
+- 遗留：README 系列仍按协作规则视为可能滞后，不能作为唯一事实来源；UI 弹窗逐项点检仍待执行。
