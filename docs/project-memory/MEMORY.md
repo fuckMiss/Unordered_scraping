@@ -172,3 +172,9 @@
 - 已执行真实打包命令：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.4 -Force`，生成 `dist\TankEye-Iris_1.4` 和 `dist\TankEye-Iris_1.4.zip`；`windeployqt` 输出 `VCINSTALLDIR is not set` 警告但脚本成功完成。
 - 已验证运行包关键文件存在：主程序、`platforms\qwindows.dll`、OBB/SEG OpenVINO 模型、`USAGE_GUIDE.txt` 和 zip；已验证 `dist\TankEye-Iris_1.4\docs=False`、`dist\TankEye-Iris_1.4\AGENTS.md=False`，zip 条目也不包含 `docs/` 或 `AGENTS.md`；`RELEASE_MANIFEST.json` 显示 `name=TankEye-Iris_1.4`、`version=1.4`、`runtime_only=true`；运行包内 `launch_tankeye.ps1 -Device CPU -SimulatePlc` 已启动真实 Qt 程序，日志 `dist\TankEye-Iris_1.4\logs\tankeye_20260804_190721.log` 确认模拟 PLC、主窗口创建、OBB/SEG 模型按 CPU 加载成功，GUI 常驻超时后已确认无残留 `tankeye` 进程；`git diff --check` 无空白错误，仅有 CRLF 换行提示。
 - 本次没有连接真实 PLC、真实相机或真实设备；打包脚本提示未找到有效启用的九点方案，运行包内 `machine_limits.enabled=false`，现场部署前需要确认目标机器配置和九点标定方案。
+
+## 2026-08-04 当前补充记忆：GitHub 上传
+- 用户要求将当前改动上传到 GitHub。
+- 已提交并推送主改动到 `origin/Unordered_Scraping_V5`：提交 `55f9b46`，提交标题 `Use mechanical gripper frame for collision and package 1.4`；远端从 `998dfff` 更新到 `55f9b46`。
+- 该提交包含真实夹爪框完全接管旧延长框、相关测试、TankEye-Iris 1.4 打包脚本/使用说明和项目记忆更新；推送前确认未纳入 `dist/`、`build/`、模型权重或 `config/admin_auth.key`。
+- 本地运行包产物仍在 `dist\TankEye-Iris_1.4` 和 `dist\TankEye-Iris_1.4.zip`，未纳入 Git；本次未连接真实 PLC、真实相机或真实设备。

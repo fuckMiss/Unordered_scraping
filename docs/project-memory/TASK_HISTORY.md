@@ -251,3 +251,10 @@
 - 结果：已生成 `dist\TankEye-Iris_1.4` 和 `dist\TankEye-Iris_1.4.zip`；运行包 `RELEASE_MANIFEST.json` 显示 `name=TankEye-Iris_1.4`、`version=1.4`、`runtime_only=true`；运行包保留主程序、Qt/OpenVINO/Hikrobot 运行依赖、模型、配置和使用说明。
 - 验证：执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.4 -Force` 成功，期间仅有已知 `VCINSTALLDIR is not set` 警告；检查 `tankeye-openvino_qt_app.exe`、`platforms\qwindows.dll`、`models\weights\best_obb.xml`、`models\weights\best_seg.xml`、`USAGE_GUIDE.txt` 和 zip 均存在；`dist\TankEye-Iris_1.4\docs` 与 `dist\TankEye-Iris_1.4\AGENTS.md` 均返回 `False`；zip 条目检查确认不包含 `docs/` 和 `AGENTS.md`；运行包内 `launch_tankeye.ps1 -Device CPU -SimulatePlc` 启动真实 Qt 程序，生成 `dist\TankEye-Iris_1.4\logs\tankeye_20260804_190721.log`，日志确认模拟 PLC、主窗口创建、OBB/SEG 模型按 CPU 加载成功，45 秒 GUI 常驻超时后确认无残留 `tankeye` 进程；`git diff --check` 无空白错误，仅有 CRLF 换行提示。
 - 遗留：本次未连接真实 PLC/真实相机；打包脚本提示未找到有效启用的九点方案，因此运行包内机械保护限制保持 `machine_limits.enabled=false`，现场使用前仍需确认目标机器配置。
+
+## 2026-08-04 - 上传真实夹爪框与 1.4 打包改动到 GitHub
+- 目标：按用户要求将当前已验证改动上传到 GitHub `origin/Unordered_Scraping_V5`。
+- 修改：先提交 26 个已跟踪文件，范围包含真实夹爪框完全接管旧延长框、相关测试、1.4 打包脚本与使用说明、项目记忆更新；随后补充本次上传记录。
+- 结果：主提交 `55f9b46` 已推送到 `origin/Unordered_Scraping_V5`，远端从 `998dfff` 更新到 `55f9b46`。
+- 验证：推送前确认暂存范围不包含 `dist/`、`build/`、模型权重或 `config/admin_auth.key`；`git push origin Unordered_Scraping_V5` 在提权网络环境下成功返回 `998dfff..55f9b46`。
+- 遗留：运行包产物 `dist\TankEye-Iris_1.4` 和 `dist\TankEye-Iris_1.4.zip` 留在本地且未纳入 Git；本次未连接真实 PLC/真实相机。
