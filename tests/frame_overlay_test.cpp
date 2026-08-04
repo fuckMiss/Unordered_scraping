@@ -52,7 +52,6 @@ PoseDetection MakeDisplayDetection(int matched_segment_index,
         center + cv::Point2f(5.0f, 5.0f),
         center + cv::Point2f(-5.0f, 5.0f),
     };
-    detection.extended_corners = detection.corners;
     return detection;
 }
 
@@ -114,6 +113,49 @@ void DebugViewStillDrawsDuplicateSegmentDetections()
 
     assert(CountNonBlackPixels(image, cv::Rect(10, 20, 20, 20)) > 0);
     assert(CountNonBlackPixels(image, cv::Rect(60, 20, 20, 20)) > 0);
+}
+
+void MechanicalGripperOverlayDrawsConfiguredRectangle()
+{
+    cv::Mat image(80, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    FrameInferenceResult result;
+    result.display_scale = 1.0;
+    result.primary_index = 0;
+    PoseDetection detection = MakeDisplayDetection(0, 0.95f, true, { 50.0f, 40.0f });
+    detection.mechanical_gripper_corners = {
+        { 35.0f, 32.0f },
+        { 65.0f, 32.0f },
+        { 65.0f, 48.0f },
+        { 35.0f, 48.0f },
+    };
+    result.detections.push_back(detection);
+
+    DrawFrameOverlay(image, result, -1, false, false, false, true, nullptr);
+
+    const cv::Vec3b pixel = image.at<cv::Vec3b>(32, 50);
+    assert(pixel[2] > pixel[0]);
+    assert(pixel[1] > pixel[0]);
+}
+
+void MechanicalGripperOverlayUsesRejectedStateColor()
+{
+    cv::Mat image(80, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    FrameInferenceResult result;
+    result.display_scale = 1.0;
+    PoseDetection detection = MakeDisplayDetection(0, 0.95f, false, { 50.0f, 40.0f });
+    detection.mechanical_gripper_corners = {
+        { 35.0f, 32.0f },
+        { 65.0f, 32.0f },
+        { 65.0f, 48.0f },
+        { 35.0f, 48.0f },
+    };
+    result.detections.push_back(detection);
+
+    DrawFrameOverlay(image, result, -1, false, false, false, true, nullptr);
+
+    const cv::Vec3b pixel = image.at<cv::Vec3b>(32, 50);
+    assert(pixel[2] > pixel[1]);
+    assert(pixel[2] > pixel[0]);
 }
 
 void OverlayDrawsVisibleGrabLimitPolygon()
@@ -206,6 +248,8 @@ int main()
     NormalViewDrawsOneDetectionPerSegment();
     NormalViewDrawsDifferentSegments();
     DebugViewStillDrawsDuplicateSegmentDetections();
+    MechanicalGripperOverlayDrawsConfiguredRectangle();
+    MechanicalGripperOverlayUsesRejectedStateColor();
     OverlayDrawsVisibleGrabLimitPolygon();
     HiddenOverlayDoesNotPolluteFrame();
     PartiallyOutOfFrameOverlayDoesNotCrash();

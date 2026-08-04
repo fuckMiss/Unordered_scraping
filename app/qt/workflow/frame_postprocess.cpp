@@ -17,7 +17,6 @@ using namespace std;
 
 namespace {
 
-constexpr float kExtendedObbScale = 3.0f;
 constexpr int kPickStatusCanGrab = 1;
 constexpr int kPickStatusMultiGrab = 2;
 constexpr int kPickStatusCannotGrab = 3;
@@ -45,7 +44,6 @@ struct AcRayGeometry
     Point2f arrow_start;
     Point2f arrow_end;
     vector<Point2f> aligned_corners;
-    vector<Point2f> extended_corners;
     float ac_dot = -numeric_limits<float>::infinity();
     float rotation_abs_rad = numeric_limits<float>::infinity();
     bool ac_uses_long_edge = false;
@@ -322,23 +320,6 @@ vector<Point2f> RotateGripToTargetLongAngle(const vector<Point2f>& grip_corners,
     return RotateCornersAroundCenter(grip_corners, NormalizeAngleDiffRad(target_angle, grip_angle));
 }
 
-vector<Point2f> ScaleObbLongEdge(const vector<Point2f>& corners, float scale)
-{
-    if (corners.size() != 4) {
-        return {};
-    }
-
-    const Point2f center = AveragePoint(corners);
-    const ObbEdgeBasis basis = ResolveObbEdgeBasis(corners);
-    const Point2f long_vector = (corners[basis.long_index] - corners[0]) * scale;
-    const Point2f short_vector = corners[basis.short_index] - corners[0];
-    const Point2f new_p0 = center - (long_vector + short_vector) * 0.5f;
-    const Point2f new_p1 = new_p0 + long_vector;
-    const Point2f new_p2 = new_p1 + short_vector;
-    const Point2f new_p3 = new_p0 + short_vector;
-    return { new_p0, new_p1, new_p2, new_p3 };
-}
-
 Point2f ClosestPointOnSegment(const Point2f& point, const Point2f& start, const Point2f& end)
 {
     const Point2f edge = end - start;
@@ -497,13 +478,12 @@ AcRayGeometry BuildAcRayGeometry(const OBBDetection& grip_detection,
         candidate.rotation_abs_rad = std::fabs(NormalizeAngleDiffRad(target_angle, grip_basis.angle_rad));
         candidate.aligned_corners =
             RotateGripToTargetLongAngle(grip_detection.corners, grip_basis.angle_rad, target_angle);
-        candidate.extended_corners = ScaleObbLongEdge(candidate.aligned_corners, kExtendedObbScale);
-        if (candidate.extended_corners.size() != 4) {
+        if (candidate.aligned_corners.size() != 4) {
             candidate.invalid_reason = "invalid_aligned_grip";
             continue;
         }
 
-        candidate.arrow_start = AveragePoint(candidate.extended_corners);
+        candidate.arrow_start = AveragePoint(candidate.aligned_corners);
         if (PointLength(candidate.arrow_start - segment.center) < 1e-6f) {
             candidate.invalid_reason = "invalid_oa_geometry";
             continue;
@@ -512,12 +492,14 @@ AcRayGeometry BuildAcRayGeometry(const OBBDetection& grip_detection,
         float best_dot = -numeric_limits<float>::infinity();
         Point2f best_foot = candidate.arrow_start;
         bool best_edge_is_long = false;
-        for (size_t i = 0; i < candidate.extended_corners.size(); ++i) {
-            const Point2f edge = candidate.extended_corners[(i + 1) % candidate.extended_corners.size()] -
-                                 candidate.extended_corners[i];
+        const float short_edge_length = std::min(PointLength(candidate.aligned_corners[1] - candidate.aligned_corners[0]),
+                                                 PointLength(candidate.aligned_corners[3] - candidate.aligned_corners[0]));
+        for (size_t i = 0; i < candidate.aligned_corners.size(); ++i) {
+            const Point2f edge = candidate.aligned_corners[(i + 1) % candidate.aligned_corners.size()] -
+                                 candidate.aligned_corners[i];
             const Point2f foot = ClosestPointOnSegment(candidate.arrow_start,
-                                                       candidate.extended_corners[i],
-                                                       candidate.extended_corners[(i + 1) % candidate.extended_corners.size()]);
+                                                       candidate.aligned_corners[i],
+                                                       candidate.aligned_corners[(i + 1) % candidate.aligned_corners.size()]);
             const Point2f ac = foot - candidate.arrow_start;
             const float ac_length = PointLength(ac);
             if (ac_length < 1e-6f) {
@@ -528,9 +510,7 @@ AcRayGeometry BuildAcRayGeometry(const OBBDetection& grip_detection,
             if (dot > best_dot) {
                 best_dot = dot;
                 best_foot = foot;
-                best_edge_is_long = PointLength(edge) >
-                                    std::min(PointLength(candidate.extended_corners[1] - candidate.extended_corners[0]),
-                                             PointLength(candidate.extended_corners[3] - candidate.extended_corners[0]));
+                best_edge_is_long = PointLength(edge) > short_edge_length;
             }
         }
 
@@ -553,74 +533,6 @@ AcRayGeometry BuildAcRayGeometry(const OBBDetection& grip_detection,
         return best_geometry.invalid_reason.empty() ? fallback : best_geometry;
     }
     return best_geometry;
-}
-
-bool ExtendedObbTouchesSegmentMask(const vector<Point2f>& extended_corners,
-                                   const SegRegion& matched_segment,
-                                   const SegRegion& segment,
-                                   int image_width,
-                                   int image_height,
-                                   int segment_index,
-                                   bool debug_enabled,
-                                   vector<pair<Rect, Mat>>* collisions)
-{
-    if (extended_corners.size() < 3 || segment.mask.empty()) {
-        return false;
-    }
-    if (segment.mask.type() != CV_8U ||
-        segment.mask.cols != image_width ||
-        segment.mask.rows != image_height) {
-        if (debug_enabled) {
-            cout << "[PostprocessDebug] mask_collision_skip"
-                 << " segment_index=" << segment_index
-                 << " reason=invalid_mask"
-                 << " mask_size=" << segment.mask.cols << "x" << segment.mask.rows
-                 << " image_size=" << image_width << "x" << image_height
-                 << endl;
-        }
-        return false;
-    }
-    if (matched_segment.mask.empty() ||
-        matched_segment.mask.type() != CV_8U ||
-        matched_segment.mask.cols != image_width ||
-        matched_segment.mask.rows != image_height) {
-        if (debug_enabled) {
-            cout << "[PostprocessDebug] mask_collision_skip"
-                 << " segment_index=" << segment_index
-                 << " reason=invalid_matched_mask"
-                 << " matched_mask_size=" << matched_segment.mask.cols << "x" << matched_segment.mask.rows
-                 << " image_size=" << image_width << "x" << image_height
-                 << endl;
-        }
-        return false;
-    }
-
-    const Rect image_rect(0, 0, image_width, image_height);
-    const Rect roi = boundingRect(extended_corners) & image_rect;
-    if (roi.empty()) {
-        return false;
-    }
-
-    vector<Point> polygon;
-    polygon.reserve(extended_corners.size());
-    for (const Point2f& point : extended_corners) {
-        polygon.emplace_back(cvRound(point.x) - roi.x, cvRound(point.y) - roi.y);
-    }
-
-    Mat extended_mask(roi.height, roi.width, CV_8U, Scalar(0));
-    fillConvexPoly(extended_mask, polygon, Scalar(255), LINE_8);
-
-    Mat overlap;
-    bitwise_and(extended_mask, segment.mask(roi), overlap);
-    overlap.setTo(Scalar(0), matched_segment.mask(roi));
-    if (countNonZero(overlap) <= 0) {
-        return false;
-    }
-
-    if (collisions != nullptr) {
-        collisions->push_back({ roi, overlap.clone() });
-    }
-    return true;
 }
 
 string ResolveHeadTypeText(int head_type_code)
@@ -697,17 +609,16 @@ PoseDetection BuildPoseDetection(const OBBDetection& detection,
                                  int head_class_id,
                                  vector<pair<Rect, Mat>> mask_collisions,
                                  bool can_grab,
-                                 const AcRayGeometry& ac_geometry,
-                                 double center_ray_offset_px)
+                                 const AcRayGeometry& ac_geometry)
 {
     const auto& rect = detection.rotated_rect;
     const Point2f original_center = rect.center;
     const Point2f arrow_start = ac_geometry.valid ? ac_geometry.arrow_start : original_center;
     const Point2f arrow_end = ac_geometry.valid ? ac_geometry.arrow_end : original_center;
-    const Point2f shifted_center = OffsetPointAlongRay(arrow_start,
-                                                       arrow_end,
-                                                       center_ray_offset_px);
     const float ray_angle_deg = ComputeFinalRayAngle(arrow_start, arrow_end);
+    const float grip_long_angle_deg = ac_geometry.valid
+        ? ac_geometry.final_long_angle_rad * 180.0f / static_cast<float>(CV_PI)
+        : detection.rotated_rect.angle;
 
     PoseDetection pose;
     pose.class_id = detection.class_id;
@@ -715,8 +626,8 @@ PoseDetection BuildPoseDetection(const OBBDetection& detection,
     pose.segment_class_name = segment_class_name;
     pose.matched_segment_index = matched_segment_index;
     pose.confidence = detection.conf;
-    pose.center_x = QuantizeStable(shifted_center.x, kPoseCoordinateStepPx);
-    pose.center_y = QuantizeStable(shifted_center.y, kPoseCoordinateStepPx);
+    pose.center_x = QuantizeStable(original_center.x, kPoseCoordinateStepPx);
+    pose.center_y = QuantizeStable(original_center.y, kPoseCoordinateStepPx);
     pose.angle_deg = QuantizeStable(ray_angle_deg, kPoseAngleStepDeg);
     pose.pick_status_code = can_grab ? kPickStatusCanGrab : kPickStatusCannotGrab;
     pose.head_type_code = can_grab ? head_type_code : 0;
@@ -733,8 +644,8 @@ PoseDetection BuildPoseDetection(const OBBDetection& detection,
     pose.small_ray_quadrant = small_ray_quadrant;
     pose.arrow_start = arrow_start;
     pose.arrow_end = arrow_end;
+    pose.grip_long_angle_deg = QuantizeStable(grip_long_angle_deg, kPoseAngleStepDeg);
     pose.corners = ac_geometry.valid ? ac_geometry.aligned_corners : detection.corners;
-    pose.extended_corners = ac_geometry.valid ? ac_geometry.extended_corners : vector<Point2f>{};
     pose.bbox = BuildPoseBoundingRect(pose.corners, image_width, image_height);
     pose.mask_collisions = std::move(mask_collisions);
     pose.can_grab = can_grab;
@@ -907,8 +818,6 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
         int head_type_code = 0;
         bool can_grab = false;
         bool ray_intersects_head_ray = false;
-        bool touches_other = false;
-        int touched_segment_index = -1;
         vector<pair<Rect, Mat>> mask_collisions;
         float selected_aob_angle_deg = numeric_limits<float>::quiet_NaN();
         float selected_aob_diff_deg = numeric_limits<float>::quiet_NaN();
@@ -919,26 +828,6 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
                                      &selected_aob_angle_deg,
                                      &selected_aob_diff_deg);
         const AcRayGeometry ac_geometry = BuildAcRayGeometry(detection, head_detection, matched_segment);
-        if (ac_geometry.valid) {
-            for (int i = 0; i < static_cast<int>(segments.size()); ++i) {
-                if (i == matched_segment_index) {
-                    continue;
-                }
-                if (ExtendedObbTouchesSegmentMask(ac_geometry.extended_corners,
-                                                 matched_segment,
-                                                 segments[i],
-                                                 image_width,
-                                                 image_height,
-                                                 i,
-                                                 debug_enabled,
-                                                 &mask_collisions)) {
-                    touches_other = true;
-                    if (touched_segment_index < 0) {
-                        touched_segment_index = i;
-                    }
-                }
-            }
-        }
 
         if (head_detection != nullptr) {
             const RotatedRect& head_rect = head_detection->rotated_rect;
@@ -958,7 +847,6 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
             can_grab = has_head_ray &&
                        ac_geometry.valid &&
                        !ray_intersects_head_ray &&
-                       !touches_other &&
                        segment_structure_valid;
         }
 
@@ -991,15 +879,9 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
                  << " final_long_angle_deg=" << ac_geometry.final_long_angle_rad * 180.0f / static_cast<float>(CV_PI)
                  << " ac_angle_deg=" << ComputeFinalRayAngle(ac_geometry.arrow_start, ac_geometry.arrow_end)
                  << " ray_logic=v1.0.13_seg_center_ac"
-                 << " ray_intersects_head=" << BoolText(ray_intersects_head_ray)
-                 << " extended_touches_other=" << BoolText(touches_other);
-            if (touches_other) {
-                cout << " touched_segment_index=" << touched_segment_index;
-            }
+                 << " ray_intersects_head=" << BoolText(ray_intersects_head_ray);
             cout << " can_grab=" << BoolText(can_grab);
-            if (touches_other) {
-                cout << " reason=extended_touches_other_mask";
-            } else if (head_detection == nullptr) {
+            if (head_detection == nullptr) {
                 cout << " reason=missing_head_candidate";
             } else if (!segment_structure_valid) {
                 cout << " reason=invalid_segment_obb_structure";
@@ -1033,8 +915,7 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
                                                 head_detection != nullptr ? head_detection->class_id : -1,
                                                 std::move(mask_collisions),
                                                 can_grab,
-                                                ac_geometry,
-                                                config.center_ray_offset_px));
+                                                ac_geometry));
     }
 
     return detections;

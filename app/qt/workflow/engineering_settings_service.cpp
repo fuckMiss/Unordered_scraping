@@ -313,7 +313,17 @@ UiOverlaySettings EngineeringSettingsService::LoadUiOverlaySettings()
     settings->beginGroup(QStringLiteral("ui_overlay"));
     overlays.show_grab_limit_overlay =
         settings->value(QStringLiteral("show_grab_limit_overlay"), overlays.show_grab_limit_overlay).toBool();
+    overlays.mechanical_gripper_length =
+        settings->value(QStringLiteral("mechanical_gripper_length"), overlays.mechanical_gripper_length).toDouble();
+    overlays.mechanical_gripper_width =
+        settings->value(QStringLiteral("mechanical_gripper_width"), overlays.mechanical_gripper_width).toDouble();
     settings->endGroup();
+    if (!std::isfinite(overlays.mechanical_gripper_length) || overlays.mechanical_gripper_length < 0.0) {
+        overlays.mechanical_gripper_length = 0.0;
+    }
+    if (!std::isfinite(overlays.mechanical_gripper_width) || overlays.mechanical_gripper_width < 0.0) {
+        overlays.mechanical_gripper_width = 0.0;
+    }
     return overlays;
 }
 
@@ -322,6 +332,10 @@ void EngineeringSettingsService::SaveUiOverlaySettings(const UiOverlaySettings& 
     auto settings = CreateSettings();
     settings->beginGroup(QStringLiteral("ui_overlay"));
     settings->setValue(QStringLiteral("show_grab_limit_overlay"), overlays.show_grab_limit_overlay);
+    settings->setValue(QStringLiteral("mechanical_gripper_length"),
+                       overlays.mechanical_gripper_length > 0.0 ? overlays.mechanical_gripper_length : 0.0);
+    settings->setValue(QStringLiteral("mechanical_gripper_width"),
+                       overlays.mechanical_gripper_width > 0.0 ? overlays.mechanical_gripper_width : 0.0);
     settings->endGroup();
     settings->sync();
 }

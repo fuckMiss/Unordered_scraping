@@ -332,13 +332,13 @@ void DrawDetectionPolygon(Mat& image,
     }
 
     const Scalar original_color = GetClassColor(detection.class_id);
-    const Scalar extended_color = DetectionStateColor(detection, primary);
+    const Scalar state_color = DetectionStateColor(detection, primary);
     const int thickness = ScaledStroke(display_scale, emphasized ? 4 : 3);
-    const int extended_thickness = ScaledStroke(display_scale, emphasized ? 4 : 3);
+    const int mechanical_gripper_thickness = ScaledStroke(display_scale, emphasized ? 3 : 2);
     const Scalar arrow_color(255, 0, 255);
     const int arrow_thickness = ScaledStroke(display_scale, emphasized ? 4 : 3);
 
-    DrawPolyline(image, detection.extended_corners, extended_color, extended_thickness);
+    DrawPolyline(image, detection.mechanical_gripper_corners, state_color, mechanical_gripper_thickness);
     DrawPolyline(image, detection.corners, original_color, thickness);
 
     if (!draw_rays) {

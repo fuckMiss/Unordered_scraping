@@ -297,6 +297,10 @@ void EngineeringSettingsDialogController::show()
     auto* postprocess_debug_logging_check = new QCheckBox(QStringLiteral("启用后处理调试日志"), dialog);
     postprocess_debug_logging_check->setChecked(owner->postprocess_debug_logging_enabled_);
     postprocess_debug_logging_check->setToolTip(QStringLiteral("在日志中输出 [PostprocessDebug] 明细，包含 O/A/B/C、AC角度、B点选择和可抓/拒抓原因。"));
+    auto* mechanical_gripper_length_spin = CreateGripperDimensionSpinBox(dialog, owner->mechanical_gripper_length_);
+    mechanical_gripper_length_spin->setToolTip(QStringLiteral("真实夹爪机械长度；为 0 时保守判为不可抓。"));
+    auto* mechanical_gripper_width_spin = CreateGripperDimensionSpinBox(dialog, owner->mechanical_gripper_width_);
+    mechanical_gripper_width_spin->setToolTip(QStringLiteral("真实夹爪机械宽度；为 0 时保守判为不可抓。"));
     auto* capture_current_angle_button = new QPushButton(QStringLiteral("取当前角度"), dialog);
     auto* calculate_angle_offset_button = new QPushButton(QStringLiteral("计算校准"), dialog);
 
@@ -494,6 +498,8 @@ void EngineeringSettingsDialogController::show()
     settings_controls.show_plc_center_debug_check = show_plc_center_debug_check;
     settings_controls.show_head_ray_debug_check = show_head_ray_debug_check;
     settings_controls.postprocess_debug_logging_check = postprocess_debug_logging_check;
+    settings_controls.mechanical_gripper_length_spin = mechanical_gripper_length_spin;
+    settings_controls.mechanical_gripper_width_spin = mechanical_gripper_width_spin;
     settings_controls.angle_direction_combo = angle_direction_combo;
     settings_controls.angle_range_combo = angle_range_combo;
     settings_controls.axis_mapping_combo = axis_mapping_combo;
@@ -635,6 +641,14 @@ void EngineeringSettingsDialogController::show()
     debug_content_layout->setSpacing(S(8));
     debug_content_layout->addWidget(show_head_ray_debug_check);
     debug_content_layout->addWidget(postprocess_debug_logging_check);
+    auto* gripper_dimension_grid = CreateSettingsGrid(10, 10);
+    SetGridColumnMinimumWidths(gripper_dimension_grid, { 120, 170 });
+    SetGridColumnStretches(gripper_dimension_grid, { 0, 0, 0, 1 });
+    gripper_dimension_grid->addWidget(new QLabel(QStringLiteral("夹爪长度"), dialog), 0, 0);
+    gripper_dimension_grid->addWidget(mechanical_gripper_length_spin, 0, 1, Qt::AlignLeft);
+    gripper_dimension_grid->addWidget(new QLabel(QStringLiteral("夹爪宽度"), dialog), 1, 0);
+    gripper_dimension_grid->addWidget(mechanical_gripper_width_spin, 1, 1, Qt::AlignLeft);
+    debug_content_layout->addLayout(gripper_dimension_grid);
     scroll_layout->addWidget(CreateCollapsibleSection(dialog,
                                                       QStringLiteral("调试设置"),
                                                       debug_content,

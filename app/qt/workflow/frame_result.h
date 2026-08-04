@@ -46,9 +46,10 @@ struct PoseDetection
     int small_ray_quadrant = 0;
     cv::Point2f arrow_start;
     cv::Point2f arrow_end;
+    float grip_long_angle_deg = 0.0f;
     cv::Rect bbox;
     std::vector<cv::Point2f> corners;
-    std::vector<cv::Point2f> extended_corners;
+    std::vector<cv::Point2f> mechanical_gripper_corners;
     std::vector<std::pair<cv::Rect, cv::Mat>> mask_collisions;
     bool can_grab = false;
 };

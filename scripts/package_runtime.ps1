@@ -1,6 +1,6 @@
 ﻿param(
     [string]$BuildDir = "build",
-    [string]$ReleaseName = "TankEye-Iris_1.2",
+    [string]$ReleaseName = "TankEye-Iris_1.4",
     [switch]$Force
 )
 
@@ -464,7 +464,7 @@ Write-Host "Desktop shortcut created: $ShortcutPath"
 Write-Utf8File (Join-Path $StagingDir "create_desktop_shortcut.ps1") $ShortcutScript
 
 $Readme = @'
-# TankEye-Iris 1.2 独立运行包
+# TankEye-Iris 1.4 独立运行包
 
 ## 启动
 
@@ -503,13 +503,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 
 此运行包不包含 C/C++ 源码、头文件、Python 脚本、CMake 工程、测试、调试符号、`.lib` 或训练资产。
 
-## 1.2 说明
+## 1.4 说明
 
 - 主界面左侧图像区约 75%，右侧控制栏约 25%。
 - 图像完整显示，允许边缘留白，不裁剪。
 - 图片读取使用后台线程。
+- 真实夹爪框由工程设置中的夹爪长度/宽度和九点标定换算得到，负责可抓/不可抓状态显示、碰撞拒抓、抓取射线 C 点和中心偏移。
+- 旧 3 倍延长 OBB 框已从运行逻辑和画面显示中移除。
 - OpenVINO 缓存默认保留；如需清理，启动时显式添加 `-ClearOpenVinoCache`。
 - 运行日志默认带时间戳，可在程序内打开“运行日志”查看。
+- 本运行包不包含源码文档目录 `docs\`，也不包含协作规则文件 `AGENTS.md`。
 '@
 Write-Utf8File (Join-Path $StagingDir "README_RUNTIME.md") $Readme
 
@@ -540,6 +543,15 @@ if ($Forbidden) {
     $Forbidden | Select-Object FullName
     throw "Forbidden source/build artifacts found in staging."
 }
+$ForbiddenPaths = @(
+    (Join-Path $StagingDir "docs"),
+    (Join-Path $StagingDir "AGENTS.md")
+)
+$ForbiddenPathHits = @($ForbiddenPaths | Where-Object { Test-Path -LiteralPath $_ })
+if ($ForbiddenPathHits.Count -gt 0) {
+    $ForbiddenPathHits | ForEach-Object { Write-Host "[Package] Forbidden package path: $_" }
+    throw "Forbidden documentation or agent files found in staging."
+}
 
 $FilesForHash = Get-ChildItem -LiteralPath $StagingDir -Recurse -File |
     Where-Object { $_.Name -notin @("RELEASE_MANIFEST.json", "SHA256SUMS.txt") } |
@@ -548,7 +560,7 @@ $HashEntries = @($FilesForHash | ForEach-Object { Add-HashEntry $StagingDir $_ }
 
 $Manifest = [PSCustomObject]@{
     name = $ReleaseName
-    version = "1.2"
+    version = "1.4"
     built_at = (Get-Date).ToString("o")
     source_build_dir = $BuildDir
     runtime_only = $true

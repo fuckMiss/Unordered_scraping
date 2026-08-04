@@ -26,6 +26,7 @@ struct FrameProcessingResult
 FrameProcessingResult ProcessVisionFrame(GraspWorkflow& workflow,
                                          const cv::Mat& frame,
                                          const GrabLimitConfig& limits,
+                                         const MechanicalGripperCollisionConfig& mechanical_gripper,
                                          const CoordinateTransformState& coordinate_state,
                                          AxisMappingMode axis_mapping_mode,
                                          bool reject_invalid_coordinate_state_when_limits_disabled);

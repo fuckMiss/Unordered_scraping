@@ -83,8 +83,11 @@ void PlcRelatedSettingsRoundTrip()
     assert(loaded_postprocess.debug_logging_enabled);
 
     assert(EngineeringSettingsService::LoadUiOverlaySettings().show_grab_limit_overlay);
-    EngineeringSettingsService::SaveUiOverlaySettings({ false });
-    assert(!EngineeringSettingsService::LoadUiOverlaySettings().show_grab_limit_overlay);
+    EngineeringSettingsService::SaveUiOverlaySettings({ false, 88.5, 12.25 });
+    const UiOverlaySettings loaded_overlay = EngineeringSettingsService::LoadUiOverlaySettings();
+    assert(!loaded_overlay.show_grab_limit_overlay);
+    assert(NearlyEqual(loaded_overlay.mechanical_gripper_length, 88.5));
+    assert(NearlyEqual(loaded_overlay.mechanical_gripper_width, 12.25));
 
     ModelThresholdSettings thresholds;
     thresholds.obb_conf_threshold = 0.62;

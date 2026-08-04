@@ -56,7 +56,10 @@ void GraspMainWindow::loadObbPostprocessSettings()
 
 void GraspMainWindow::loadUiOverlaySettings()
 {
-    show_grab_limit_overlay_ = EngineeringSettingsService::LoadUiOverlaySettings().show_grab_limit_overlay;
+    const UiOverlaySettings overlays = EngineeringSettingsService::LoadUiOverlaySettings();
+    show_grab_limit_overlay_ = overlays.show_grab_limit_overlay;
+    mechanical_gripper_length_ = overlays.mechanical_gripper_length;
+    mechanical_gripper_width_ = overlays.mechanical_gripper_width;
 }
 
 void GraspMainWindow::loadAxisMappingSettings()
@@ -118,7 +121,11 @@ void GraspMainWindow::saveObbPostprocessSettings() const
 
 void GraspMainWindow::saveUiOverlaySettings() const
 {
-    EngineeringSettingsService::SaveUiOverlaySettings({ show_grab_limit_overlay_ });
+    EngineeringSettingsService::SaveUiOverlaySettings({
+        show_grab_limit_overlay_,
+        mechanical_gripper_length_,
+        mechanical_gripper_width_,
+    });
 }
 
 void GraspMainWindow::saveAxisMappingSettings() const

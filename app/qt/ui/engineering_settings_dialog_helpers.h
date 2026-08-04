@@ -38,6 +38,7 @@ QDoubleSpinBox* CreateExposureSpinBox(QWidget* parent, double value);
 QDoubleSpinBox* CreateAngleOffsetSpinBox(QWidget* parent, double value);
 QDoubleSpinBox* CreateAngleReferenceSpinBox(QWidget* parent, double value);
 QDoubleSpinBox* CreateCenterRayOffsetSpinBox(QWidget* parent, double value);
+QDoubleSpinBox* CreateGripperDimensionSpinBox(QWidget* parent, double value);
 QDoubleSpinBox* CreateThresholdSpinBox(QWidget* parent, double value);
 QDoubleSpinBox* CreateCoordinateSpinBox(QWidget* parent, double value);
 double CoordinateValueAt(const QList<QDoubleSpinBox*>& edits, int index);
@@ -61,6 +62,8 @@ struct EngineeringSettingsControls
     QCheckBox* show_plc_center_debug_check = nullptr;
     QCheckBox* show_head_ray_debug_check = nullptr;
     QCheckBox* postprocess_debug_logging_check = nullptr;
+    QDoubleSpinBox* mechanical_gripper_length_spin = nullptr;
+    QDoubleSpinBox* mechanical_gripper_width_spin = nullptr;
     QComboBox* angle_direction_combo = nullptr;
     QComboBox* angle_range_combo = nullptr;
     QComboBox* axis_mapping_combo = nullptr;
@@ -98,6 +101,8 @@ struct EngineeringSettingsDraft
     bool show_head_ray_debug = true;
     bool postprocess_debug_logging_enabled = false;
     bool show_grab_limit_overlay = true;
+    double mechanical_gripper_length = 0.0;
+    double mechanical_gripper_width = 0.0;
     bool angle_reverse_direction = false;
     AngleRangeMode angle_range_mode = AngleRangeMode::ZeroTo360;
     AxisMappingMode axis_mapping_mode = AxisMappingMode::FrontBackMachineY;

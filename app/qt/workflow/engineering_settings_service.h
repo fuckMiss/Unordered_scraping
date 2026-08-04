@@ -45,6 +45,8 @@ struct AxisCompensationSettings
 struct UiOverlaySettings
 {
     bool show_grab_limit_overlay = true;
+    double mechanical_gripper_length = 0.0;
+    double mechanical_gripper_width = 0.0;
 };
 
 class EngineeringSettingsService

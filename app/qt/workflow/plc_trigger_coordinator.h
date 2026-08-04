@@ -46,6 +46,7 @@ PlcTriggerProcessResult ProcessPlcTriggeredFrame(GraspWorkflow& workflow,
                                                  RobotController& robot_controller,
                                                  const cv::Mat& frame,
                                                  const GrabLimitConfig& limits,
+                                                 const MechanicalGripperCollisionConfig& mechanical_gripper,
                                                  const CoordinateTransformState& coordinate_state,
                                                  const PlcOutputConfig& plc_config,
                                                  const std::chrono::steady_clock::time_point& plc_start);

@@ -60,6 +60,57 @@ CoordinateTransformState OverlayCoordinateState()
     return BuildCoordinateTransformState(config);
 }
 
+CoordinateTransformState IdentityCoordinateState()
+{
+    CoordinateTransformConfig config;
+    config.enabled = true;
+    config.points = {
+        { 0.0, 0.0, 0.0, 0.0 },
+        { 100.0, 0.0, 100.0, 0.0 },
+        { 0.0, 100.0, 0.0, 100.0 },
+        { 100.0, 100.0, 100.0, 100.0 },
+    };
+    return BuildCoordinateTransformState(config);
+}
+
+FrameInferenceResult MakeMechanicalGripperCollisionResult()
+{
+    FrameInferenceResult result;
+    result.image_width = 100;
+    result.image_height = 100;
+
+    SegRegion current_segment;
+    current_segment.mask = cv::Mat(100, 100, CV_8U, cv::Scalar(0));
+    current_segment.mask(cv::Rect(45, 45, 10, 10)).setTo(cv::Scalar(255));
+    current_segment.bbox = cv::Rect(45, 45, 10, 10);
+
+    SegRegion neighbor_segment;
+    neighbor_segment.mask = cv::Mat(100, 100, CV_8U, cv::Scalar(0));
+    neighbor_segment.mask(cv::Rect(60, 48, 8, 4)).setTo(cv::Scalar(255));
+    neighbor_segment.bbox = cv::Rect(60, 48, 8, 4);
+
+    result.segments.push_back(current_segment);
+    result.segments.push_back(neighbor_segment);
+
+    PoseDetection target;
+    target.matched_segment_index = 0;
+    target.confidence = 0.9f;
+    target.can_grab = true;
+    target.pick_status_code = 1;
+    target.head_type_code = 4;
+    target.head_type_text = "test";
+    target.center_x = 50.0f;
+    target.center_y = 50.0f;
+    target.obb_center = { 50.0f, 50.0f };
+    target.grip_long_angle_deg = 0.0f;
+    result.detections.push_back(target);
+    result.primary_index = 0;
+    result.pick_status_code = 1;
+    result.head_type_code = 4;
+    result.head_type_text = "test";
+    return result;
+}
+
 bool NearlyEqual(float left, float right)
 {
     return std::fabs(left - right) < 0.02f;
@@ -143,6 +194,71 @@ void MechanicalRoiFiltersOutsideTargetsAndResolvesPrimary()
     assert(result.pick_status_code == 1);
 }
 
+void MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result, IdentityCoordinateState(), config);
+
+    assert(result.detections.size() == 1);
+    assert(!result.detections.front().can_grab);
+    assert(result.detections.front().pick_status_code == 3);
+    assert(result.detections.front().mechanical_gripper_corners.size() == 4);
+    assert(result.detections.front().mask_collisions.size() == 1);
+    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 3);
+}
+
+void MechanicalGripperInvalidSizeRejectsConservatively()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    const MechanicalGripperCollisionConfig config{ 0.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result, IdentityCoordinateState(), config);
+
+    assert(!result.detections.front().can_grab);
+    assert(result.detections.front().mechanical_gripper_corners.empty());
+    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 3);
+}
+
+void MechanicalGripperInvalidCoordinateRejectsConservatively()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    CoordinateTransformState state;
+    state.enabled = true;
+    state.valid = false;
+    const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result, state, config);
+
+    assert(!result.detections.front().can_grab);
+    assert(result.detections.front().mechanical_gripper_corners.empty());
+    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 3);
+}
+
+void MechanicalGripperFinalizesPoseFromRealFrameBoundary()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    result.segments[1].mask.setTo(cv::Scalar(0));
+    const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result, IdentityCoordinateState(), config);
+
+    assert(result.detections.front().can_grab);
+    assert(NearlyEqual(result.detections.front().arrow_start.x, 50.0f));
+    assert(NearlyEqual(result.detections.front().arrow_start.y, 50.0f));
+    assert(NearlyEqual(result.detections.front().arrow_end.x, 70.0f));
+    assert(NearlyEqual(result.detections.front().arrow_end.y, 50.0f));
+    assert(NearlyEqual(result.detections.front().angle_deg, 0.0f));
+    assert(NearlyEqual(result.detections.front().center_x, 60.0f));
+    assert(NearlyEqual(result.detections.front().center_y, 50.0f));
+    assert(result.primary_index == 0);
+    assert(result.pick_status_code == 1);
+}
+
 void OverlayPolygonUsesInnerRoiAndDefaultAxisMapping()
 {
     GrabLimitConfig limits;
@@ -201,6 +317,10 @@ int main()
     AngleLimitsUseCalibratedPlcAngle();
     MechanicalRoiRequiresValidCoordinateTransform();
     MechanicalRoiFiltersOutsideTargetsAndResolvesPrimary();
+    MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf();
+    MechanicalGripperInvalidSizeRejectsConservatively();
+    MechanicalGripperInvalidCoordinateRejectsConservatively();
+    MechanicalGripperFinalizesPoseFromRealFrameBoundary();
     OverlayPolygonUsesInnerRoiAndDefaultAxisMapping();
     OverlayPolygonUsesFrontBackMachineXMapping();
     OverlayPolygonRejectsEmptyInnerRoi();

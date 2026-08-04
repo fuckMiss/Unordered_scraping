@@ -223,6 +223,11 @@ QDoubleSpinBox* CreateCenterRayOffsetSpinBox(QWidget* parent, double value)
     return CreateSpinBox(parent, value, -100.0, 100.0, 2, 1.0, 150, QStringLiteral(" px"));
 }
 
+QDoubleSpinBox* CreateGripperDimensionSpinBox(QWidget* parent, double value)
+{
+    return CreateSpinBox(parent, value, 0.0, 999999.0, 2, 1.0, 150);
+}
+
 QDoubleSpinBox* CreateThresholdSpinBox(QWidget* parent, double value)
 {
     return CreateSpinBox(parent, qBound(0.01, value, 0.99), 0.01, 0.99, 2, 0.05, 96);
@@ -434,6 +439,8 @@ bool ReadEngineeringSettingsDraft(const EngineeringSettingsControls& controls,
     next_draft.show_head_ray_debug = controls.show_head_ray_debug_check->isChecked();
     next_draft.postprocess_debug_logging_enabled = controls.postprocess_debug_logging_check->isChecked();
     next_draft.show_grab_limit_overlay = controls.show_grab_limit_overlay_check->isChecked();
+    next_draft.mechanical_gripper_length = controls.mechanical_gripper_length_spin->value();
+    next_draft.mechanical_gripper_width = controls.mechanical_gripper_width_spin->value();
     next_draft.angle_reverse_direction = controls.angle_direction_combo->currentData().toBool();
     next_draft.angle_range_mode = static_cast<AngleRangeMode>(controls.angle_range_combo->currentData().toInt());
     next_draft.axis_mapping_mode = static_cast<AxisMappingMode>(controls.axis_mapping_combo->currentData().toInt());

@@ -212,3 +212,42 @@
 - 修改：本记录补充本次上传范围；提交范围包括 AC 抓取角度修正、工程设置角度校准幂等/零偏移/正反向口径、重复检测稳态、OpenVINO OBB/SEG 公共逻辑瘦身、`GraspMainWindow` 工程设置职责拆分、项目记忆更新，以及参考脚本 `models/推理v1.0.13.py`。
 - 验证：上传前已完成 `tankeye-openvino_obb`、`tankeye-openvino_seg`、`tankeye-openvino_qt_app` Release 构建，默认测试脚本全部通过，模拟 PLC 启动生成 `build/Release/logs/tankeye_20260804_170243.log` 且无残留 `tankeye` 进程；`git diff --check` 无空白错误，仅提示工作区文件下次 Git 操作会按 CRLF 处理。
 - 遗留：本次上传不包含被 `.gitignore` 排除的 `build/`、模型权重和 `config/admin_auth.key`；未连接真实 PLC/真实相机。
+
+## 2026-08-04 - 工程设置新增真实夹爪长宽可视化
+
+- 目标：按用户确认的第一阶段需求，只在主画面绘制真实夹爪机械长宽换算后的图像矩形，用于观察效果；不改变现有延长 OBB 判断、真实 SEG mask 碰撞拒抓、可抓状态或 PLC 写入。
+- 修改：`EngineeringSettingsService` 的 `UiOverlaySettings` 新增 `mechanical_gripper_length` 和 `mechanical_gripper_width` 持久化；工程设置“调试设置”新增“夹爪长度/夹爪宽度”输入框；后处理在 `PoseDetection::grip_long_angle_deg` 显式输出与延长 OBB 同源的 AC 对齐抓取长轴角度；`GraspMainWindow` 在显示刷新时根据当前检测的原始夹取 OBB 中心、`grip_long_angle_deg` 和现有九点坐标转换的局部机械/图像比例生成 `mechanical_gripper_corners`，不依赖未来可能删除的绿色延长框或从框边反推角度；`frame_overlay` 用区别于原有延长框的蓝青色额外绘制真实夹爪框；打开现有“启用后处理调试日志”后，会输出 `[PostprocessDebug] mechanical_gripper` 或 `mechanical_gripper_skip` 行，包含长宽、中心、检测角度、抓取长轴角度、局部比例、像素长宽、四角点或跳过原因。旧 `extended_corners`、mask 碰撞和后处理拒抓逻辑未改。
+- 结果：夹爪长宽默认 0 时不绘制；启用有效坐标转换并填写正数长宽后，主画面会在当前角度方向上叠加真实夹爪尺寸对应的图像矩形，中心仍取原始夹取 OBB 中心。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_engineering_settings_service_test` 通过；`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；补充日志和修正方向来源后再次构建 `tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_qt_app` 和 `tankeye-openvino_frame_overlay_test` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 启动真实 Qt 程序并生成 `build/Release/logs/tankeye_20260804_175624.log`，GUI 常驻导致 45 秒超时，随后确认无残留 `tankeye` 进程；`git diff --check` 无空白错误，仅提示 CRLF。
+- 遗留：未连接真实 PLC/真实相机；未人工加载现场图片观察真实夹爪框效果。下一步需要用户在工程设置输入真实夹爪长宽、启用有效坐标转换后，用现场图或相机画面确认蓝青色夹爪框尺寸与方向是否匹配真实夹具。
+
+## 2026-08-04 - 真实夹爪框接管碰撞拒抓
+
+- 目标：用工程设置中的真实夹爪机械长宽生成图像矩形，替代旧 3 倍 `extended_corners` 作为碰撞拒抓范围；旧延长框仅保留为全显/调试对比几何。
+- 修改：`frame_postprocess` 移除旧延长 OBB mask 碰撞对 `can_grab` 的影响，只继续输出 AC 姿态、`grip_long_angle_deg` 和 `extended_corners`；`grab_limit_evaluator` 新增真实夹爪角点生成和 mask 碰撞过滤，按 `机械夹爪框 ∩ 旁边 SEG mask ∩ 非当前自身 mask` 写入 `mask_collisions` 并统一重算主目标/抓取状态；`frame_processing_service` 在 `ApplyCoordinateTransform()` 后执行真实夹爪过滤；图片检测和 PLC 触发路径传入夹爪长宽与调试日志开关；普通 overlay 不再画旧延长框，全显/调试模式继续画旧框对比。
+- 结果：夹爪长宽为 0、坐标转换禁用/无效、局部比例或自身 mask 无效时保守判不可抓；真实夹爪框生成参数、跳过/拒抓原因、碰撞 segment、像素长宽和四角点会在启用后处理调试日志时打印。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_grab_limit_evaluator_test`、`tankeye-openvino_qt_app` 均通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 启动真实 Qt 程序并生成 `build/Release/logs/tankeye_20260804_182109.log`，命令因 GUI 常驻 45 秒超时，随后确认无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC/真实相机；仍需用户用现场图片或相机画面复核真实夹爪框尺寸、方向和拒抓效果是否符合实际夹具。
+
+## 2026-08-04 - 真实夹爪框状态颜色修正
+
+- 目标：修正真实夹爪框接管旧延长框拒抓职责后，overlay 颜色没有继承原“是否可抓/主目标”状态色的问题。
+- 修改：`frame_overlay` 将真实夹爪框颜色从固定蓝青色改为复用 `DetectionStateColor()`；旧延长框在全显/调试模式下也继续使用同一状态色；`frame_overlay_test` 增加真实夹爪框可抓和不可抓状态颜色断言。
+- 结果：真实夹爪框现在按原状态语义显示：主目标使用主目标色，可抓显示绿色，不可抓显示红色。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过。
+- 遗留：未连接真实 PLC/真实相机，需用户在现场画面确认颜色观感与原延长框一致。
+
+## 2026-08-04 - 真实夹爪框完全接管旧延长框
+
+- 目标：删除旧 3 倍延长 OBB 框的字段、生成、缩放、显示、调试日志和测试残留，让真实夹爪框完全接管碰撞拒抓、overlay 状态框和 AC 射线 C 点/中心偏移。
+- 修改：`PoseDetection` 删除 `extended_corners`；`frame_postprocess` 删除 `kExtendedObbScale`、`ScaleObbLongEdge()` 和基于旧延长框求 C 的逻辑，后处理只保留 AC 基础姿态、基础抓取框和 `grip_long_angle_deg`；`grab_limit_evaluator` 在真实夹爪框生成后按 O->A 方向求真实夹爪边界 C 点，更新 `arrow_start/arrow_end/angle_deg/center_x/center_y`，再执行真实夹爪 mask 碰撞拒抓；`frame_processing_service` 在真实夹爪最终化后重新应用坐标转换，保证 PLC 机器坐标来自最终中心。
+- 结果：代码和测试中已搜不到 `extended_corners`、`ExtendedObb`、`kExtendedObbScale`、`ScaleObbLongEdge`、`draw_extended_debug` 等旧延长框符号；普通/全显 overlay 都只画真实夹爪框、基础抓取框和射线。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_grab_limit_evaluator_test`、`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` 均通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 启动真实 Qt 程序并生成 `build/Release/logs/tankeye_20260804_184839.log`，GUI 常驻 45 秒超时后确认无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC/真实相机；需要用户用现场图片或相机画面复核真实夹爪框、射线 C 点、中心偏移和拒抓效果。
+
+## 2026-08-04 - 打包 TankEye-Iris 1.4 运行包
+- 目标：按用户要求读取并更新 `docs/PACKAGING_README.md` 的使用说明，生成版本号 1.4 的运行包，并确保运行包不包含 `docs/` 和 `AGENTS.md`。
+- 修改：`docs/PACKAGING_README.md` 更新为 1.4 路径、命令、验证步骤和真实夹爪框行为说明；`runtime/USAGE_GUIDE.txt` 更新运行包使用说明和真实夹爪框说明；`scripts/package_runtime.ps1` 默认发布名、运行包 README、manifest 版本更新为 1.4，并增加 staging 检查，若 `docs/` 或 `AGENTS.md` 进入运行包则失败。
+- 结果：已生成 `dist\TankEye-Iris_1.4` 和 `dist\TankEye-Iris_1.4.zip`；运行包 `RELEASE_MANIFEST.json` 显示 `name=TankEye-Iris_1.4`、`version=1.4`、`runtime_only=true`；运行包保留主程序、Qt/OpenVINO/Hikrobot 运行依赖、模型、配置和使用说明。
+- 验证：执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.4 -Force` 成功，期间仅有已知 `VCINSTALLDIR is not set` 警告；检查 `tankeye-openvino_qt_app.exe`、`platforms\qwindows.dll`、`models\weights\best_obb.xml`、`models\weights\best_seg.xml`、`USAGE_GUIDE.txt` 和 zip 均存在；`dist\TankEye-Iris_1.4\docs` 与 `dist\TankEye-Iris_1.4\AGENTS.md` 均返回 `False`；zip 条目检查确认不包含 `docs/` 和 `AGENTS.md`；运行包内 `launch_tankeye.ps1 -Device CPU -SimulatePlc` 启动真实 Qt 程序，生成 `dist\TankEye-Iris_1.4\logs\tankeye_20260804_190721.log`，日志确认模拟 PLC、主窗口创建、OBB/SEG 模型按 CPU 加载成功，45 秒 GUI 常驻超时后确认无残留 `tankeye` 进程；`git diff --check` 无空白错误，仅有 CRLF 换行提示。
+- 遗留：本次未连接真实 PLC/真实相机；打包脚本提示未找到有效启用的九点方案，因此运行包内机械保护限制保持 `machine_limits.enabled=false`，现场使用前仍需确认目标机器配置。

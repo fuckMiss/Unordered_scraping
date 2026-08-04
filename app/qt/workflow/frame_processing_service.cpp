@@ -3,6 +3,7 @@
 FrameProcessingResult ProcessVisionFrame(GraspWorkflow& workflow,
                                          const cv::Mat& frame,
                                          const GrabLimitConfig& limits,
+                                         const MechanicalGripperCollisionConfig& mechanical_gripper,
                                          const CoordinateTransformState& coordinate_state,
                                          AxisMappingMode axis_mapping_mode,
                                          bool reject_invalid_coordinate_state_when_limits_disabled)
@@ -16,6 +17,10 @@ FrameProcessingResult ProcessVisionFrame(GraspWorkflow& workflow,
         return process_result;
     }
 
+    ApplyCoordinateTransform(process_result.frame_result, coordinate_state);
+    ApplyMechanicalGripperCollisionFilter(process_result.frame_result,
+                                          coordinate_state,
+                                          mechanical_gripper);
     ApplyCoordinateTransform(process_result.frame_result, coordinate_state);
     std::string roi_error;
     if (!ApplyMechanicalRoiFilter(process_result.frame_result,

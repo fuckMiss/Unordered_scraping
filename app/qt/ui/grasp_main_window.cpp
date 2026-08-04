@@ -362,7 +362,7 @@ FrameInferenceResult ScaleResultForDisplay(const FrameInferenceResult& result,
         detection.arrow_end = ScalePoint(detection.arrow_end, scale_x, scale_y, offset_x, offset_y);
         detection.bbox = ScaleRect(detection.bbox, scale_x, scale_y, offset_x, offset_y);
         ScalePoints(detection.corners, scale_x, scale_y, offset_x, offset_y);
-        ScalePoints(detection.extended_corners, scale_x, scale_y, offset_x, offset_y);
+        ScalePoints(detection.mechanical_gripper_corners, scale_x, scale_y, offset_x, offset_y);
         detection.mask_collisions = include_segment_masks
             ? ScaleMaskCollisionOverlays(detection.mask_collisions,
                                          scale_x,
@@ -2205,6 +2205,8 @@ void GraspMainWindow::applyEngineeringSettingsDraft(const EngineeringSettingsDra
     show_head_ray_debug_ = draft.show_head_ray_debug;
     postprocess_debug_logging_enabled_ = draft.postprocess_debug_logging_enabled;
     show_grab_limit_overlay_ = draft.show_grab_limit_overlay;
+    mechanical_gripper_length_ = draft.mechanical_gripper_length;
+    mechanical_gripper_width_ = draft.mechanical_gripper_width;
     angle_reverse_direction_ = draft.angle_reverse_direction;
     angle_range_mode_ = draft.angle_range_mode;
     axis_mapping_mode_ = draft.axis_mapping_mode;
@@ -2491,11 +2493,18 @@ void GraspMainWindow::startDetection()
 
     const CoordinateTransformState coordinate_state = coordinate_transform_state_;
     const PlcOutputConfig plc_config = plcOutputConfig();
-    watcher->setFuture(QtConcurrent::run([this, frame, result, coordinate_state, limits, plc_config]() -> QString {
+    const MechanicalGripperCollisionConfig mechanical_gripper{
+        mechanical_gripper_length_,
+        mechanical_gripper_width_,
+        center_ray_offset_px_,
+        postprocess_debug_logging_enabled_
+    };
+    watcher->setFuture(QtConcurrent::run([this, frame, result, coordinate_state, limits, plc_config, mechanical_gripper]() -> QString {
         const FrameProcessingResult process_result =
             ProcessVisionFrame(workflow_,
                                *frame,
                                limits,
+                               mechanical_gripper,
                                coordinate_state,
                                plc_config.axis_mapping_mode,
                                false);
@@ -2723,12 +2732,19 @@ void GraspMainWindow::processPlcTriggeredFrame()
 
     const CoordinateTransformState coordinate_state = coordinate_transform_state_;
     const PlcOutputConfig plc_config = plcOutputConfig();
-    watcher->setFuture(QtConcurrent::run([this, frame, result, plc_process_result, plc_start, limits, coordinate_state, plc_config]() -> QString {
+    const MechanicalGripperCollisionConfig mechanical_gripper{
+        mechanical_gripper_length_,
+        mechanical_gripper_width_,
+        center_ray_offset_px_,
+        postprocess_debug_logging_enabled_
+    };
+    watcher->setFuture(QtConcurrent::run([this, frame, result, plc_process_result, plc_start, limits, coordinate_state, plc_config, mechanical_gripper]() -> QString {
         *plc_process_result =
             ProcessPlcTriggeredFrame(workflow_,
                                      robot_controller_,
                                      *frame,
                                      limits,
+                                     mechanical_gripper,
                                      coordinate_state,
                                      plc_config,
                                      plc_start);

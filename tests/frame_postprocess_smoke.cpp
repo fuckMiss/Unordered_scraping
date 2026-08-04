@@ -194,7 +194,7 @@ void GripMustMatchExactlyOneSegment()
     assert(result.primary_index == -1);
 }
 
-void ExtendedGripTouchingOtherSegmentRejects()
+void ExtendedGripTouchingOtherSegmentNoLongerRejectsInPostprocess()
 {
     const FrameInferenceResult result = RunPostprocess({
         MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
@@ -204,12 +204,11 @@ void ExtendedGripTouchingOtherSegmentRejects()
         MakeSegment(cv::Rect(130, 20, 70, 120)),
     });
 
-    assert(result.pick_status_code == 3);
-    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index == 0);
     assert(result.detections.size() == 1);
-    assert(!result.detections.front().can_grab);
-    assert(result.detections.front().extended_corners.size() == 4);
-    assert(result.detections.front().mask_collisions.size() == 1);
+    assert(result.detections.front().can_grab);
+    assert(result.detections.front().mask_collisions.empty());
 }
 
 void ExtendedGripOnlyTouchingOtherSegmentBboxStaysGrabbable()
@@ -266,7 +265,7 @@ void NeighborMaskInsideMatchedMaskStaysGrabbable()
     assert(result.detections.front().mask_collisions.empty());
 }
 
-void ExpandedGripCollisionOnlyRejectsSweepingTarget()
+void ExpandedGripCollisionNoLongerRejectsInPostprocess()
 {
     const FrameInferenceResult result = RunPostprocess({
         MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
@@ -281,7 +280,7 @@ void ExpandedGripCollisionOnlyRejectsSweepingTarget()
         }),
     });
 
-    assert(result.pick_status_code == 1);
+    assert(result.pick_status_code == 2);
     assert(result.detections.size() == 2);
 
     const PoseDetection* sweeping_target = nullptr;
@@ -296,11 +295,11 @@ void ExpandedGripCollisionOnlyRejectsSweepingTarget()
 
     assert(sweeping_target != nullptr);
     assert(swept_target != nullptr);
-    assert(!sweeping_target->can_grab);
-    assert(sweeping_target->mask_collisions.size() == 1);
+    assert(sweeping_target->can_grab);
+    assert(sweeping_target->mask_collisions.empty());
     assert(swept_target->can_grab);
     assert(swept_target->mask_collisions.empty());
-    assert(result.detections[result.primary_index].obb_center.x == swept_target->obb_center.x);
+    assert(result.detections[result.primary_index].obb_center.x == sweeping_target->obb_center.x);
 }
 
 void EmptyOrWrongSizeNeighborMaskDoesNotFallbackToBbox()
@@ -326,7 +325,7 @@ void EmptyOrWrongSizeNeighborMaskDoesNotFallbackToBbox()
     assert(wrong_size_mask.detections.front().mask_collisions.empty());
 }
 
-void MultipleNeighborMaskCollisionsAreRecorded()
+void MultipleNeighborMasksDoNotRejectInPostprocess()
 {
     const FrameInferenceResult result = RunPostprocess({
         MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
@@ -337,10 +336,10 @@ void MultipleNeighborMaskCollisionsAreRecorded()
         MakeSegmentWithMask(cv::Rect(145, 20, 70, 120), { cv::Rect(145, 85, 10, 10) }),
     });
 
-    assert(result.pick_status_code == 3);
-    assert(result.primary_index == -1);
-    assert(!result.detections.front().can_grab);
-    assert(result.detections.front().mask_collisions.size() == 2);
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index == 0);
+    assert(result.detections.front().can_grab);
+    assert(result.detections.front().mask_collisions.empty());
 }
 
 void MultipleHeadCandidatesChooseClosestRightAngle()
@@ -454,7 +453,7 @@ void FinalRayAngleMatchesAcRay()
     assert(NearlyEqual(target.obb_center.y, 110.0f));
 }
 
-void AcRayDrivesFinalPoseOffset()
+void AcRayKeepsOriginalCenterBeforeMechanicalGripperFinalization()
 {
     FramePostprocessConfig config;
     config.center_ray_offset_px = 10.0;
@@ -466,10 +465,10 @@ void AcRayDrivesFinalPoseOffset()
     assert(result.primary_index >= 0);
     const PoseDetection& target = result.detections[result.primary_index];
     assert(NearlyEqual(target.angle_deg, 0.0f));
-    assert(NearlyEqual(target.center_x, 120.0f));
+    assert(NearlyEqual(target.center_x, 110.0f));
+    assert(NearlyEqual(target.center_y, 110.0f));
     assert(NearlyEqual(target.obb_center.y, 110.0f));
-    assert(target.extended_corners.size() == 4);
-    assert(cv::boundingRect(target.extended_corners).height > cv::boundingRect(target.corners).height);
+    assert(NearlyEqual(target.grip_long_angle_deg, -90.0f));
 }
 
 void MissingHeadKeepsTargetRejectedWithoutAcFallback()
@@ -483,7 +482,6 @@ void MissingHeadKeepsTargetRejectedWithoutAcFallback()
     assert(result.detections.size() == 1);
     const PoseDetection& target = result.detections.front();
     assert(!target.can_grab);
-    assert(target.extended_corners.empty());
     assert(NearlyEqual(target.arrow_end.x, target.obb_center.x));
     assert(NearlyEqual(target.center_y, 110.0f));
 }
@@ -528,13 +526,13 @@ int main()
     HeadOnlyRejects();
     MissingHeadRejects();
     GripMustMatchExactlyOneSegment();
-    ExtendedGripTouchingOtherSegmentRejects();
+    ExtendedGripTouchingOtherSegmentNoLongerRejectsInPostprocess();
     ExtendedGripOnlyTouchingOtherSegmentBboxStaysGrabbable();
     ExtendedGripThroughMaskHoleStaysGrabbable();
     NeighborMaskInsideMatchedMaskStaysGrabbable();
-    ExpandedGripCollisionOnlyRejectsSweepingTarget();
+    ExpandedGripCollisionNoLongerRejectsInPostprocess();
     EmptyOrWrongSizeNeighborMaskDoesNotFallbackToBbox();
-    MultipleNeighborMaskCollisionsAreRecorded();
+    MultipleNeighborMasksDoNotRejectInPostprocess();
     MultipleHeadCandidatesChooseClosestRightAngle();
     EqualHeadCandidatesUseStableTieBreak();
     SegmentWithMultipleLeftRejects();
@@ -542,7 +540,7 @@ int main()
     NearTieCompleteTargetsChooseStableSegmentOrder();
     FinalPoseOutputIsQuantized();
     FinalRayAngleMatchesAcRay();
-    AcRayDrivesFinalPoseOffset();
+    AcRayKeepsOriginalCenterBeforeMechanicalGripperFinalization();
     MissingHeadKeepsTargetRejectedWithoutAcFallback();
     AcRayDoesNotUseOldGripObbDirection();
     AcRayIntersectingHeadRayRejectsConservatively();
