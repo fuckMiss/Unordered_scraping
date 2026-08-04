@@ -30,6 +30,32 @@ float ApplyPlcAngleCalibration(float angle_deg, const PlcOutputConfig& config)
     return ApplyAngleRange(angle_deg * direction + config.angle_offset_deg, config.angle_range_mode);
 }
 
+float CalculateAngleCalibrationOffset(float current_display_angle_deg,
+                                      float target_angle_deg)
+{
+    float offset = target_angle_deg - current_display_angle_deg;
+    offset = std::fmod(offset, 360.0f);
+    if (offset > 360.0f) {
+        offset -= 360.0f;
+    } else if (offset < -360.0f) {
+        offset += 360.0f;
+    }
+    return offset;
+}
+
+float CalculateAngleCalibrationOffsetFromRawAngle(float raw_angle_deg,
+                                                 float target_angle_deg,
+                                                 bool reverse_direction,
+                                                 AngleRangeMode range_mode)
+{
+    PlcOutputConfig zero_offset_config;
+    zero_offset_config.angle_offset_deg = 0.0f;
+    zero_offset_config.angle_reverse_direction = reverse_direction;
+    zero_offset_config.angle_range_mode = range_mode;
+    const float current_display_angle = ApplyPlcAngleCalibration(raw_angle_deg, zero_offset_config);
+    return CalculateAngleCalibrationOffset(current_display_angle, target_angle_deg);
+}
+
 float FrontBackValue(const PoseDetection& detection, AxisMappingMode axis_mapping_mode)
 {
     if (axis_mapping_mode == AxisMappingMode::FrontBackMachineX) {

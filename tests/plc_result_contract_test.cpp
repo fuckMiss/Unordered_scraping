@@ -64,6 +64,67 @@ void AngleCalibrationSupportsSignedRangeAndReverseDirection()
     assert(NearlyEqual(write.angle, 110.0f));
 }
 
+void AngleCalibrationOffsetCalculationIsIdempotent()
+{
+    const float current_display_angle = 102.25f;
+    const float target_angle = 90.0f;
+
+    const float first_offset =
+        CalculateAngleCalibrationOffset(current_display_angle, target_angle);
+    const float second_offset =
+        CalculateAngleCalibrationOffset(current_display_angle, target_angle);
+
+    assert(NearlyEqual(first_offset, -12.25f));
+    assert(NearlyEqual(second_offset, first_offset));
+}
+
+void AngleCalibrationOffsetCalculationIgnoresPreviousOffset()
+{
+    const float previous_offset = 12.5f;
+    const float current_display_angle = 102.25f;
+    const float target_angle = 90.0f;
+    (void)previous_offset;
+
+    const float recalculated_offset =
+        CalculateAngleCalibrationOffset(current_display_angle, target_angle);
+
+    assert(NearlyEqual(recalculated_offset, -12.25f));
+}
+
+void AngleCalibrationOffsetCalculationKeepsExistingNormalization()
+{
+    assert(NearlyEqual(CalculateAngleCalibrationOffset(-20.0f, 400.0f), 60.0f));
+    assert(NearlyEqual(CalculateAngleCalibrationOffset(400.0f, -20.0f), -60.0f));
+}
+
+void AngleCalibrationOffsetCalculationChangesWithDirection()
+{
+    const float raw_angle = 30.0f;
+    const float target_angle = 90.0f;
+
+    const float forward_offset = CalculateAngleCalibrationOffsetFromRawAngle(
+        raw_angle, target_angle, false, AngleRangeMode::ZeroTo360);
+    const float reverse_offset = CalculateAngleCalibrationOffsetFromRawAngle(
+        raw_angle, target_angle, true, AngleRangeMode::ZeroTo360);
+
+    assert(NearlyEqual(forward_offset, 60.0f));
+    assert(NearlyEqual(reverse_offset, -240.0f));
+}
+
+void SignedRangeDirectionMatchesEngineeringSettingsExample()
+{
+    const float raw_angle = 30.0f;
+    const float target_angle = 95.0f;
+
+    const float forward_offset = CalculateAngleCalibrationOffsetFromRawAngle(
+        raw_angle, target_angle, false, AngleRangeMode::Signed180);
+    const float reverse_offset = CalculateAngleCalibrationOffsetFromRawAngle(
+        raw_angle, target_angle, true, AngleRangeMode::Signed180);
+
+    assert(NearlyEqual(forward_offset, 65.0f));
+    assert(NearlyEqual(reverse_offset, 125.0f));
+}
+
 void NoPrimaryTargetWritesOnlyStatusContract()
 {
     FrameInferenceResult result;
@@ -94,6 +155,11 @@ int main()
     DefaultMappingWritesMachineYToD500AndMachineXToD502();
     SwappedMappingWritesMachineXToD500AndMachineYToD502();
     AngleCalibrationSupportsSignedRangeAndReverseDirection();
+    AngleCalibrationOffsetCalculationIsIdempotent();
+    AngleCalibrationOffsetCalculationIgnoresPreviousOffset();
+    AngleCalibrationOffsetCalculationKeepsExistingNormalization();
+    AngleCalibrationOffsetCalculationChangesWithDirection();
+    SignedRangeDirectionMatchesEngineeringSettingsExample();
     NoPrimaryTargetWritesOnlyStatusContract();
     ImageCoordinatesAreFallbackWhenMachineCoordinatesAreMissing();
 

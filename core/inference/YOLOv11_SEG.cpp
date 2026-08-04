@@ -20,6 +20,38 @@ static vector<string> buildDefaultSegClassNames(int num_classes) {
     return BuildCocoClassNames(num_classes);
 }
 
+static bool SegCandidateStableLess(int left_index,
+                                   int right_index,
+                                   const vector<float>& confidences,
+                                   const vector<int>& class_ids,
+                                   const vector<Rect>& boxes)
+{
+    constexpr float kEpsilon = 1e-6f;
+    const float left_conf = confidences[left_index];
+    const float right_conf = confidences[right_index];
+    if (std::fabs(left_conf - right_conf) > kEpsilon) {
+        return left_conf > right_conf;
+    }
+    if (class_ids[left_index] != class_ids[right_index]) {
+        return class_ids[left_index] < class_ids[right_index];
+    }
+    const Rect& left_box = boxes[left_index];
+    const Rect& right_box = boxes[right_index];
+    if (left_box.y != right_box.y) {
+        return left_box.y < right_box.y;
+    }
+    if (left_box.x != right_box.x) {
+        return left_box.x < right_box.x;
+    }
+    if (left_box.area() != right_box.area()) {
+        return left_box.area() > right_box.area();
+    }
+    if (left_box.height != right_box.height) {
+        return left_box.height > right_box.height;
+    }
+    return left_index < right_index;
+}
+
 YOLOv11_SEG::YOLOv11_SEG(string model_path, const SEGConfig& config)
 {
     config_ = config;
@@ -81,34 +113,16 @@ void YOLOv11_SEG::initializeModelState()
         throw runtime_error(oss.str());
     }
 
-    const int candidate_a = static_cast<int>(det_shape[1]);
-    const int candidate_b = static_cast<int>(det_shape[2]);
-    const int classes_if_attr_a = candidate_a - 4 - runtime_.mask_dim;
-    const int classes_if_attr_b = candidate_b - 4 - runtime_.mask_dim;
-
-    if (classes_if_attr_a > 0 && classes_if_attr_b <= 0) {
-        runtime_.detection_attribute_size = candidate_a;
-        runtime_.num_detections = candidate_b;
-    } else if (classes_if_attr_b > 0 && classes_if_attr_a <= 0) {
-        runtime_.detection_attribute_size = candidate_b;
-        runtime_.num_detections = candidate_a;
-    } else if (classes_if_attr_a > 0 && classes_if_attr_b > 0) {
-        if (candidate_a < candidate_b) {
-            runtime_.detection_attribute_size = candidate_a;
-            runtime_.num_detections = candidate_b;
-        } else {
-            runtime_.detection_attribute_size = candidate_b;
-            runtime_.num_detections = candidate_a;
-        }
-    } else {
-        ostringstream oss;
-        oss << "Invalid SEG output layout: det=" << ShapeToString(det_shape)
-            << ", proto=" << ShapeToString(mask_shape)
-            << ", expected detection_attribute_size = 4 + num_classes + mask_dim";
-        throw runtime_error(oss.str());
-    }
-
-    runtime_.num_classes = runtime_.detection_attribute_size - 4 - runtime_.mask_dim;
+    const DetectionOutputLayout output_layout =
+        ParseDetectionOutputLayout(det_shape,
+                                   4,
+                                   runtime_.mask_dim,
+                                   "SEG",
+                                   "proto=" + ShapeToString(mask_shape) +
+                                       ", expected detection_attribute_size = 4 + num_classes + mask_dim");
+    runtime_.detection_attribute_size = output_layout.detection_attribute_size;
+    runtime_.num_detections = output_layout.num_detections;
+    runtime_.num_classes = output_layout.num_classes;
     if (config_.expected_num_classes > 0 && config_.expected_num_classes != runtime_.num_classes) {
         ostringstream oss;
         oss << "Configured num_classes (" << config_.expected_num_classes
@@ -144,25 +158,21 @@ void YOLOv11_SEG::initializeModelState()
     cout << "  Num classes: " << runtime_.num_classes << endl;
 
     if (config_.enable_warmup) {
-        ov::Tensor input_tensor(ov::element::f32, input_port_.get_shape(), input_buffer_.data());
-        infer_request_.set_input_tensor(input_tensor);
-        for (int i = 0; i < 5; ++i) {
-            infer();
-        }
-        cout << "model warmup 5 times" << endl;
+        WarmupInferRequest(infer_request_, input_port_, input_buffer_);
     }
 }
 
 void YOLOv11_SEG::preprocess(Mat& image)
 {
-    input_buffer_ = BuildNchwLetterboxInput(image,
-                                            runtime_.input_w,
-                                            runtime_.input_h,
-                                            &runtime_.scale_ratio,
-                                            &runtime_.pad_x,
-                                            &runtime_.pad_y);
-    ov::Tensor input_tensor(ov::element::f32, input_port_.get_shape(), input_buffer_.data());
-    infer_request_.set_input_tensor(input_tensor);
+    PrepareNchwLetterboxInput(image,
+                              runtime_.input_w,
+                              runtime_.input_h,
+                              input_port_,
+                              infer_request_,
+                              input_buffer_,
+                              &runtime_.scale_ratio,
+                              &runtime_.pad_x,
+                              &runtime_.pad_y);
 }
 
 void YOLOv11_SEG::infer()
@@ -285,6 +295,9 @@ void YOLOv11_SEG::postprocess(vector<SegDetection>& output, int img_w, int img_h
 
     vector<int> nms_result;
     dnn::NMSBoxes(boxes, confidences, config_.conf_threshold, config_.nms_threshold, nms_result);
+    std::stable_sort(nms_result.begin(), nms_result.end(), [&](int left, int right) {
+        return SegCandidateStableLess(left, right, confidences, class_ids, boxes);
+    });
 
     for (int idx : nms_result) {
         SegDetection result;

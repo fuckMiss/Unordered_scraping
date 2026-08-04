@@ -360,6 +360,7 @@ if(BUILD_QT_APP)
         app/qt/hardware/robot_controller.cpp
         app/qt/hardware/robot_controller.h
         app/qt/ui/grasp_main_window.cpp
+        app/qt/ui/grasp_main_window_settings.cpp
         app/qt/ui/grasp_main_window.h
         app/qt/ui/admin_auth_dialogs.cpp
         app/qt/ui/admin_auth_dialogs.h

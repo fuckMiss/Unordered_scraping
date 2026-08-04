@@ -13,6 +13,7 @@
 
 - 先读实际项目结构与配置，再做修改；不要依赖过期 README。
 - 大任务必须拆成小批次推进，每批有清晰目标、改动范围和验证方式。
+- 每次提交的提交信息必须写清楚相对上一版发生了什么变化、改了哪些范围、验证了什么；不能只写笼统的 `update`、`fix`、`change`。
 - 每次任务结束后更新 `docs/project-memory/TASK_HISTORY.md`。
 - 当前任务、未完成决策、已知问题和交接信息维护在 `docs/project-memory/MEMORY.md`。
 - 当上下文消耗接近 80% 时，先更新动态记忆；需要压缩时使用 `/compact`。上下文即将耗尽时，必须把未完成事项写入 `docs/project-memory/HANDOFF.md`。

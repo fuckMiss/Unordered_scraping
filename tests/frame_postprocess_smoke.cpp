@@ -343,18 +343,34 @@ void MultipleNeighborMaskCollisionsAreRecorded()
     assert(result.detections.front().mask_collisions.size() == 2);
 }
 
-void SegmentWithBothBigAndSmallRejects()
+void MultipleHeadCandidatesChooseClosestRightAngle()
 {
     const FrameInferenceResult result = RunPostprocess({
-        MakeObb(kGripClass, 0.90f, { 100.0f, 110.0f }, { 20.0f, 10.0f }, 0.0f),
-        MakeObb(kBigClass, 0.80f, { 80.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
-        MakeObb(kSmallClass, 0.82f, { 125.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
+        MakeObb(kGripClass, 0.90f, { 140.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
+        MakeObb(kSmallClass, 0.95f, { 150.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
+        MakeObb(kBigClass, 0.70f, { 110.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
     });
 
-    assert(result.pick_status_code == 3);
-    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index >= 0);
     assert(result.detections.size() == 1);
-    assert(!result.detections.front().can_grab);
+    assert(result.detections.front().can_grab);
+    assert(result.detections.front().head_class_id == kBigClass);
+    assert(result.head_type_code == 1);
+}
+
+void EqualHeadCandidatesUseStableTieBreak()
+{
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 140.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
+        MakeObb(kSmallClass, 0.80f, { 140.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
+        MakeObb(kBigClass, 0.80f, { 140.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
+    });
+
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index >= 0);
+    assert(result.detections.front().head_class_id == kBigClass);
+    assert(result.head_type_code == 1);
 }
 
 void SegmentWithMultipleLeftRejects()
@@ -379,6 +395,9 @@ void MultipleCompleteTargetsChooseBestConfidence()
         MakeObb(kSmallClass, 0.80f, { 80.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
         MakeObb(kGripClass, 0.95f, { 150.0f, 150.0f }, { 20.0f, 10.0f }, 0.0f),
         MakeObb(kBigClass, 0.80f, { 130.0f, 140.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 90, 90)),
+        MakeSegment(cv::Rect(120, 120, 80, 80)),
     });
 
     assert(result.pick_status_code == 2);
@@ -386,41 +405,74 @@ void MultipleCompleteTargetsChooseBestConfidence()
     assert(result.detections[result.primary_index].confidence == 0.95f);
 }
 
-void FinalRayAngleMatchesGripObbRay()
+void NearTieCompleteTargetsChooseStableSegmentOrder()
+{
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90005f, { 150.0f, 150.0f }, { 20.0f, 10.0f }, 0.0f),
+        MakeObb(kBigClass, 0.80f, { 130.0f, 140.0f }, { 16.0f, 8.0f }, 0.0f),
+        MakeObb(kGripClass, 0.90000f, { 70.0f, 85.0f }, { 20.0f, 10.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 80.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 90, 90)),
+        MakeSegment(cv::Rect(120, 120, 80, 80)),
+    });
+
+    assert(result.pick_status_code == 2);
+    assert(result.primary_index >= 0);
+    assert(result.detections[result.primary_index].matched_segment_index == 0);
+}
+
+void FinalPoseOutputIsQuantized()
+{
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 110.004f, 110.006f }, { 20.0f, 10.0f }, 90.0f),
+        MakeObb(kBigClass, 0.80f, { 80.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, { MakeSegment(cv::Rect(20, 20, 120, 180)) });
+
+    assert(result.primary_index >= 0);
+    const PoseDetection& target = result.detections[result.primary_index];
+    assert(NearlyEqual(target.center_x * 100.0f, std::round(target.center_x * 100.0f)));
+    assert(NearlyEqual(target.center_y * 100.0f, std::round(target.center_y * 100.0f)));
+    assert(NearlyEqual(target.angle_deg * 100.0f, std::round(target.angle_deg * 100.0f)));
+}
+
+void FinalRayAngleMatchesAcRay()
 {
     FramePostprocessConfig raw_config;
     raw_config.center_ray_offset_px = 0.0;
     const FrameInferenceResult raw = RunPostprocess({
-        MakeObb(kGripClass, 0.90f, { 140.0f, 110.0f }, { 20.0f, 10.0f }, 0.0f),
-        MakeObb(kBigClass, 0.80f, { 95.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
-    }, { MakeSegment(cv::Rect(20, 20, 180, 120)) }, raw_config);
+        MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
+        MakeObb(kBigClass, 0.80f, { 80.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, { MakeSegment(cv::Rect(20, 20, 120, 180)) }, raw_config);
 
     assert(raw.primary_index >= 0);
     const PoseDetection& target = raw.detections[raw.primary_index];
-    assert(NearlyEqual(target.angle_deg, AngleBetween(target.obb_center, target.arrow_end)));
-    assert(NearlyEqual(target.arrow_start.x, target.obb_center.x));
-    assert(NearlyEqual(target.arrow_start.y, target.obb_center.y));
-    assert(NearlyEqual(target.obb_center.x, 140.0f));
+    assert(NearlyEqual(target.angle_deg, AngleBetween(target.arrow_start, target.arrow_end)));
+    assert(target.arrow_end.x > target.arrow_start.x);
+    assert(NearlyEqual(target.angle_deg, 0.0f));
+    assert(NearlyEqual(target.obb_center.x, 110.0f));
     assert(NearlyEqual(target.obb_center.y, 110.0f));
 }
 
-void GripObbRayDrivesFinalPose()
+void AcRayDrivesFinalPoseOffset()
 {
+    FramePostprocessConfig config;
+    config.center_ray_offset_px = 10.0;
     const FrameInferenceResult result = RunPostprocess({
-        MakeObb(kGripClass, 0.90f, { 120.0f, 110.0f }, { 20.0f, 10.0f }, 0.0f),
-        MakeObb(kBigClass, 0.80f, { 120.0f, 110.0f }, { 16.0f, 8.0f }, 0.0f),
-    }, { MakeSegment(cv::Rect(20, 20, 180, 180)) });
+        MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
+        MakeObb(kBigClass, 0.80f, { 80.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, { MakeSegment(cv::Rect(20, 20, 120, 180)) }, config);
 
     assert(result.primary_index >= 0);
     const PoseDetection& target = result.detections[result.primary_index];
-    assert(NearlyEqual(target.angle_deg, AngleBetween(target.obb_center, target.arrow_end)));
-    assert(NearlyEqual(target.arrow_start.x, target.obb_center.x));
-    assert(NearlyEqual(target.arrow_start.y, target.obb_center.y));
-    assert(NearlyEqual(target.obb_center.x, 120.0f));
+    assert(NearlyEqual(target.angle_deg, 0.0f));
+    assert(NearlyEqual(target.center_x, 120.0f));
     assert(NearlyEqual(target.obb_center.y, 110.0f));
+    assert(target.extended_corners.size() == 4);
+    assert(cv::boundingRect(target.extended_corners).height > cv::boundingRect(target.corners).height);
 }
 
-void RayTowardSegmentCenterFlipsAndOffsetsCenter()
+void MissingHeadKeepsTargetRejectedWithoutAcFallback()
 {
     FramePostprocessConfig config;
     config.center_ray_offset_px = 10.0;
@@ -430,33 +482,27 @@ void RayTowardSegmentCenterFlipsAndOffsetsCenter()
 
     assert(result.detections.size() == 1);
     const PoseDetection& target = result.detections.front();
-    assert(target.arrow_end.x > target.obb_center.x);
-    assert(NearlyEqual(target.angle_deg, 0.0f));
-    assert(NearlyEqual(target.center_x, 120.0f));
+    assert(!target.can_grab);
+    assert(target.extended_corners.empty());
+    assert(NearlyEqual(target.arrow_end.x, target.obb_center.x));
     assert(NearlyEqual(target.center_y, 110.0f));
 }
 
-void RayDoesNotFlipWhenSegmentCenterIsNotOnForwardDisplayRay()
+void AcRayDoesNotUseOldGripObbDirection()
 {
-    const FrameInferenceResult reverse_direction = RunPostprocess({
-        MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
-    }, { MakeSegment(cv::Rect(31, 20, 170, 180)) });
-    const FrameInferenceResult beyond_display_length = RunPostprocess({
-        MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 80.0f, 80.0f }, { 16.0f, 8.0f }, 90.0f),
     }, { MakeSegment(cv::Rect(20, 20, 120, 180)) });
-    const FrameInferenceResult outside_tolerance = RunPostprocess({
-        MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
-    }, { MakeSegment(cv::Rect(20, 30, 170, 180)) });
 
-    assert(reverse_direction.detections.size() == 1);
-    assert(beyond_display_length.detections.size() == 1);
-    assert(outside_tolerance.detections.size() == 1);
-    assert(reverse_direction.detections.front().arrow_end.x < reverse_direction.detections.front().obb_center.x);
-    assert(beyond_display_length.detections.front().arrow_end.x < beyond_display_length.detections.front().obb_center.x);
-    assert(outside_tolerance.detections.front().arrow_end.x < outside_tolerance.detections.front().obb_center.x);
+    assert(result.primary_index >= 0);
+    const PoseDetection& target = result.detections[result.primary_index];
+    assert(NearlyEqual(target.angle_deg, AngleBetween(target.arrow_start, target.arrow_end)));
+    assert(target.arrow_end.x > target.arrow_start.x);
+    assert(NearlyEqual(target.angle_deg, 0.0f));
 }
 
-void FlippedRayDrivesHeadCollisionDecision()
+void AcRayIntersectingHeadRayRejectsConservatively()
 {
     const FrameInferenceResult result = RunPostprocess({
         MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
@@ -489,14 +535,17 @@ int main()
     ExpandedGripCollisionOnlyRejectsSweepingTarget();
     EmptyOrWrongSizeNeighborMaskDoesNotFallbackToBbox();
     MultipleNeighborMaskCollisionsAreRecorded();
-    SegmentWithBothBigAndSmallRejects();
+    MultipleHeadCandidatesChooseClosestRightAngle();
+    EqualHeadCandidatesUseStableTieBreak();
     SegmentWithMultipleLeftRejects();
     MultipleCompleteTargetsChooseBestConfidence();
-    FinalRayAngleMatchesGripObbRay();
-    GripObbRayDrivesFinalPose();
-    RayTowardSegmentCenterFlipsAndOffsetsCenter();
-    RayDoesNotFlipWhenSegmentCenterIsNotOnForwardDisplayRay();
-    FlippedRayDrivesHeadCollisionDecision();
+    NearTieCompleteTargetsChooseStableSegmentOrder();
+    FinalPoseOutputIsQuantized();
+    FinalRayAngleMatchesAcRay();
+    AcRayDrivesFinalPoseOffset();
+    MissingHeadKeepsTargetRejectedWithoutAcFallback();
+    AcRayDoesNotUseOldGripObbDirection();
+    AcRayIntersectingHeadRayRejectsConservatively();
 
     std::cout << "frame_postprocess_smoke passed" << std::endl;
     return 0;

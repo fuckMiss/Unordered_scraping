@@ -35,6 +35,12 @@ struct PlcOutputConfig
 };
 
 float ApplyPlcAngleCalibration(float angle_deg, const PlcOutputConfig& config);
+float CalculateAngleCalibrationOffset(float current_display_angle_deg,
+                                      float target_angle_deg);
+float CalculateAngleCalibrationOffsetFromRawAngle(float raw_angle_deg,
+                                                 float target_angle_deg,
+                                                 bool reverse_direction,
+                                                 AngleRangeMode range_mode);
 float FrontBackValue(const PoseDetection& detection, AxisMappingMode axis_mapping_mode);
 float LeftRightValue(const PoseDetection& detection, AxisMappingMode axis_mapping_mode);
 PlcWriteResult BuildPlcWriteResult(const FrameInferenceResult& result, const PlcOutputConfig& config);

@@ -26,6 +26,29 @@ static float normalizeAnglePi(float angle) {
     return normalized;
 }
 
+static bool OBBDetectionStableLess(const OBBDetection& a, const OBBDetection& b) {
+    constexpr float kEpsilon = 1e-6f;
+    if (std::fabs(a.conf - b.conf) > kEpsilon) {
+        return a.conf > b.conf;
+    }
+    if (a.class_id != b.class_id) {
+        return a.class_id < b.class_id;
+    }
+    if (std::fabs(a.rotated_rect.center.y - b.rotated_rect.center.y) > kEpsilon) {
+        return a.rotated_rect.center.y < b.rotated_rect.center.y;
+    }
+    if (std::fabs(a.rotated_rect.center.x - b.rotated_rect.center.x) > kEpsilon) {
+        return a.rotated_rect.center.x < b.rotated_rect.center.x;
+    }
+    if (std::fabs(a.rotated_rect.size.width - b.rotated_rect.size.width) > kEpsilon) {
+        return a.rotated_rect.size.width > b.rotated_rect.size.width;
+    }
+    if (std::fabs(a.rotated_rect.size.height - b.rotated_rect.size.height) > kEpsilon) {
+        return a.rotated_rect.size.height > b.rotated_rect.size.height;
+    }
+    return a.rotated_rect.angle < b.rotated_rect.angle;
+}
+
 static std::vector<Point2f> xywhrToCorners(float cx, float cy, float w, float h, float angle) {
     const float cos_a = std::cos(angle);
     const float sin_a = std::sin(angle);
@@ -77,30 +100,11 @@ void YOLOv11_OBB::initializeModelState()
     runtime_.input_h = static_cast<int>(input_shape[2]);
     runtime_.input_w = static_cast<int>(input_shape[3]);
 
-    const int candidate_a = static_cast<int>(output_shape[1]);
-    const int candidate_b = static_cast<int>(output_shape[2]);
-    if (candidate_a > 5 && candidate_b > 5) {
-        if (candidate_a < candidate_b) {
-            runtime_.detection_attribute_size = candidate_a;
-            runtime_.num_detections = candidate_b;
-        } else {
-            runtime_.detection_attribute_size = candidate_b;
-            runtime_.num_detections = candidate_a;
-        }
-    } else if (candidate_a > 5) {
-        runtime_.detection_attribute_size = candidate_a;
-        runtime_.num_detections = candidate_b;
-    } else if (candidate_b > 5) {
-        runtime_.detection_attribute_size = candidate_b;
-        runtime_.num_detections = candidate_a;
-    } else {
-        throw runtime_error("Invalid OBB output layout: " + ShapeToString(output_shape));
-    }
-
-    runtime_.num_classes = runtime_.detection_attribute_size - 5;
-    if (runtime_.num_classes <= 0) {
-        throw runtime_error("Invalid OBB output layout: detection_attribute_size must be >= 6");
-    }
+    const DetectionOutputLayout output_layout =
+        ParseDetectionOutputLayout(output_shape, 5, 0, "OBB");
+    runtime_.detection_attribute_size = output_layout.detection_attribute_size;
+    runtime_.num_detections = output_layout.num_detections;
+    runtime_.num_classes = output_layout.num_classes;
     if (config_.expected_num_classes > 0 && config_.expected_num_classes != runtime_.num_classes) {
         ostringstream oss;
         oss << "Configured num_classes (" << config_.expected_num_classes
@@ -127,25 +131,21 @@ void YOLOv11_OBB::initializeModelState()
     cout << "  Num classes: " << runtime_.num_classes << endl;
 
     if (config_.enable_warmup) {
-        ov::Tensor input_tensor(ov::element::f32, input_port_.get_shape(), input_buffer_.data());
-        infer_request_.set_input_tensor(input_tensor);
-        for (int i = 0; i < 5; i++) {
-            infer_request_.infer();
-        }
-        cout << "model warmup 5 times" << endl;
+        WarmupInferRequest(infer_request_, input_port_, input_buffer_);
     }
 }
 
 void YOLOv11_OBB::preprocess(Mat& image)
 {
-    input_buffer_ = BuildNchwLetterboxInput(image,
-                                            runtime_.input_w,
-                                            runtime_.input_h,
-                                            &runtime_.scale_ratio,
-                                            &runtime_.pad_x,
-                                            &runtime_.pad_y);
-    ov::Tensor input_tensor(ov::element::f32, input_port_.get_shape(), input_buffer_.data());
-    infer_request_.set_input_tensor(input_tensor);
+    PrepareNchwLetterboxInput(image,
+                              runtime_.input_w,
+                              runtime_.input_h,
+                              input_port_,
+                              infer_request_,
+                              input_buffer_,
+                              &runtime_.scale_ratio,
+                              &runtime_.pad_x,
+                              &runtime_.pad_y);
 }
 
 void YOLOv11_OBB::infer()
@@ -193,7 +193,7 @@ void YOLOv11_OBB::postprocess(vector<OBBDetection>& output, int img_w, int img_h
             angle = normalizeAnglePi(angle);
             if (ow < oh) {
                 std::swap(ow, oh);
-                angle = normalizeAnglePi(angle + CV_PI * 0.5f);
+                angle = normalizeAnglePi(angle + static_cast<float>(CV_PI) * 0.5f);
             }
 
             std::vector<Point2f> corners = xywhrToCorners(cx, cy, ow, oh, angle);
@@ -243,9 +243,7 @@ void YOLOv11_OBB::nmsRotated(vector<OBBDetection>& detections, float nms_thresho
         return;
     }
 
-    std::stable_sort(detections.begin(), detections.end(), [](const OBBDetection& a, const OBBDetection& b) {
-        return a.conf > b.conf;
-    });
+    std::stable_sort(detections.begin(), detections.end(), OBBDetectionStableLess);
 
     std::vector<OBBDetection> result;
     for (int class_id = 0; class_id < runtime_.num_classes; ++class_id) {
@@ -266,9 +264,7 @@ void YOLOv11_OBB::nmsRotated(vector<OBBDetection>& detections, float nms_thresho
         }
     }
 
-    std::stable_sort(result.begin(), result.end(), [](const OBBDetection& a, const OBBDetection& b) {
-        return a.conf > b.conf;
-    });
+    std::stable_sort(result.begin(), result.end(), OBBDetectionStableLess);
     detections = result;
 }
 

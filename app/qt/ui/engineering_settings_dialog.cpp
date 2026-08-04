@@ -62,6 +62,30 @@ QMargins SM(int left, int top, int right, int bottom)
     return ScaleMargins(left, top, right, bottom);
 }
 
+struct AngleCalibrationSnapshot
+{
+    double current_display_angle_deg = 0.0;
+    double target_angle_deg = 0.0;
+    double raw_angle_deg = 0.0;
+    bool has_raw_angle = false;
+};
+
+double ApplyZeroOffsetAngleCalibration(double raw_angle,
+                                       bool reverse_direction,
+                                       AngleRangeMode range_mode)
+{
+    PlcOutputConfig config;
+    config.angle_offset_deg = 0.0f;
+    config.angle_reverse_direction = reverse_direction;
+    config.angle_range_mode = range_mode;
+    return ApplyPlcAngleCalibration(static_cast<float>(raw_angle), config);
+}
+
+double ResolveCalibrationRawAngle(const AngleCalibrationSnapshot& snapshot, double current_input_angle)
+{
+    return snapshot.has_raw_angle ? snapshot.raw_angle_deg : current_input_angle;
+}
+
 QString BuildModelStatusText(const GraspWorkflow& workflow)
 {
     return QStringLiteral("模型状态：%1")
@@ -272,7 +296,7 @@ void EngineeringSettingsDialogController::show()
     show_head_ray_debug_check->setToolTip(QStringLiteral("显示 SEG 中心到头部辅助点的射线；大头为黄色，小头为青色。"));
     auto* postprocess_debug_logging_check = new QCheckBox(QStringLiteral("启用后处理调试日志"), dialog);
     postprocess_debug_logging_check->setChecked(owner->postprocess_debug_logging_enabled_);
-    postprocess_debug_logging_check->setToolTip(QStringLiteral("在日志中输出 [PostprocessDebug] 明细，用于排查目标为何可抓或不可抓。"));
+    postprocess_debug_logging_check->setToolTip(QStringLiteral("在日志中输出 [PostprocessDebug] 明细，包含 O/A/B/C、AC角度、B点选择和可抓/拒抓原因。"));
     auto* capture_current_angle_button = new QPushButton(QStringLiteral("取当前角度"), dialog);
     auto* calculate_angle_offset_button = new QPushButton(QStringLiteral("计算校准"), dialog);
 
@@ -691,20 +715,39 @@ void EngineeringSettingsDialogController::show()
     bottom_row->addWidget(load_button);
     layout->addLayout(bottom_row);
 
-    auto calibration_base_offset = std::make_shared<double>(angle_offset_spin->value());
+    auto calibration_snapshot = std::make_shared<AngleCalibrationSnapshot>();
+    auto refresh_calibration_snapshot = [calibration_snapshot,
+                                         angle_reference_current_spin,
+                                         angle_reference_target_spin]() {
+        calibration_snapshot->current_display_angle_deg = angle_reference_current_spin->value();
+        calibration_snapshot->target_angle_deg = angle_reference_target_spin->value();
+    };
+    refresh_calibration_snapshot();
+
     QObject::connect(angle_reference_current_spin,
                      QOverload<double>::of(&QDoubleSpinBox::valueChanged),
                      dialog,
-                     [angle_offset_spin, calibration_base_offset](double) {
-        *calibration_base_offset = angle_offset_spin->value();
+                     [calibration_snapshot, refresh_calibration_snapshot](double) {
+        calibration_snapshot->has_raw_angle = false;
+        refresh_calibration_snapshot();
     });
-
+    QObject::connect(angle_reference_target_spin,
+                     QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                     dialog,
+                     [refresh_calibration_snapshot](double) { refresh_calibration_snapshot(); });
+    QObject::connect(angle_direction_combo,
+                     QOverload<int>::of(&QComboBox::currentIndexChanged),
+                     dialog,
+                     [refresh_calibration_snapshot](int) { refresh_calibration_snapshot(); });
+    QObject::connect(angle_range_combo,
+                     QOverload<int>::of(&QComboBox::currentIndexChanged),
+                     dialog,
+                     [refresh_calibration_snapshot](int) { refresh_calibration_snapshot(); });
     QObject::connect(capture_current_angle_button, &QPushButton::clicked, dialog, [owner,
                                                                           angle_reference_current_spin,
-                                                                          angle_offset_spin,
                                                                           angle_direction_combo,
                                                                           angle_range_combo,
-                                                                          calibration_base_offset]() {
+                                                                          calibration_snapshot]() {
         const int primary_index = owner->current_result_.primary_index;
         if (primary_index < 0 || primary_index >= static_cast<int>(owner->current_result_.detections.size())) {
             QMessageBox::warning(owner,
@@ -714,36 +757,38 @@ void EngineeringSettingsDialogController::show()
         }
         const double raw_angle = owner->current_result_.detections[primary_index].angle_deg;
         const auto range_mode = static_cast<AngleRangeMode>(angle_range_combo->currentData().toInt());
-        PlcOutputConfig config = owner->plcOutputConfig();
-        config.angle_offset_deg = static_cast<float>(angle_offset_spin->value());
-        config.angle_reverse_direction = angle_direction_combo->currentData().toBool();
-        config.angle_range_mode = range_mode;
-        const double display_angle = ApplyPlcAngleCalibration(static_cast<float>(raw_angle), config);
-        *calibration_base_offset = angle_offset_spin->value();
-        angle_reference_current_spin->setValue(display_angle);
+        const bool reverse_direction = angle_direction_combo->currentData().toBool();
+        const double display_angle = ApplyZeroOffsetAngleCalibration(raw_angle, reverse_direction, range_mode);
+        {
+            QSignalBlocker blocker(angle_reference_current_spin);
+            angle_reference_current_spin->setValue(display_angle);
+        }
+        calibration_snapshot->current_display_angle_deg = display_angle;
+        calibration_snapshot->raw_angle_deg = raw_angle;
+        calibration_snapshot->has_raw_angle = true;
         owner->updateStatusMessage(QStringLiteral("已取当前显示角度：%1 deg").arg(QString::number(display_angle, 'f', 2)), 5000);
     });
 
     QObject::connect(calculate_angle_offset_button, &QPushButton::clicked, dialog, [owner,
                                                                            angle_reference_current_spin,
-                                                                           angle_reference_target_spin,
                                                                            angle_offset_spin,
                                                                            angle_direction_combo,
                                                                            angle_range_combo,
-                                                                           calibration_base_offset]() {
-        const double current_display_angle = angle_reference_current_spin->value();
-        const double target_angle = angle_reference_target_spin->value();
-        double offset = *calibration_base_offset + target_angle - current_display_angle;
-        offset = std::fmod(offset, 360.0);
-        if (offset > 360.0) {
-            offset -= 360.0;
-        } else if (offset < -360.0) {
-            offset += 360.0;
-        }
-        angle_offset_spin->setValue(offset);
-
+                                                                           calibration_snapshot]() {
+        const double target_angle = calibration_snapshot->target_angle_deg;
         const auto range_mode = static_cast<AngleRangeMode>(angle_range_combo->currentData().toInt());
         const bool reverse_direction = angle_direction_combo->currentData().toBool();
+        const double raw_angle = ResolveCalibrationRawAngle(*calibration_snapshot,
+                                                            angle_reference_current_spin->value());
+        const double current_display_angle =
+            ApplyZeroOffsetAngleCalibration(raw_angle, reverse_direction, range_mode);
+        const double offset = CalculateAngleCalibrationOffsetFromRawAngle(
+            static_cast<float>(raw_angle),
+            static_cast<float>(target_angle),
+            reverse_direction,
+            range_mode);
+        angle_offset_spin->setValue(offset);
+
         float final_angle = static_cast<float>(target_angle);
         const int primary_index = owner->current_result_.primary_index;
         if (primary_index >= 0 && primary_index < static_cast<int>(owner->current_result_.detections.size())) {

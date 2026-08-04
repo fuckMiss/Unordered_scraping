@@ -155,6 +155,48 @@ ov::CompiledModel CompileModelWithGpuFallback(ov::Core& core,
     }
 }
 
+DetectionOutputLayout ParseDetectionOutputLayout(const ov::Shape& shape,
+                                                 int fixed_attribute_count,
+                                                 int extra_attribute_count,
+                                                 const string& tensor_name,
+                                                 const string& detail)
+{
+    const int candidate_a = static_cast<int>(shape[1]);
+    const int candidate_b = static_cast<int>(shape[2]);
+    const int classes_if_attr_a = candidate_a - fixed_attribute_count - extra_attribute_count;
+    const int classes_if_attr_b = candidate_b - fixed_attribute_count - extra_attribute_count;
+
+    DetectionOutputLayout layout;
+    if (classes_if_attr_a > 0 && classes_if_attr_b <= 0) {
+        layout.detection_attribute_size = candidate_a;
+        layout.num_detections = candidate_b;
+        layout.num_classes = classes_if_attr_a;
+        return layout;
+    }
+    if (classes_if_attr_b > 0 && classes_if_attr_a <= 0) {
+        layout.detection_attribute_size = candidate_b;
+        layout.num_detections = candidate_a;
+        layout.num_classes = classes_if_attr_b;
+        return layout;
+    }
+    if (classes_if_attr_a > 0 && classes_if_attr_b > 0) {
+        if (candidate_a < candidate_b) {
+            layout.detection_attribute_size = candidate_a;
+            layout.num_detections = candidate_b;
+            layout.num_classes = classes_if_attr_a;
+        } else {
+            layout.detection_attribute_size = candidate_b;
+            layout.num_detections = candidate_a;
+            layout.num_classes = classes_if_attr_b;
+        }
+        return layout;
+    }
+
+    const string suffix = detail.empty() ? "" : (", " + detail);
+    throw runtime_error("Invalid " + tensor_name + " output layout: " +
+                        ShapeToString(shape) + suffix);
+}
+
 vector<float> BuildNchwLetterboxInput(Mat& image,
                                       int input_w,
                                       int input_h,
@@ -204,6 +246,34 @@ vector<float> BuildNchwLetterboxInput(Mat& image,
         }
     }
     return input;
+}
+
+void PrepareNchwLetterboxInput(Mat& image,
+                               int input_w,
+                               int input_h,
+                               const ov::Output<const ov::Node>& input_port,
+                               ov::InferRequest& infer_request,
+                               vector<float>& input_buffer,
+                               float* scale_ratio,
+                               float* pad_x,
+                               float* pad_y)
+{
+    input_buffer = BuildNchwLetterboxInput(image, input_w, input_h, scale_ratio, pad_x, pad_y);
+    ov::Tensor input_tensor(ov::element::f32, input_port.get_shape(), input_buffer.data());
+    infer_request.set_input_tensor(input_tensor);
+}
+
+void WarmupInferRequest(ov::InferRequest& infer_request,
+                        const ov::Output<const ov::Node>& input_port,
+                        vector<float>& input_buffer,
+                        int iterations)
+{
+    ov::Tensor input_tensor(ov::element::f32, input_port.get_shape(), input_buffer.data());
+    infer_request.set_input_tensor(input_tensor);
+    for (int i = 0; i < iterations; ++i) {
+        infer_request.infer();
+    }
+    cout << "model warmup " << iterations << " times" << endl;
 }
 
 vector<float> TensorToFloatVector(const ov::Tensor& tensor)

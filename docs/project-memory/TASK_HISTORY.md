@@ -117,3 +117,98 @@
 - 结果：不改变后处理安全逻辑、PLC 写入、主目标选择、坐标转换或上下限保护；同一 SEG 里实际存在多个 left/头部时仍可按结构异常拒抓，但普通画面不再把多个误检框都展示给现场用户。
 - 验证：`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`launch_tankeye.ps1 -Device CPU -SimulatePlc` 已真实启动 Qt 程序，日志 `build/Release/logs/tankeye_20260803_184719.log` 确认模拟 PLC 启用、主窗口创建/显示并进入 Qt event loop。
 - 遗留：本轮未连接真实 PLC/真实相机，未在现场图片上人工切换普通/全显确认视觉差异；模拟 PLC 启动因 Qt 事件循环常驻超时，验证后关闭进程，未发现残留 `tankeye` 进程。
+
+## 2026-08-04 - 回到 GitHub V5 基线
+
+- 目标：按用户要求放弃 2026-08-04 本地 AC/绿色框/工程设置角度校准试改，重新从 GitHub 拉回之前上传的 V5 版本，然后后续在干净 V5 基线上重新改。
+- 修改：执行 `git fetch origin` 后，将当前分支硬回退到 `origin/Unordered_Scraping_V5`，当前 HEAD 为 `8698d85a33b9c1bdb18ff9b790b91265429504fe`；未跟踪参考脚本 `models/推理v1.0.13.py` 未删除。
+- 结果：已跟踪源码回到 GitHub V5；按协作规则，本记录和 `MEMORY.md` 作为新的项目记忆改动保留。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已启动 Qt 程序并生成 `build/Release/logs/tankeye_20260804_140811.log`，因 GUI 事件循环常驻导致命令超时，随后关闭本次启动进程并确认无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC/真实相机；下一步角度修正需要重新按五角色流程从 V5 基线审查和实施。
+
+## 2026-08-04 - 新增提交信息说明规则
+
+- 目标：按用户要求，为后续每次提交增加明确说明规则，避免提交注释看不出相对上一版发生了什么变化。
+- 修改：`AGENTS.md` 和 `docs/project-memory/OPERATING_LIMITS.md` 新增提交信息规范；`MEMORY.md` 同步记录该长期协作规则。
+- 结果：后续提交信息必须说明本次解决的问题、主要改动范围和关键验证结果，禁止只写笼统的 `update`、`fix`、`change`。
+- 验证：文档改动已检查目标文件可读；未运行构建，因本轮不改源码。
+- 遗留：无。
+
+## 2026-08-04 - 按 AC 射线替换抓取角度定义
+
+- 目标：根据 `models/推理v1.0.13.py` 的角度思路，在 V5 基线上把最终抓取角度从旧红色 A 框自身 OBB keep-point 射线改为 `SEG 中心 O -> A -> AC` 夹爪射线，减少 OBB 长短边和方向翻转造成的角度误判。
+- 修改：`app/qt/workflow/frame_postprocess.cpp` 新增 AC 几何求解：同一 SEG 内 big/small B 候选按 `|∠AOB - 90°|` 最小择优，置信度只作并列 tie-break；红色 A 框按最佳 B 长边/短边中旋转幅度更小的方向对齐，再沿长边保持现有 3.0 倍放大；最终角度、overlay 箭头、PLC 中心偏移和真实 mask 碰撞检测都使用该对齐放大框；无 B、无有效 SEG minRect、OA/AC 退化时拒抓且不回退旧角度。`tests/frame_postprocess_smoke.cpp` 更新旧 keep-point 断言为 AC 语义，覆盖多 B 择优、缺 B 拒抓、AC 中心偏移和保守交叉拒抓。
+- 结果：PLC D504 仍走现有角度校准/范围/反向链路，但输入视觉角度已改为 AC 射线；D508 左右改为按 A.x 与 SEG 中心 O.x 判定；碰撞安全逻辑保留真实 SEG mask 重叠规则，只是碰撞框与新 AC 对齐方向一致。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke` 通过；`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已启动真实 Qt 程序并生成 `build/Release/logs/tankeye_20260804_143746.log`，日志确认模拟 PLC 启用、主窗口创建/显示并进入 Qt event loop；命令因 GUI 常驻超时后确认无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC/真实相机，未在现场真实画面人工复核 AC 箭头、D504 角度和 D508 类型；Release 测试脚本可执行链路已通过，但现有 C++ smoke 主要沿用 `assert` 风格，后续若要强化自动断言建议补充非 `NDEBUG` 受影响的测试宏。
+
+## 2026-08-04 - 修正 AC 抓取框显示与安全框候选方向
+
+- 目标：解决用户指出的两个问题：普通画面原始抓取 OBB 没有跟随 3 倍夹取安全框一起变化，以及右上角类似目标的绿色可抓取安全框方向明显不正常。
+- 修改：`app/qt/workflow/frame_postprocess.cpp` 中 `PoseDetection::corners` 改为保存 AC 对齐后的基础抓取 OBB，模型 raw OBB 继续只在全显/调试 raw overlay 使用；AC 对齐候选从“B 长边/B 短边中旋转幅度最小”改为两种方案都试算，优先选择 AC 垂足落在长边上的夹爪几何，再用 AC 点积和旋转幅度兜底；PostprocessDebug 增加 `ac_uses_long_edge`、`ac_dot`、raw/target/final 角度和 `ac_angle_deg` 字段，便于区分显示混源和角度算法问题。
+- 结果：普通画面基础抓取框、3 倍安全框、AC 箭头、D504 视觉角度、中心偏移和真实 mask 碰撞检测现在来自同一套 AC 几何；右上角这类目标不再仅因“最小旋转”把安全框长轴选到不正常方向。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe` 通过；`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已启动真实 Qt 程序并生成 `build/Release/logs/tankeye_20260804_150600.log`，日志确认模拟 PLC 启用、主窗口创建/显示并进入 Qt event loop；命令因 GUI 常驻超时后确认无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC/真实相机；本轮未自动重新加载用户截图对应现场图片做视觉截图复核，仍需人工重新加载 `20260802163109_337_188.bmp` 或同源图片确认右上角绿色安全框、D504 和 D508。
+
+## 2026-08-04 - 接入 AC 角度排查日志到工程设置调试开关
+
+- 目标：按用户要求，让工程设置中打开“启用后处理调试日志”后，日志能显示 AC 角度排查所需字段，便于现场测试判断框歪来自 B 点选择、候选轴选择还是 AC 方向。
+- 修改：`app/qt/workflow/frame_postprocess.cpp` 在 `[PostprocessDebug] target` 行补充 O/A/B/C、arrow_start、B 点 `∠AOB` 与 90°差值、AC 是否使用长边、AC 点积、raw/target/final 长边角度和最终 `ac_angle_deg`；`app/qt/ui/engineering_settings_dialog.cpp` 更新“启用后处理调试日志”提示，说明会输出 O/A/B/C、AC角度、B点选择和可抓/拒抓原因。
+- 结果：无需新增开关；用户只要在工程设置打开现有后处理调试日志，重新加载图片后即可在运行日志中查看新增 AC 诊断字段。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已启动真实 Qt 程序并生成 `build/Release/logs/tankeye_20260804_151451.log`，日志确认模拟 PLC 启用、主窗口创建/显示并进入 Qt event loop；命令因 GUI 常驻超时后确认无残留 `tankeye` 进程。
+- 遗留：本轮启动验证未加载真实图片；新增字段需用户打开调试开关并加载现场图后在运行日志中复核。
+
+## 2026-08-04 - 工程设置角度校准幂等与检测稳态
+
+- 目标：修复工程设置中“取当前角度 -> 输入机器目标角度 -> 计算校准”连续点击会继续改变角度偏移的问题；同时在不缓存同图结果的前提下减少同一图片重复检测时角度、X、Y 的小波动。
+- 修改：`engineering_settings_dialog.cpp` 新增角度校准快照，程序写入计算结果时不刷新基准偏移；`plc_result_contract` 新增可测的 `CalculateAngleCalibrationOffset()`；`YOLOv11_OBB.cpp`、`YOLOv11_SEG.cpp`、`frame_postprocess.cpp` 增加稳定 tie-break 和最终位姿中心/角度 0.01 精度量化；`frame_postprocess_smoke`、`plc_result_contract_test` 增加幂等和稳态断言。
+- 结果：同一组当前显示角、机器目标角、方向和范围下，重复点击“计算校准”会得到相同偏移；重复检测仍真实重跑模型，但 OBB/SEG 输出、B 候选、主目标选择和最终 UI/PLC 位姿值对近似并列结果更稳定。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_plc_result_contract_test` 通过；`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_plc_result_contract_test.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe` 通过；`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_obb` 通过；`cmake --build build --config Release --target tankeye-openvino_seg` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已真实启动 Qt 程序并生成 `build/Release/logs/tankeye_20260804_153721.log`，命令因 GUI 常驻事件循环在 30 秒超时，检查无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC/真实相机；重复检测仍受模型后端数值差异影响，本轮只减少近似并列排序和浮点尾差造成的可见抖动，现场图片仍建议由用户复测确认。
+
+## 2026-08-04 - 角度校准改为零偏移绝对重算
+
+- 目标：按用户澄清修正工程设置角度校准语义，重新计算时旧角度偏移必须视为 0，偏移值应等于“机器目标角度 - 当前零偏移显示角度”。
+- 修改：`engineering_settings_dialog.cpp` 的“取当前角度”改为用原始视觉角、当前反向/范围和 `angle_offset_deg = 0` 生成当前角度；方向或范围变化时，如当前角来自一次抓取结果，会按原始视觉角和零偏移刷新显示角；`CalculateAngleCalibrationOffset()` 改为只接收当前角和目标角，不再接收旧偏移；`plc_result_contract_test` 更新为 `102.25 -> 90.00` 得到 `-12.25`，并覆盖归一化。
+- 结果：同一当前角和目标角连点“计算校准”结果不变；修改当前角、目标角、反向或范围后会按零偏移绝对公式重算，不会把上一次偏移继续叠加进去；最终 PLC 写入仍沿用现有 `ApplyPlcAngleCalibration()`。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_plc_result_contract_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_plc_result_contract_test.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已启动 Qt 程序并生成 `build/Release/logs/tankeye_20260804_155627.log`，GUI 常驻导致 30 秒超时，检查无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC/真实相机；本轮未人工点击工程设置对话框验证，需要用户在 UI 中按现场流程复测“取当前角度/计算校准”。
+
+## 2026-08-04 - 修正正向/反向校准偏移不变化
+
+- 目标：修复用户发现的“正向计算一个角度偏移后，切到反向重新计算，偏移值仍然一样”的问题；正反向应基于当前模式下的零偏移视觉角分别求偏移。
+- 修改：`plc_result_contract` 新增 `CalculateAngleCalibrationOffsetFromRawAngle()`，用原始视觉角、反向开关、角度范围和零偏移先求当前显示角，再计算目标差值；`engineering_settings_dialog.cpp` 的计算按钮改为优先使用最近一次“取当前角度”的原始视觉角重新计算，计算时会同步刷新当前角度框；`plc_result_contract_test` 新增 raw=30、target=90 时正向偏移 60、反向偏移 -240 的断言。
+- 结果：正向/反向不再只是依赖当前角度输入框是否刷新，而是直接参与偏移计算；除 0/180 等反向后等价角度外，切换正反向重新计算偏移会变化。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_plc_result_contract_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已启动 Qt 程序并生成 `build/Release/logs/tankeye_20260804_162431.log`，GUI 常驻导致 30 秒超时，检查无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC/真实相机；仍需用户在工程设置界面用现场流程复测“正向取角/计算、切反向/再计算”的实际显示值。
+
+## 2026-08-04 - 校准输入框保持手动值但计算尊重正反向
+
+- 目标：按用户确认的第二种交互方式修正工程设置角度校准：手动输入当前角度后，切换正向/反向或点击计算时，当前角度输入框不应自动从 30 变成 -30，但偏移计算仍要按正反向生效。
+- 修改：`engineering_settings_dialog.cpp` 移除正反向/范围切换时自动刷新当前角度框的逻辑，计算按钮不再回写当前角度框；内部仍使用原始视觉角或手动输入角作为 raw angle，结合当前正反向和范围调用 `CalculateAngleCalibrationOffsetFromRawAngle()`；`plc_result_contract_test` 增加截图口径用例，验证 raw=30、target=95、`-180~180` 下正向偏移 65、反向偏移 125。
+- 结果：界面显示不打扰用户输入，计算结果仍能体现顺时针/逆时针方向切换；用户手动输入 30 后切反向，框里保持 30，但点击计算会按内部 -30 参与计算并得到 125。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_plc_result_contract_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已启动 Qt 程序并生成 `build/Release/logs/tankeye_20260804_163707.log`，GUI 常驻导致 30 秒超时，检查无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC/真实相机；仍需用户在工程设置界面人工确认输入框不跳变和偏移值变化符合现场预期。
+
+## 2026-08-04 - OpenVINO OBB/SEG 推理公共逻辑瘦身
+
+- 目标：按“真正瘦身优化”要求清洗重复代码，减少 OBB/SEG 两套推理类里相同的 OpenVINO 输入预处理、warmup 和输出布局解析维护点，不改变检测、PLC、UI 行为。
+- 修改：`core/inference/openvino_utils.h/.cpp` 新增 `PrepareNchwLetterboxInput()` 统一完成 letterbox NCHW buffer 构建和 `InferRequest` 输入 Tensor 绑定；新增 `WarmupInferRequest()` 统一模型 warmup；新增 `ParseDetectionOutputLayout()` 统一解析 YOLO 输出张量中“属性维/候选维/类别数”的布局。`YOLOv11_OBB.cpp` 和 `YOLOv11_SEG.cpp` 删除各自重复实现，改为调用这些公共 helper。
+- 结果：OBB/SEG 以后不再各维护一份相同预处理和 warmup 代码；输出布局判断从两处重复分支收敛到一处，后续模型输出形状兼容规则改动只需要看 `openvino_utils`。本轮没有新增功能开关，没有改模型后处理语义，没有连接真实 PLC/相机。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_obb` 通过；`cmake --build build --config Release --target tankeye-openvino_seg` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已启动 Qt 程序并生成 `build/Release/logs/tankeye_20260804_164915.log`，GUI 常驻导致 30 秒超时，随后确认无残留 `tankeye` 进程。
+- 遗留：本轮是低风险推理公共代码清洗，只做模拟 PLC 启动和自动化测试；未连接真实 PLC、真实相机，未加载现场实时画面做人工视觉复核。
+
+## 2026-08-04 - GraspMainWindow 工程设置职责拆分
+
+- 目标：回应 `app/qt/ui/grasp_main_window.cpp` 超过三千行、维护困难的问题，先把与主窗口绘制弱相关的工程设置加载/保存职责拆出，降低主文件体量和阅读噪音；本轮不改变 UI、检测、PLC 语义。
+- 修改：新增 `app/qt/ui/grasp_main_window_settings.cpp`，承接 `load*Settings()`、`save*Settings()`、`plcOutputConfig()`、轴向标签和坐标转换状态重建等工程设置相关成员函数；`grasp_main_window.cpp` 删除对应实现并清理部分已不用的 Qt include；`CMakeLists.txt` 将新文件加入 Qt app 源列表。尝试拆管理员 UI 时发现其依赖主窗口运行时缩放函数 `UiScale()/SC()`，为避免复制缩放逻辑和改变 UI 表现，本轮未拆管理员块。
+- 结果：`grasp_main_window.cpp` 从约 3198 行降到约 3038 行，工程设置持久化细节集中到 155 行的新文件；这是一批低风险职责拆分，不是最终清洗，后续仍应继续处理 PLC/检测后台流程和响应式缩放耦合。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 已启动 Qt 程序并生成 `build/Release/logs/tankeye_20260804_170243.log`，GUI 常驻导致 30 秒超时，随后确认无残留 `tankeye` 进程。
+- 遗留：未人工点击工程设置界面，未连接真实 PLC/真实相机；下一批建议先把主窗口运行时缩放状态正式抽成共享 helper，再拆管理员 UI 或顶部/侧栏布局，避免复制 `UiScale()/SC()`。
+
+## 2026-08-04 - 汇总当前角度修正、校准稳态与瘦身改动并上传 GitHub
+
+- 目标：按用户要求把当前已验证改动整理成可复用提示词口径，并上传到 GitHub `origin/Unordered_Scraping_V5`。
+- 修改：本记录补充本次上传范围；提交范围包括 AC 抓取角度修正、工程设置角度校准幂等/零偏移/正反向口径、重复检测稳态、OpenVINO OBB/SEG 公共逻辑瘦身、`GraspMainWindow` 工程设置职责拆分、项目记忆更新，以及参考脚本 `models/推理v1.0.13.py`。
+- 验证：上传前已完成 `tankeye-openvino_obb`、`tankeye-openvino_seg`、`tankeye-openvino_qt_app` Release 构建，默认测试脚本全部通过，模拟 PLC 启动生成 `build/Release/logs/tankeye_20260804_170243.log` 且无残留 `tankeye` 进程；`git diff --check` 无空白错误，仅提示工作区文件下次 Git 操作会按 CRLF 处理。
+- 遗留：本次上传不包含被 `.gitignore` 排除的 `build/`、模型权重和 `config/admin_auth.key`；未连接真实 PLC/真实相机。
