@@ -136,7 +136,7 @@ void OutOfRangeTargetIsRejected()
     assert(!decision.reason.empty());
 }
 
-void AxisCompensationDoesNotAffectLimitDecision()
+void AxisCompensationAffectsFinalLimitDecision()
 {
     PlcOutputConfig plc_config;
     plc_config.front_back_offset = 10000.0f;
@@ -144,7 +144,8 @@ void AxisCompensationDoesNotAffectLimitDecision()
     FrameInferenceResult result = MakeResult(120.0f, 55.0f);
 
     const GrabLimitDecision decision = EvaluateGrabLimits(result, MakeLimits(), plc_config);
-    assert(!decision.rejected);
+    assert(decision.rejected);
+    assert(!decision.reason.empty());
 }
 
 void AngleLimitsUseCalibratedPlcAngle()
@@ -152,6 +153,42 @@ void AngleLimitsUseCalibratedPlcAngle()
     PlcOutputConfig plc_config;
     plc_config.angle_offset_deg = 180.0f;
     FrameInferenceResult result = MakeResult(120.0f, 55.0f, 30.0f);
+
+    const GrabLimitDecision decision = EvaluateGrabLimits(result, MakeLimits(), plc_config);
+    assert(decision.rejected);
+    assert(!decision.reason.empty());
+}
+
+void TypeCenterCompensationAffectsFinalLimitDecision()
+{
+    PlcOutputConfig plc_config;
+    plc_config.head_type_compensations[4].ac_ray_offset_mm = 20.0f;
+    FrameInferenceResult result = MakeResult(120.0f, 55.0f);
+    result.detections[0].ac_unit_machine_x = 0.0f;
+    result.detections[0].ac_unit_machine_y = 1.0f;
+    result.detections[0].has_machine_ac_unit = true;
+
+    const GrabLimitDecision decision = EvaluateGrabLimits(result, MakeLimits(), plc_config);
+    assert(decision.rejected);
+    assert(!decision.reason.empty());
+}
+
+void TypeAngleCompensationAffectsFinalLimitDecision()
+{
+    PlcOutputConfig plc_config;
+    plc_config.head_type_compensations[4].angle_offset_deg = 160.0f;
+    FrameInferenceResult result = MakeResult(120.0f, 55.0f, 30.0f);
+
+    const GrabLimitDecision decision = EvaluateGrabLimits(result, MakeLimits(), plc_config);
+    assert(decision.rejected);
+    assert(!decision.reason.empty());
+}
+
+void TypeCenterCompensationRequiresMachineAcDirection()
+{
+    PlcOutputConfig plc_config;
+    plc_config.head_type_compensations[4].ac_ray_offset_mm = 1.0f;
+    FrameInferenceResult result = MakeResult(120.0f, 55.0f);
 
     const GrabLimitDecision decision = EvaluateGrabLimits(result, MakeLimits(), plc_config);
     assert(decision.rejected);
@@ -322,8 +359,11 @@ int main()
 {
     InRangeTargetIsAccepted();
     OutOfRangeTargetIsRejected();
-    AxisCompensationDoesNotAffectLimitDecision();
+    AxisCompensationAffectsFinalLimitDecision();
     AngleLimitsUseCalibratedPlcAngle();
+    TypeCenterCompensationAffectsFinalLimitDecision();
+    TypeAngleCompensationAffectsFinalLimitDecision();
+    TypeCenterCompensationRequiresMachineAcDirection();
     MechanicalRoiRequiresValidCoordinateTransform();
     MechanicalRoiFiltersOutsideTargetsAndResolvesPrimary();
     MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf();

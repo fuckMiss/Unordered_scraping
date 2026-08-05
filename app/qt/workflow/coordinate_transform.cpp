@@ -135,6 +135,9 @@ void ApplyCoordinateTransform(FrameInferenceResult& result, const CoordinateTran
         detection.has_machine_coords = false;
         detection.machine_x = 0.0f;
         detection.machine_y = 0.0f;
+        detection.has_machine_ac_unit = false;
+        detection.ac_unit_machine_x = 0.0f;
+        detection.ac_unit_machine_y = 0.0f;
 
         Point2f machine_point;
         if (TransformImagePointToMachine(state,
@@ -143,6 +146,19 @@ void ApplyCoordinateTransform(FrameInferenceResult& result, const CoordinateTran
             detection.machine_x = machine_point.x;
             detection.machine_y = machine_point.y;
             detection.has_machine_coords = true;
+        }
+
+        Point2f machine_arrow_start;
+        Point2f machine_arrow_end;
+        if (TransformImagePointToMachine(state, detection.arrow_start, &machine_arrow_start) &&
+            TransformImagePointToMachine(state, detection.arrow_end, &machine_arrow_end)) {
+            const Point2f machine_ac = machine_arrow_end - machine_arrow_start;
+            const float length = std::hypot(machine_ac.x, machine_ac.y);
+            if (std::isfinite(length) && length > 1e-6f) {
+                detection.ac_unit_machine_x = machine_ac.x / length;
+                detection.ac_unit_machine_y = machine_ac.y / length;
+                detection.has_machine_ac_unit = true;
+            }
         }
     }
 }

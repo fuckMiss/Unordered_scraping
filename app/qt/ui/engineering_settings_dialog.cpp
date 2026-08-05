@@ -44,6 +44,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <array>
 
 namespace {
 
@@ -301,6 +302,41 @@ void EngineeringSettingsDialogController::show()
     mechanical_gripper_length_spin->setToolTip(QStringLiteral("真实夹爪机械长度；为 0 时保守判为不可抓。"));
     auto* mechanical_gripper_width_spin = CreateGripperDimensionSpinBox(dialog, owner->mechanical_gripper_width_);
     mechanical_gripper_width_spin->setToolTip(QStringLiteral("真实夹爪机械宽度；为 0 时保守判为不可抓。"));
+    struct HeadTypeRow
+    {
+        int code;
+        const char* name;
+    };
+    const std::array<HeadTypeRow, 4> head_type_rows = {{
+        { 1, "大上右" },
+        { 3, "大上左" },
+        { 4, "小上右" },
+        { 2, "小上左" },
+    }};
+    std::array<QDoubleSpinBox*, 5> head_type_angle_offset_spins{};
+    std::array<QDoubleSpinBox*, 5> head_type_ac_ray_offset_spins{};
+    auto* head_type_compensation_grid = CreateSettingsGrid(10, 10);
+    SetGridColumnMinimumWidths(head_type_compensation_grid, { 120, 90, 130, 140 });
+    SetGridColumnStretches(head_type_compensation_grid, { 0, 0, 0, 0, 1 });
+    head_type_compensation_grid->addWidget(new QLabel(QStringLiteral("类型"), dialog), 0, 0);
+    head_type_compensation_grid->addWidget(new QLabel(QStringLiteral("类型码"), dialog), 0, 1);
+    head_type_compensation_grid->addWidget(new QLabel(QStringLiteral("角度补偿"), dialog), 0, 2);
+    head_type_compensation_grid->addWidget(new QLabel(QStringLiteral("AC 偏移"), dialog), 0, 3);
+    for (int row = 0; row < static_cast<int>(head_type_rows.size()); ++row) {
+        const HeadTypeRow row_info = head_type_rows[static_cast<size_t>(row)];
+        head_type_compensation_grid->addWidget(new QLabel(QString::fromUtf8(row_info.name), dialog), row + 1, 0);
+        head_type_compensation_grid->addWidget(new QLabel(QString::number(row_info.code), dialog), row + 1, 1);
+        auto* angle_spin = CreateAngleOffsetSpinBox(
+            dialog, owner->head_type_compensation_settings_.types[row_info.code].angle_offset_deg);
+        angle_spin->setToolTip(QStringLiteral("该类型额外角度补偿，叠加全局角度校准。"));
+        auto* ac_offset_spin = CreateLimitSpinBox(
+            dialog, owner->head_type_compensation_settings_.types[row_info.code].ac_ray_offset_mm);
+        ac_offset_spin->setToolTip(QStringLiteral("沿 A->C 方向的机械毫米偏移，正值朝 C。"));
+        head_type_angle_offset_spins[row_info.code] = angle_spin;
+        head_type_ac_ray_offset_spins[row_info.code] = ac_offset_spin;
+        head_type_compensation_grid->addWidget(angle_spin, row + 1, 2, Qt::AlignLeft);
+        head_type_compensation_grid->addWidget(ac_offset_spin, row + 1, 3, Qt::AlignLeft);
+    }
     auto* capture_current_angle_button = new QPushButton(QStringLiteral("取当前角度"), dialog);
     auto* calculate_angle_offset_button = new QPushButton(QStringLiteral("计算校准"), dialog);
 
@@ -500,6 +536,8 @@ void EngineeringSettingsDialogController::show()
     settings_controls.postprocess_debug_logging_check = postprocess_debug_logging_check;
     settings_controls.mechanical_gripper_length_spin = mechanical_gripper_length_spin;
     settings_controls.mechanical_gripper_width_spin = mechanical_gripper_width_spin;
+    settings_controls.head_type_angle_offset_spins = head_type_angle_offset_spins;
+    settings_controls.head_type_ac_ray_offset_spins = head_type_ac_ray_offset_spins;
     settings_controls.angle_direction_combo = angle_direction_combo;
     settings_controls.angle_range_combo = angle_range_combo;
     settings_controls.axis_mapping_combo = axis_mapping_combo;
@@ -649,6 +687,8 @@ void EngineeringSettingsDialogController::show()
     gripper_dimension_grid->addWidget(new QLabel(QStringLiteral("夹爪宽度"), dialog), 1, 0);
     gripper_dimension_grid->addWidget(mechanical_gripper_width_spin, 1, 1, Qt::AlignLeft);
     debug_content_layout->addLayout(gripper_dimension_grid);
+    debug_content_layout->addWidget(CreateGroupCaption(QStringLiteral("类型补偿"), dialog));
+    debug_content_layout->addLayout(head_type_compensation_grid);
     scroll_layout->addWidget(CreateCollapsibleSection(dialog,
                                                       QStringLiteral("调试设置"),
                                                       debug_content,
@@ -1003,6 +1043,7 @@ void EngineeringSettingsDialogController::show()
         owner->saveUiOverlaySettings();
         owner->saveAxisMappingSettings();
         owner->saveAxisCompensationSettings();
+        owner->saveHeadTypeCompensationSettings();
         QString save_error;
         if (!owner->saveCoordinateTransformSettings(&save_error)) {
             QMessageBox::warning(owner,

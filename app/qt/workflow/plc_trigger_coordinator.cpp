@@ -133,6 +133,25 @@ void FinalizeAndLog(PlcTriggerProcessResult& result)
     std::cout << result.structured_log_line.toStdString() << std::endl;
 }
 
+void LogManualPlcWrite(const char* status,
+                       const PlcWriteResult& plc,
+                       const PlcRegisterMap& registers,
+                       const QString& message = QString())
+{
+    std::cout << "[PLC_DEBUG] manual_write"
+              << " status=" << status
+              << " D" << registers.front_back << "=" << plc.x
+              << " D" << registers.left_right << "=" << plc.y
+              << " D" << registers.angle << "=" << plc.angle
+              << " D" << registers.pick_status << "=" << plc.pick_status
+              << " D" << registers.head_type << "=" << plc.head_type
+              << " source=" << (plc.has_machine_coords ? "machine" : "image");
+    if (!message.isEmpty()) {
+        std::cout << " message=" << message.toStdString();
+    }
+    std::cout << std::endl;
+}
+
 } // namespace
 
 PlcTriggerReadResult ReadPlcPhotoTrigger(RobotController& robot_controller)
@@ -165,7 +184,7 @@ PlcTriggerProcessResult ProcessPlcTriggeredFrame(GraspWorkflow& workflow,
                            limits,
                            mechanical_gripper,
                            coordinate_state,
-                           plc_config.axis_mapping_mode,
+                           plc_config,
                            true);
     process_result.frame_result = frame_process.frame_result;
     if (!frame_process.error_message.isEmpty()) {
@@ -202,6 +221,12 @@ PlcTriggerProcessResult ProcessPlcTriggeredFrame(GraspWorkflow& workflow,
     const GrabLimitDecision limit_decision =
         EvaluateGrabLimits(process_result.frame_result, limits, plc_config);
     process_result.plc_write_result = BuildPlcWriteResult(process_result.frame_result, plc_config);
+    if (plc_config.debug_logging_enabled) {
+        std::cout << "[PLC_DEBUG] final_limit_check rejected="
+                  << (limit_decision.rejected ? "true" : "false")
+                  << " reason=" << (limit_decision.reason.empty() ? "none" : limit_decision.reason)
+                  << std::endl;
+    }
     if (limit_decision.rejected) {
         process_result.reject_reason = QString::fromStdString(limit_decision.reason);
         std::cout << "[PLC] reject grab: " << limit_decision.reason << std::endl;
@@ -308,19 +333,44 @@ PlcManualWriteResult WriteFrameResultToPlc(RobotController& robot_controller,
 
     if (coordinate_state.enabled && !coordinate_state.valid) {
         write_result.error_message = QString::fromStdString(coordinate_state.error_message);
+        if (plc_config.debug_logging_enabled) {
+            LogManualPlcWrite("failed",
+                              BuildPlcWriteResult(result, plc_config),
+                              robot_controller.plcRegisterMap(),
+                              write_result.error_message);
+        }
         return write_result;
     }
 
     const GrabLimitDecision limit_decision = EvaluateGrabLimits(result, limits, plc_config);
+    const PlcWriteResult plc_result = BuildPlcWriteResult(result, plc_config);
+    if (plc_config.debug_logging_enabled) {
+        std::cout << "[PLC_DEBUG] manual_final_limit_check rejected="
+                  << (limit_decision.rejected ? "true" : "false")
+                  << " reason=" << (limit_decision.reason.empty() ? "none" : limit_decision.reason)
+                  << std::endl;
+    }
     if (limit_decision.rejected) {
         std::cout << "[PLC] reject grab: " << limit_decision.reason << std::endl;
         if (!robot_controller.writeRejectStatus(&error_message)) {
             write_result.error_message = QString::fromStdString(error_message);
+            if (plc_config.debug_logging_enabled) {
+                LogManualPlcWrite("failed", plc_result, robot_controller.plcRegisterMap(), write_result.error_message);
+            }
             return write_result;
+        }
+        if (plc_config.debug_logging_enabled) {
+            LogManualPlcWrite("reject", BuildRejectWriteResult(), robot_controller.plcRegisterMap(),
+                              QString::fromStdString(limit_decision.reason));
         }
     } else if (!robot_controller.writeFrameResult(result, &error_message)) {
         write_result.error_message = QString::fromStdString(error_message);
+        if (plc_config.debug_logging_enabled) {
+            LogManualPlcWrite("failed", plc_result, robot_controller.plcRegisterMap(), write_result.error_message);
+        }
         return write_result;
+    } else if (plc_config.debug_logging_enabled) {
+        LogManualPlcWrite("result", plc_result, robot_controller.plcRegisterMap());
     }
 
     if (clear_trigger && !robot_controller.clearPhotoTrigger(&error_message)) {
@@ -328,6 +378,9 @@ PlcManualWriteResult WriteFrameResultToPlc(RobotController& robot_controller,
             QStringLiteral("D%1 clear trigger failed: %2")
                 .arg(robot_controller.plcRegisterMap().photo_trigger)
                 .arg(QString::fromStdString(error_message));
+        if (plc_config.debug_logging_enabled) {
+            LogManualPlcWrite("failed", plc_result, robot_controller.plcRegisterMap(), write_result.error_message);
+        }
     }
     return write_result;
 }

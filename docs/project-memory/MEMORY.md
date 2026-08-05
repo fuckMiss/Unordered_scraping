@@ -191,3 +191,66 @@
 - 用户要求将 `models/推理v1.0.14(1).py` 也上传到 GitHub，但明确 `models/推理v1.0.13.py` 不必改动。
 - 本次仅是把 1.0.14 参考脚本纳入版本库管理，不改变当前 C++ 后处理和测试语义；后续若继续演进，仍以 C++ 现状和现场验证为准。
 - 当前仓库同时保留 `推理v1.0.13.py` 和 `推理v1.0.14(1).py`，方便对照 1.0.13 与 1.0.14 的几何变化。未引入新的构建/运行验证需求。
+
+## 2026-08-05 当前补充记忆：四类型角度补偿与沿 AC 中心偏移
+
+- 已在当前 1.0.14 AC 几何语义上实现四类现场调机参数：D508 `1=大上右`、`3=大上左`、`4=小上右`、`2=小上左`。每类均有独立角度补偿和沿 `A -> C` 的机械毫米中心偏移，默认均为 0，并兼容缺少新字段的旧工程设置。
+- 最终 PLC 命令合同统一叠加全局角度/轴补偿与类型补偿：类型角度补偿在全局角度补偿后应用；类型中心偏移先沿机械坐标 AC 单位向量移动，再叠加全局前后/左右轴补偿。`RobotController` 的真实 PLC 写入和诊断写入复用该合同，避免界面值与实际写入值分叉。
+- 补偿后的最终中心和角度会重新执行机械 ROI 与角度限位检查；越界时保守拒抓。若配置了非零类型 AC 偏移但无有效机械坐标或 AC 方向，同样保守拒抓。真实夹爪框碰撞几何、九点标定和 A/B/SEG 匹配语义未改变。
+- 工程设置已增加“四种抓取类型补偿”表；普通信息面板和目标卡片显示补偿后的 PLC 中心、机械坐标和角度，全显保留原始 OBB 中心和 AC 射线用于现场对照。
+- 验证已完成：Release 构建 `tankeye-openvino_plc_result_contract_test`、`tankeye-openvino_engineering_settings_service_test`、`tankeye-openvino_grab_limit_evaluator_test`、`tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；模拟 PLC Qt 启动日志为 `build/Release/logs/tankeye_20260805_165752.log`，随后确认无残留 `tankeye` 进程。
+- 未连接真实 PLC、真实相机或真实设备。后续现场应以四类实物分别确认：角度和 AC 偏移的正负方向、最终 D500/D502/D504、补偿后越界拒抓，以及工程设置表的可读性。
+
+## 2026-08-05 当前补充记忆：四类型补偿调试日志
+
+- 针对日志 `build/Release/logs/tankeye_20260805_172705.log` 无法判断补偿是否进入最终 PLC 命令的问题，已将四类型补偿诊断接入现有“启用后处理调试日志”开关。
+- 调试开启时，`[PLC_DEBUG] compensation` 输出 D508、原始图像/机械中心、原始角度、机械 AC 单位向量、全局角度补偿、类型角度补偿、类型 AC 偏移、全局轴补偿和最终 D500/D502/D504/D506/D508；无有效坐标或 AC 方向时输出拒抓原因。
+- 工程设置加载/保存时输出 `[PLC_DEBUG] head_type_compensation_loaded/saved`，逐项列出大上右、大上左、小上右、小上左及对应 D508 参数；PLC 触发和图片手动写入的最终限位判断输出 `[PLC_DEBUG] final_limit_check` 或 `manual_final_limit_check`。
+- 调试关闭时上述新增 `[PLC_DEBUG]` 日志不输出。现有 PLC 正常写入日志保持原有行为。
+- 验证已完成：Release 全量构建通过，`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；使用 `launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc -DebugPostprocess` 启动成功，日志 `build/Release/logs/tankeye_20260805_174628.log` 确认模拟 PLC、`[PLC_DEBUG] head_type_compensation_loaded`、调试日志开关和 Qt 事件循环，随后确认无残留进程。
+
+## 2026-08-05 当前补充记忆：补偿后命令姿态显示与写入日志闭环
+
+- 根据 `tankeye_20260805_175305.log` 复核，四类型补偿计算已实际生效：例如 D508=1 在全局角度补偿 66、类型角度补偿 45、AC 偏移 5 mm 后，输出 `final_D500=183.652`、`final_D502=328.03`、`final_D504=43.45`。用户仍感觉“没效果”的主要原因是普通 overlay 仍画原始真实夹爪框/AC 射线，未使用补偿后的命令姿态。
+- 已修正显示语义：普通画面使用补偿后的 `plc_command_center/plc_command_arrow`，并将真实夹爪框按命令中心偏移后绘制；全显/调试模式继续显示原始真实夹爪框和原始 AC 射线，便于对照补偿前后。
+- 已补齐窗口缩放：`ScaleResultForDisplay()` 现在同步缩放 `plc_command_center`、`plc_command_arrow_start`、`plc_command_arrow_end`，避免窗口适配后命令姿态坐标不一致。
+- 已补齐图片写 PLC 日志：调试开启时，`WriteFrameResultToPlc()` 会输出 `[PLC_DEBUG] manual_write status=result/reject/failed` 和对应 D500/D502/D504/D506/D508；主窗口图片写入回调已删除原有 `return` 后死代码，失败/成功状态提示走同一中文分支。
+- 验证已完成：`tankeye-openvino_frame_overlay_test` Release 构建通过，`tankeye-openvino_qt_app` Release 构建通过，`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc -DebugPostprocess` 启动成功，日志 `build/Release/logs/tankeye_20260805_180224.log` 确认模拟 PLC、补偿参数加载日志和 Qt 事件循环，随后确认无残留进程。
+
+## 2026-08-05 当前补充记忆：角度补偿普通画面旋转闭环
+
+- 根据用户复测日志 `build/Release/logs/tankeye_20260805_180512.log`，四类型角度补偿在最终 PLC 命令中已生效：例如 D508=1、`raw_angle=292.45`、`global_angle_offset=66`、`type_angle_offset=30` 时，`final_D504=28.45`；此前容易误解的是 `[PostprocessDebug] target ac_angle_deg` 和 `mechanical_gripper_pose angle_deg` 仍打印原始 CV 几何角度。
+- 已修正普通 overlay 的视觉口径：`ApplyPlcCommandPose()` 现在按最终 `D504` 相对原始 `angle_deg` 的角度差生成命令 AC 箭头；普通画面中的真实夹爪框按同一角度差绕原始中心旋转并平移到补偿后中心。
+- 为避免现场看到两个方向不同的框，普通画面在存在补偿后 PLC 命令姿态且真实夹爪框有效时，不再额外绘制原始基础 OBB；全显/调试模式仍显示原始几何用于对照。
+- 验证已完成：`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` Release 构建通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc -DebugPostprocess` 启动成功，日志 `build/Release/logs/tankeye_20260805_181435.log` 确认模拟 PLC、补偿参数加载和 Qt 事件循环，随后确认无残留 `tankeye` 进程。
+- 未连接真实 PLC、真实相机或真实设备；仍需用户用现场图片复核普通画面只保留补偿后的旋转夹爪框和最终 D504 箭头方向。
+
+## 2026-08-05 当前补充记忆：D508 左右恢复为夹取 OBB 本地 AC 判定
+
+- 用户指出“大上左”现场物料被反馈为“大上右”，且调“大上右”角度实际影响现场大上左。经 Git 历史核查，早期实现使用 `head_side_basis=left_local_keep`，前几轮在 AC 角度修正中改成了 `left_x_vs_segment_center`，即按 A.x 与 SEG 中心 O.x 判定左右，导致物料朝向变化时左右语义错误。
+- 已按用户确认口径修正：D508 左右判定恢复为以夹取 OBB 本地坐标为基准，并采用当前 1.0.14 的 `A -> C` 射线作为本地前向；头部 B 在 `right_axis=(forward.y,-forward.x)` 一侧为右，否则为左。
+- D508 编码和工程设置表含义保持不变：`1=大上右`、`3=大上左`、`4=小上右`、`2=小上左`；四类型补偿继续按最终 D508 应用。
+- 调试日志 `head_side_basis` 已改为 `grip_local_ac`。新增后处理回归：A 在 SEG 右侧但 B 位于 A->C 本地左侧时，必须输出 `D508=3 大上左`，防止再次退回全局图像 X 判定。
+
+## 2026-08-05 当前补充记忆：普通/全显同时显示原始 OBB 与补偿姿态
+
+- 用户确认原始 OBB 框在普通模式也应该显示，全显模式也应该显示经过补偿的真实夹爪框和射线。上一轮“避免双框”的处理过度隐藏了普通基础 OBB，并在全显路径关闭了补偿姿态显示。
+- 已修正：`frame_overlay` 现在始终绘制基础 `detection.corners`；只要 detection 有 `plc_command_pose`，普通和全显都会额外绘制补偿后的真实夹爪框与 AC 射线。全显继续额外显示 raw OBB、SEG、mask collision 等调试层。
+- 已更新 `frame_overlay_test`：普通模式必须同时看到原始 OBB、补偿框和补偿射线；全显模式也必须同时看到原始与补偿姿态。
+- 验证已完成：`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` Release 构建通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过。
+
+## 2026-08-05 当前补充记忆：overlay 原始 OBB 去重与补偿同步
+
+- 用户继续指出全显有两个原始 OBB 框，且普通模式下原始 OBB 框没有跟着夹爪框变化。根因是全显同时绘制 `raw_obb_regions` 与 detection 基础 OBB；普通模式只对真实夹爪框做了补偿姿态变换，基础 OBB 仍停在原检测位置。
+- 已修正显示口径：普通模式绘制 detection 基础 OBB，但它会随 `plc_command_pose` 使用同一角度差和中心偏移旋转/平移；全显模式由 `raw_obb_regions` 负责显示原始模型 OBB，不再通过 detection 重复画一遍基础 OBB，同时仍绘制补偿后的真实夹爪框和 AC 射线。
+- 已更新 `frame_overlay_test`：普通模式旧位置不应再残留基础 OBB，新补偿位置必须有基础 OBB/真实夹爪框，补偿射线也必须可见；全显模式必须能看到 raw OBB 与补偿姿态。
+- 验证已完成：`tankeye-openvino_frame_overlay_test` 和 `tankeye-openvino_qt_app` Release 构建通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过。
+
+## 2026-08-05 当前补充记忆：长时间运行风险扫查与 1.4.1 打包
+- 用户要求大扫是否存在 bug、内存泄漏或长时间使用风险；有问题则修复，没有阻塞问题则打包 `TankEye-Iris_1.4.1`。
+- 本轮静态扫查重点覆盖裸 `new/delete`、`deleteLater`、`QFutureWatcher`、`QtConcurrent`、`QTimer`、相机线程、`_dupenv_s/free`、PLC/overlay 最近改动和打包脚本。未发现新的确定性内存泄漏；Qt 对象基本由父对象或 `deleteLater()` 释放，相机线程使用 `std::atomic<bool>` 控制并在停止/析构 join。
+- 已修一个低风险长跑性能/内存压力点：`ApplyPlcCommandPose()` 原来为每个 detection 复制完整 `FrameInferenceResult`，现在改为只构造当前目标需要的最小结果，避免多目标连续检测时复制 segments/raw OBB 等不必要数据；PLC 输出语义不变。
+- 已将打包脚本、包内使用说明和打包说明更新到 1.4.1：`scripts/package_runtime.ps1` 默认 `ReleaseName=TankEye-Iris_1.4.1`，manifest `version=1.4.1`，`runtime/USAGE_GUIDE.txt` 与 `docs/PACKAGING_README.md` 路径同步。
+- 已生成本地运行包：`dist\TankEye-Iris_1.4.1` 与 `dist\TankEye-Iris_1.4.1.zip`。包内 `RELEASE_MANIFEST.json` 显示 `name=TankEye-Iris_1.4.1`、`version=1.4.1`、`runtime_only=true`、`files=129`；包目录和 zip 均不包含 `docs/` 或 `AGENTS.md`。
+- 验证已完成：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`git diff --check` 无空白错误，仅有 CRLF 提示；打包命令成功，仅有已知 `VCINSTALLDIR is not set` 警告；包内 exe 哈希与 `build\Release` exe 一致；包内 `launch_tankeye.ps1 -Device CPU -SimulatePlc` 已启动真实 Qt 程序并正常退出，日志 `dist\TankEye-Iris_1.4.1\logs\tankeye_20260805_192737.log` 确认模拟 PLC、主窗口创建、OBB/SEG CPU 模型加载成功，退出后无残留 `tankeye` 进程。
+- 本轮未连接真实 PLC、真实相机或真实设备；长期稳定性仍建议现场用真实相机连续采集观察内存占用、日志增长和 PLC 模拟/实机节拍，但实机连接必须先取得用户明确同意。

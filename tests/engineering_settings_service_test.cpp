@@ -69,6 +69,29 @@ void PlcRelatedSettingsRoundTrip()
     assert(NearlyEqual(loaded_compensation.front_back_offset, compensation.front_back_offset));
     assert(NearlyEqual(loaded_compensation.left_right_offset, compensation.left_right_offset));
 
+    const HeadTypeCompensationSettings default_head_compensation =
+        EngineeringSettingsService::LoadHeadTypeCompensationSettings();
+    for (int head_type = 1; head_type < static_cast<int>(default_head_compensation.types.size()); ++head_type) {
+        assert(NearlyEqual(default_head_compensation.types[head_type].angle_offset_deg, 0.0));
+        assert(NearlyEqual(default_head_compensation.types[head_type].ac_ray_offset_mm, 0.0));
+    }
+
+    HeadTypeCompensationSettings head_compensation;
+    const int head_types[] = { 1, 3, 4, 2 };
+    for (const int head_type : head_types) {
+        head_compensation.types[head_type].angle_offset_deg = head_type * 1.5;
+        head_compensation.types[head_type].ac_ray_offset_mm = -head_type * 2.0;
+    }
+    EngineeringSettingsService::SaveHeadTypeCompensationSettings(head_compensation);
+    const HeadTypeCompensationSettings loaded_head_compensation =
+        EngineeringSettingsService::LoadHeadTypeCompensationSettings();
+    for (const int head_type : head_types) {
+        assert(NearlyEqual(loaded_head_compensation.types[head_type].angle_offset_deg,
+                           head_compensation.types[head_type].angle_offset_deg));
+        assert(NearlyEqual(loaded_head_compensation.types[head_type].ac_ray_offset_mm,
+                           head_compensation.types[head_type].ac_ray_offset_mm));
+    }
+
     ObbPostprocessSettings postprocess;
     postprocess.center_ray_offset_px = 12.0;
     postprocess.show_plc_center_debug = true;

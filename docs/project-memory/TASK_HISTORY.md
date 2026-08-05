@@ -272,3 +272,66 @@
 - 结果：仓库中同时保留 `推理v1.0.13.py` 和 `推理v1.0.14(1).py`，便于后续继续对照 Python 参考语义；未触碰现有 C++ 实现。
 - 验证：这次只涉及参考脚本入库，没有新的编译目标或运行时行为变化；沿用上一轮已通过的 Release 构建、默认测试和模拟 PLC Qt 启动结果作为当前基线。
 - 遗留：后续如继续对照 Python 版本演进，仍需优先以当前 C++ 实现和现场验证为准，不可再次把旧临时放大框语义误带回实现。
+
+## 2026-08-05 - 四类型角度补偿与沿 AC 中心偏移
+- 目标：在当前 1.0.14 AC 几何语义上，为 D508 类型码 `1=大上右`、`3=大上左`、`4=小上右`、`2=小上左` 增加独立角度补偿和沿 A->C 的机械毫米中心偏移，并让最终 PLC 命令进入限位复核。
+- 修改：`PlcOutputConfig` 增加四类型补偿数组；`BuildPlcWriteResult()` 叠加全局角度/轴补偿与类型补偿，AC 偏移在机械坐标中沿单位向量计算；`coordinate_transform` 保存机械 AC 单位向量；`RobotController` 同步持有类型补偿，真实 PLC 写入和诊断写入共用同一输出合同；无有效 AC 方向或坐标时有非零类型中心偏移则保守拒抓。
+- 修改：工程设置增加四类型补偿表，支持角度补偿、AC 偏移(mm)、默认 0 和旧配置兼容；普通信息面板/目标卡片优先显示补偿后的中心、机械坐标和 PLC 角度，全显仍可通过原始 OBB 中心与 AC 射线对照。
+- 修改：限位判断改为复核最终 PLC 命令，补偿后前后轴、左右轴或角度越界时拒抓；补充 PLC 合同、设置持久化和限位测试。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_plc_result_contract_test`、`tankeye-openvino_engineering_settings_service_test`、`tankeye-openvino_grab_limit_evaluator_test`、`tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` 均通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；单独 `frame_postprocess_smoke` 通过；`launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 启动日志 `build/Release/logs/tankeye_20260805_165752.log` 确认模拟 PLC、主窗口创建并进入 Qt 事件循环，随后已清理无残留进程；`git diff --check` 无空白错误，仅有 CRLF 换行提示。
+- 遗留：未连接真实 PLC、真实相机或真实设备；仍需现场用四类真实目标复核补偿正负方向、D500/D502/D504 最终值、ROI 拒抓和工程设置界面可读性。
+
+## 2026-08-05 - 增加四类型补偿调试日志
+
+- 目标：根据 `tankeye_20260805_172705.log` 无法确认四类型补偿是否作用的问题，在不改变关闭调试时日志量的前提下，补充从配置到最终 PLC 命令的诊断链路。
+- 修改：扩展 `PlcOutputConfig` 的调试开关并同步到 `RobotController`；`BuildPlcWriteResult()` 在调试开启时输出 D508、原始位姿、AC 单位向量、全局/类型补偿、轴补偿和最终 D500/D502/D504/D506/D508；工程设置加载/保存及图片/PLC 触发限位复核增加 `[PLC_DEBUG]` 日志。
+- 结果：现场可区分参数未加载、D508 未匹配、AC 偏移无法计算、补偿后限位拒抓和最终命令值等情况；关闭“启用后处理调试日志”时新增日志全部关闭。
+- 验证：`cmake --build build --config Release` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部测试通过；`launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc -DebugPostprocess` 启动成功，生成 `build/Release/logs/tankeye_20260805_174628.log`，确认模拟 PLC、`[PLC_DEBUG] head_type_compensation_loaded`、调试日志开关和 Qt 事件循环正常，随后清理无残留进程。
+- 遗留：尚未连接真实 PLC/真实相机；需要现场开启调试日志并实际执行一次图片写 PLC或模拟触发，检查 `[PLC_DEBUG] compensation` 中的最终 D500/D502/D504。
+
+## 2026-08-05 - 普通画面显示补偿后命令姿态并补齐写入日志
+
+- 目标：解决四类型补偿已计算但普通画面仍显示原始夹爪框/AC 射线，导致现场观感像“没效果”的问题；同时让图片写 PLC 的成功/失败进入调试日志。
+- 修改：`ScaleResultForDisplay()` 同步缩放 `plc_command_center` 和命令 AC 射线；`frame_overlay` 普通模式使用补偿后的命令中心/射线，并按命令中心偏移真实夹爪框，全显模式继续画原始姿态用于对照；`WriteFrameResultToPlc()` 在调试开启时输出 `manual_write` 成功、拒抓或失败日志；主窗口图片写 PLC 回调删除 `return` 后死代码。
+- 结果：普通显示与最终 PLC 命令值对齐，全显仍保留补偿前几何；调试日志可直接看到图片写入最终 D500/D502/D504 是否成功写出或被拒抓。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc -DebugPostprocess` 启动成功，生成 `build/Release/logs/tankeye_20260805_180224.log`，确认模拟 PLC、补偿参数加载日志和 Qt 事件循环，随后清理无残留进程。
+- 遗留：未连接真实 PLC/真实相机；需要现场开启调试日志，用非零四类型参数重新检测并确认普通 overlay 与 `[PLC_DEBUG] manual_write/compensation` 的最终命令一致。
+
+## 2026-08-05 - 修正角度补偿后的普通画面旋转显示
+
+- 目标：根据 `tankeye_20260805_180512.log` 和现场观察，解决角度补偿已进入最终 D504 但普通画面框/箭头方向仍像原始角度、甚至出现原始框与补偿框同时显示的问题。
+- 修改：`ApplyPlcCommandPose()` 按最终 PLC D504 相对原始 AC 角度的差值生成命令箭头；`frame_overlay` 普通模式按同一角度差旋转真实夹爪框并平移到补偿后中心，且在有有效补偿命令姿态和真实夹爪框时不再画原始基础 OBB；`frame_overlay_test` 增加补偿命令姿态旋转方向和全显保留原始姿态覆盖。
+- 结果：普通画面只保留补偿后的旋转夹爪框和补偿后的 AC 箭头；原始 OBB/原始几何仍保留在全显/调试模式用于对照排查。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc -DebugPostprocess` 启动成功，生成 `build/Release/logs/tankeye_20260805_181435.log`，确认模拟 PLC、补偿参数加载和 Qt 事件循环，随后确认无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC、真实相机或真实设备；仍需现场用非零类型角度补偿图片复核普通画面的框方向与最终 D504 一致。
+
+## 2026-08-05 - 恢复 D508 左右为夹取 OBB 本地 AC 判定
+
+- 目标：修正“大上左”现场物料被程序判成“大上右”，导致四类型补偿调错行的问题；恢复用户原始需求中的“以夹取 OBB 为基准，看大头/小头在夹取 OBB 哪边”。
+- 修改：`frame_postprocess` 将左右来源从 `A.x vs SEG center.x` 改为 `A->C` 本地坐标：以 AC 射线为前向，按头部 B 在右轴侧或左轴侧输出 D508；调试日志 `head_side_basis` 改为 `grip_local_ac`；`frame_postprocess_smoke` 增加 A 在 SEG 右侧但 B 位于本地左侧时仍输出 `D508=3 大上左` 的回归。
+- 结果：D508 编码和 UI/PLC 含义不变，四类型补偿按修正后的现场左右语义匹配；物料朝上、朝下或旋转时不再依赖图像全局左右判定。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe`、`tankeye-openvino_plc_result_contract_test.exe`、`tankeye-openvino_frame_overlay_test.exe` 均通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc -DebugPostprocess` 启动成功，日志 `build/Release/logs/tankeye_20260805_184746.log` 确认模拟 PLC、补偿参数加载和 Qt 事件循环，随后确认无残留进程。
+- 遗留：未连接真实 PLC、真实相机或真实设备；仍需用户用现场图片人工确认四类名称和对应补偿行已恢复一致。
+
+## 2026-08-05 - 恢复普通/全显显示原始 OBB 与补偿姿态
+
+- 目标：修正普通模式原始 OBB 被隐藏、全显模式补偿后的真实夹爪框和射线不显示的问题。
+- 修改：`frame_overlay` 改为始终绘制基础 `detection.corners`；普通和全显在存在 `plc_command_pose` 时都额外绘制补偿后的真实夹爪框与 AC 射线；`frame_overlay_test` 更新为同时断言原始 OBB、补偿框和补偿射线可见。
+- 结果：普通模式同时显示检测基础 OBB 和最终补偿姿态；全显模式在 raw OBB、SEG、碰撞 mask 等调试层之外，也显示最终补偿姿态。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过。
+- 遗留：未连接真实 PLC、真实相机或真实设备；仍需现场人工确认普通/全显叠层视觉是否清楚。
+
+## 2026-08-05 - 修正 overlay 原始 OBB 去重与补偿同步
+
+- 目标：修正全显模式出现两个原始 OBB 框，以及普通模式基础 OBB 不随补偿后夹爪姿态变化的问题。
+- 修改：普通模式下 detection 基础 OBB 与真实夹爪框使用同一 `plc_command_pose` 旋转/平移；全显模式由 `raw_obb_regions` 显示原始模型 OBB，不再从 detection 重复画基础 OBB，但仍显示补偿后的真实夹爪框和 AC 射线；`frame_overlay_test` 增加普通旧位置清空、新补偿位置可见、全显 raw+command 姿态可见断言。
+- 结果：普通模式的基础 OBB 会跟随补偿姿态；全显模式不再出现两层原始 OBB 重叠，同时保留最终补偿姿态。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过。
+- 遗留：未连接真实 PLC、真实相机或真实设备；仍需现场切换普通/全显人工确认叠层观感。
+
+## 2026-08-05 - 长时间运行风险扫查与 TankEye-Iris 1.4.1 打包
+- 目标：按用户要求大扫当前 C++/Qt 维护状态，重点检查明显 bug、内存泄漏和长时间使用风险；若无阻塞问题则生成 1.4.1 运行包。
+- 修改：`ApplyPlcCommandPose()` 不再为每个 detection 复制完整 `FrameInferenceResult`，改为构造只含当前目标和 PLC 合同字段的最小结果，减少长时间检测循环中的无意义容器/`cv::Mat` 引用计数拷贝；`scripts/package_runtime.ps1`、`runtime/USAGE_GUIDE.txt`、`docs/PACKAGING_README.md` 版本和路径更新为 1.4.1。
+- 结果：静态扫查未发现新的确定性内存泄漏；Qt 对象基本由父对象或 `deleteLater()` 管理，相机线程通过原子标志停止并 join。已生成 `dist\TankEye-Iris_1.4.1` 和 `dist\TankEye-Iris_1.4.1.zip`，manifest 显示 `name=TankEye-Iris_1.4.1`、`version=1.4.1`、`runtime_only=true`。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`git diff --check` 无空白错误，仅有 CRLF 提示；打包命令成功，只有已知 `VCINSTALLDIR is not set` 警告；包内关键文件、zip、manifest、exe 哈希、禁止 `docs/`/`AGENTS.md` 检查通过；包内 `launch_tankeye.ps1 -Device CPU -SimulatePlc` 启动真实 Qt 程序并正常退出，日志 `dist\TankEye-Iris_1.4.1\logs\tankeye_20260805_192737.log` 确认模拟 PLC、主窗口创建、OBB/SEG CPU 模型加载成功，退出后无残留 `tankeye` 进程。
+- 遗留：本轮未连接真实 PLC、真实相机或真实设备；仍建议现场长时间挂机观察日志增长、内存占用和相机连续采集稳定性。

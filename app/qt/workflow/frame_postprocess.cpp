@@ -424,9 +424,19 @@ int ResolveHeadTypeCode(int head_class_id, int side)
     return 0;
 }
 
-int ResolveHeadSideFromSegmentCenter(const Point2f& left_center, const Point2f& segment_center)
+int ResolveHeadSideFromGripLocalAc(const Point2f& grip_center,
+                                   const Point2f& ac_point,
+                                   const Point2f& head_center)
 {
-    return left_center.x > segment_center.x ? 1 : -1;
+    const Point2f forward = ac_point - grip_center;
+    const float length = PointLength(forward);
+    if (length < 1e-6f) {
+        return 0;
+    }
+
+    const Point2f right_axis(forward.y / length, -forward.x / length);
+    const Point2f head_vector = head_center - grip_center;
+    return head_vector.dot(right_axis) >= 0.0f ? 1 : -1;
 }
 
 bool IsFinitePoint(const Point2f& point)
@@ -846,7 +856,11 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
             head_point = head_rect.center;
             head_arrow_start = matched_segment.center;
             head_arrow_end = head_point;
-            head_side = ResolveHeadSideFromSegmentCenter(detection.rotated_rect.center, matched_segment.center);
+            head_side = ac_geometry.valid
+                ? ResolveHeadSideFromGripLocalAc(ac_geometry.arrow_start,
+                                                 ac_geometry.arrow_end,
+                                                 head_rect.center)
+                : 0;
             head_type_code = ResolveHeadTypeCode(head_detection->class_id, head_side);
             has_head_ray = head_type_code > 0;
 
@@ -872,7 +886,7 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
                  << " selected_aob_angle_deg=" << selected_aob_angle_deg
                  << " selected_aob_diff_deg=" << selected_aob_diff_deg
                  << " head_side=" << head_side
-                 << " head_side_basis=left_x_vs_segment_center"
+                 << " head_side_basis=grip_local_ac"
                  << " D508=" << head_type_code
                  << " left_count_in_segment=" << left_count_in_segment
                  << " big_count_in_segment=" << big_count_in_segment

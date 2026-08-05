@@ -30,7 +30,17 @@ struct PoseDetection
     float machine_x = 0.0f;
     float machine_y = 0.0f;
     bool has_machine_coords = false;
+    float ac_unit_machine_x = 0.0f;
+    float ac_unit_machine_y = 0.0f;
+    bool has_machine_ac_unit = false;
     float angle_deg = 0.0f;
+    float plc_command_x = 0.0f;
+    float plc_command_y = 0.0f;
+    float plc_command_angle_deg = 0.0f;
+    cv::Point2f plc_command_center;
+    cv::Point2f plc_command_arrow_start;
+    cv::Point2f plc_command_arrow_end;
+    bool has_plc_command_pose = false;
     int pick_status_code = 3;
     int head_type_code = 0;
     int head_class_id = -1;

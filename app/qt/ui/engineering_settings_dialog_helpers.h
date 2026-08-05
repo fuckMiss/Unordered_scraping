@@ -9,6 +9,7 @@
 #include <QSize>
 #include <QString>
 
+#include <array>
 #include <initializer_list>
 
 class QCheckBox;
@@ -64,6 +65,8 @@ struct EngineeringSettingsControls
     QCheckBox* postprocess_debug_logging_check = nullptr;
     QDoubleSpinBox* mechanical_gripper_length_spin = nullptr;
     QDoubleSpinBox* mechanical_gripper_width_spin = nullptr;
+    std::array<QDoubleSpinBox*, 5> head_type_angle_offset_spins{};
+    std::array<QDoubleSpinBox*, 5> head_type_ac_ray_offset_spins{};
     QComboBox* angle_direction_combo = nullptr;
     QComboBox* angle_range_combo = nullptr;
     QComboBox* axis_mapping_combo = nullptr;
@@ -103,6 +106,7 @@ struct EngineeringSettingsDraft
     bool show_grab_limit_overlay = true;
     double mechanical_gripper_length = 0.0;
     double mechanical_gripper_width = 0.0;
+    std::array<HeadTypeCompensation, 5> head_type_compensations{};
     bool angle_reverse_direction = false;
     AngleRangeMode angle_range_mode = AngleRangeMode::ZeroTo360;
     AxisMappingMode axis_mapping_mode = AxisMappingMode::FrontBackMachineY;

@@ -268,6 +268,18 @@ void RobotController::setAxisCompensation(float front_back_offset, float left_ri
     left_right_offset_ = left_right_offset;
 }
 
+void RobotController::setHeadTypeCompensations(const std::array<HeadTypeCompensation, 5>& head_type_compensations)
+{
+    std::lock_guard<std::recursive_mutex> lock(plc_mutex_);
+    head_type_compensations_ = head_type_compensations;
+}
+
+void RobotController::setDebugLoggingEnabled(bool enabled)
+{
+    std::lock_guard<std::recursive_mutex> lock(plc_mutex_);
+    debug_logging_enabled_ = enabled;
+}
+
 QString RobotController::plcHost() const
 {
     std::lock_guard<std::recursive_mutex> lock(plc_mutex_);
@@ -556,5 +568,7 @@ PlcOutputConfig RobotController::plcOutputConfig() const
     config.axis_mapping_mode = axis_mapping_mode_;
     config.front_back_offset = front_back_offset_;
     config.left_right_offset = left_right_offset_;
+    config.head_type_compensations = head_type_compensations_;
+    config.debug_logging_enabled = debug_logging_enabled_;
     return config;
 }

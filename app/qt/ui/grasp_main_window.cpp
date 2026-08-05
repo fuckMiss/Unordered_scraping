@@ -360,6 +360,9 @@ FrameInferenceResult ScaleResultForDisplay(const FrameInferenceResult& result,
         detection.small_arrow_end = ScalePoint(detection.small_arrow_end, scale_x, scale_y, offset_x, offset_y);
         detection.arrow_start = ScalePoint(detection.arrow_start, scale_x, scale_y, offset_x, offset_y);
         detection.arrow_end = ScalePoint(detection.arrow_end, scale_x, scale_y, offset_x, offset_y);
+        detection.plc_command_center = ScalePoint(detection.plc_command_center, scale_x, scale_y, offset_x, offset_y);
+        detection.plc_command_arrow_start = ScalePoint(detection.plc_command_arrow_start, scale_x, scale_y, offset_x, offset_y);
+        detection.plc_command_arrow_end = ScalePoint(detection.plc_command_arrow_end, scale_x, scale_y, offset_x, offset_y);
         detection.bbox = ScaleRect(detection.bbox, scale_x, scale_y, offset_x, offset_y);
         ScalePoints(detection.corners, scale_x, scale_y, offset_x, offset_y);
         ScalePoints(detection.mechanical_gripper_corners, scale_x, scale_y, offset_x, offset_y);
@@ -410,12 +413,20 @@ QString FormatMachineCoordinate(const PoseDetection& detection, bool x_axis)
     return FormatNumber(x_axis ? detection.machine_x : detection.machine_y);
 }
 
-QString FormatPrimaryCoordinate(const PoseDetection& detection, bool x_axis)
+QString FormatCommandCenterCoordinate(const PoseDetection& detection, bool x_axis)
 {
-    if (detection.has_machine_coords) {
-        return FormatNumber(x_axis ? detection.machine_x : detection.machine_y);
+    if (detection.has_plc_command_pose) {
+        return FormatNumber(x_axis ? detection.plc_command_center.x : detection.plc_command_center.y);
     }
     return FormatNumber(x_axis ? detection.center_x : detection.center_y);
+}
+
+QString FormatCommandMachineCoordinate(const PoseDetection& detection, bool x_axis)
+{
+    if (detection.has_plc_command_pose && detection.has_machine_coords) {
+        return FormatNumber(x_axis ? detection.plc_command_x : detection.plc_command_y);
+    }
+    return FormatMachineCoordinate(detection, x_axis);
 }
 
 QString FormatHeadType(int code, const std::string& text)
@@ -773,6 +784,7 @@ GraspMainWindow::GraspMainWindow(const AppConfig& app_config, QWidget* parent)
     loadUiOverlaySettings();
     loadAxisMappingSettings();
     loadAxisCompensationSettings();
+    loadHeadTypeCompensationSettings();
     loadCoordinateTransformSettings();
     show_all_detections_ = false;
     setupUi();
@@ -2207,6 +2219,7 @@ void GraspMainWindow::applyEngineeringSettingsDraft(const EngineeringSettingsDra
     show_grab_limit_overlay_ = draft.show_grab_limit_overlay;
     mechanical_gripper_length_ = draft.mechanical_gripper_length;
     mechanical_gripper_width_ = draft.mechanical_gripper_width;
+    head_type_compensation_settings_.types = draft.head_type_compensations;
     angle_reverse_direction_ = draft.angle_reverse_direction;
     angle_range_mode_ = draft.angle_range_mode;
     axis_mapping_mode_ = draft.axis_mapping_mode;
@@ -2225,6 +2238,8 @@ void GraspMainWindow::applyEngineeringSettingsDraft(const EngineeringSettingsDra
     robot_controller_.setAxisMapping(axis_mapping_mode_);
     robot_controller_.setAxisCompensation(static_cast<float>(front_back_offset_),
                                           static_cast<float>(left_right_offset_));
+    robot_controller_.setHeadTypeCompensations(head_type_compensation_settings_.types);
+    robot_controller_.setDebugLoggingEnabled(postprocess_debug_logging_enabled_);
 }
 
 void GraspMainWindow::loadImage()
@@ -2506,7 +2521,7 @@ void GraspMainWindow::startDetection()
                                limits,
                                mechanical_gripper,
                                coordinate_state,
-                               plc_config.axis_mapping_mode,
+                               plc_config,
                                false);
         *result = process_result.frame_result;
         return process_result.error_message;
@@ -2811,14 +2826,6 @@ void GraspMainWindow::writeCurrentResultToPlc(const QString& context,
         const QString error_message = watcher->result();
         watcher->deleteLater();
         if (!error_message.isEmpty()) {
-            updateStatusMessage(QStringLiteral("Image detection complete, but PLC write failed: %1")
-                                    .arg(error_message),
-                                6000);
-            return;
-        }
-        updateStatusMessage(QStringLiteral("Image detection complete, PLC written."), 5000);
-        return;
-        if (!error_message.isEmpty()) {
             updateStatusMessage(QStringLiteral("%1完成，但 PLC 写入失败：%2")
                                     .arg(context, error_message),
                                 6000);
@@ -3080,9 +3087,12 @@ void GraspMainWindow::refreshInfoPanel()
     }
 
     const auto& detection = current_result_.detections[resolved_index];
-    SetValueText(machine_x_value_label_, FormatPrimaryCoordinate(detection, true));
-    SetValueText(machine_y_value_label_, FormatPrimaryCoordinate(detection, false));
-    SetValueText(angle_value_label_, FormatNumber(calibratedAngle(detection.angle_deg)) + QStringLiteral(" deg"));
+    SetValueText(machine_x_value_label_, FormatCommandMachineCoordinate(detection, true));
+    SetValueText(machine_y_value_label_, FormatCommandMachineCoordinate(detection, false));
+    SetValueText(angle_value_label_,
+                 detection.has_plc_command_pose
+                     ? FormatNumber(detection.plc_command_angle_deg) + QStringLiteral(" deg")
+                     : FormatNumber(calibratedAngle(detection.angle_deg)) + QStringLiteral(" deg"));
     SetValueText(pick_status_value_label_, QString::number(detection.pick_status_code));
     SetValueText(head_type_value_label_, FormatHeadType(detection.head_type_code, detection.head_type_text));
 }
@@ -3143,11 +3153,14 @@ void GraspMainWindow::refreshTargetCard(TargetCard& target_card, const PoseDetec
             : (detection_index == current_result_.primary_index
                    ? QStringLiteral("主目标")
                    : QStringLiteral("目标 %1").arg(detection_index + 1)));
-    SetValueText(target_card.image_x_label, FormatNumber(detection.center_x));
-    SetValueText(target_card.image_y_label, FormatNumber(detection.center_y));
-    SetValueText(target_card.machine_x_label, FormatMachineCoordinate(detection, true));
-    SetValueText(target_card.machine_y_label, FormatMachineCoordinate(detection, false));
-    SetValueText(target_card.angle_label, FormatNumber(calibratedAngle(detection.angle_deg)) + QStringLiteral(" deg"));
+    SetValueText(target_card.image_x_label, FormatCommandCenterCoordinate(detection, true));
+    SetValueText(target_card.image_y_label, FormatCommandCenterCoordinate(detection, false));
+    SetValueText(target_card.machine_x_label, FormatCommandMachineCoordinate(detection, true));
+    SetValueText(target_card.machine_y_label, FormatCommandMachineCoordinate(detection, false));
+    SetValueText(target_card.angle_label,
+                 detection.has_plc_command_pose
+                     ? FormatNumber(detection.plc_command_angle_deg) + QStringLiteral(" deg")
+                     : FormatNumber(calibratedAngle(detection.angle_deg)) + QStringLiteral(" deg"));
     SetValueText(target_card.pick_status_label, QString::number(detection.pick_status_code));
     SetValueText(target_card.head_type_label, FormatHeadType(detection.head_type_code, detection.head_type_text));
 }

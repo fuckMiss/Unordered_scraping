@@ -4,6 +4,37 @@
 
 #include <QtGlobal>
 
+#include <iostream>
+
+namespace {
+
+const char* HeadTypeName(int head_type_code)
+{
+    switch (head_type_code) {
+    case 1: return "large_upper_right";
+    case 2: return "small_upper_left";
+    case 3: return "large_upper_left";
+    case 4: return "small_upper_right";
+    default: return "unknown";
+    }
+}
+
+void LogHeadTypeCompensationSettings(const char* action,
+                                     const HeadTypeCompensationSettings& settings)
+{
+    std::cout << "[PLC_DEBUG] head_type_compensation_" << action;
+    for (int head_type_code : {1, 3, 4, 2}) {
+        const HeadTypeCompensation& compensation = settings.types[head_type_code];
+        std::cout << " [" << HeadTypeName(head_type_code)
+                  << ",D508=" << head_type_code
+                  << ",angle_offset_deg=" << compensation.angle_offset_deg
+                  << ",ac_ray_offset_mm=" << compensation.ac_ray_offset_mm << "]";
+    }
+    std::cout << std::endl;
+}
+
+} // namespace
+
 void GraspMainWindow::loadLimitSettings()
 {
     grab_limits_ = EngineeringSettingsService::LoadGrabLimits(app_config_.machine_limits);
@@ -50,8 +81,12 @@ void GraspMainWindow::loadObbPostprocessSettings()
     show_plc_center_debug_ = postprocess.show_plc_center_debug;
     show_head_ray_debug_ = postprocess.show_head_ray_debug;
     postprocess_debug_logging_enabled_ = postprocess.debug_logging_enabled;
+    if (qEnvironmentVariableIntValue("TANKEYE_DEBUG_POSTPROCESS") == 1) {
+        postprocess_debug_logging_enabled_ = true;
+    }
     workflow_.setCenterRayOffsetPx(center_ray_offset_px_);
     workflow_.setPostprocessDebugLoggingEnabled(postprocess_debug_logging_enabled_);
+    robot_controller_.setDebugLoggingEnabled(postprocess_debug_logging_enabled_);
 }
 
 void GraspMainWindow::loadUiOverlaySettings()
@@ -60,6 +95,15 @@ void GraspMainWindow::loadUiOverlaySettings()
     show_grab_limit_overlay_ = overlays.show_grab_limit_overlay;
     mechanical_gripper_length_ = overlays.mechanical_gripper_length;
     mechanical_gripper_width_ = overlays.mechanical_gripper_width;
+}
+
+void GraspMainWindow::loadHeadTypeCompensationSettings()
+{
+    head_type_compensation_settings_ = EngineeringSettingsService::LoadHeadTypeCompensationSettings();
+    robot_controller_.setHeadTypeCompensations(head_type_compensation_settings_.types);
+    if (postprocess_debug_logging_enabled_) {
+        LogHeadTypeCompensationSettings("loaded", head_type_compensation_settings_);
+    }
 }
 
 void GraspMainWindow::loadAxisMappingSettings()
@@ -128,6 +172,14 @@ void GraspMainWindow::saveUiOverlaySettings() const
     });
 }
 
+void GraspMainWindow::saveHeadTypeCompensationSettings() const
+{
+    EngineeringSettingsService::SaveHeadTypeCompensationSettings(head_type_compensation_settings_);
+    if (postprocess_debug_logging_enabled_) {
+        LogHeadTypeCompensationSettings("saved", head_type_compensation_settings_);
+    }
+}
+
 void GraspMainWindow::saveAxisMappingSettings() const
 {
     EngineeringSettingsService::SaveAxisMappingMode(axis_mapping_mode_);
@@ -171,6 +223,8 @@ PlcOutputConfig GraspMainWindow::plcOutputConfig() const
     config.axis_mapping_mode = axis_mapping_mode_;
     config.front_back_offset = static_cast<float>(front_back_offset_);
     config.left_right_offset = static_cast<float>(left_right_offset_);
+    config.head_type_compensations = head_type_compensation_settings_.types;
+    config.debug_logging_enabled = postprocess_debug_logging_enabled_;
     return config;
 }
 

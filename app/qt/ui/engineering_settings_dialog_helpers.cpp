@@ -441,6 +441,16 @@ bool ReadEngineeringSettingsDraft(const EngineeringSettingsControls& controls,
     next_draft.show_grab_limit_overlay = controls.show_grab_limit_overlay_check->isChecked();
     next_draft.mechanical_gripper_length = controls.mechanical_gripper_length_spin->value();
     next_draft.mechanical_gripper_width = controls.mechanical_gripper_width_spin->value();
+    for (int head_type = 1; head_type < static_cast<int>(next_draft.head_type_compensations.size()); ++head_type) {
+        next_draft.head_type_compensations[head_type].angle_offset_deg =
+            controls.head_type_angle_offset_spins[head_type] != nullptr
+                ? controls.head_type_angle_offset_spins[head_type]->value()
+                : 0.0;
+        next_draft.head_type_compensations[head_type].ac_ray_offset_mm =
+            controls.head_type_ac_ray_offset_spins[head_type] != nullptr
+                ? controls.head_type_ac_ray_offset_spins[head_type]->value()
+                : 0.0;
+    }
     next_draft.angle_reverse_direction = controls.angle_direction_combo->currentData().toBool();
     next_draft.angle_range_mode = static_cast<AngleRangeMode>(controls.angle_range_combo->currentData().toInt());
     next_draft.axis_mapping_mode = static_cast<AxisMappingMode>(controls.axis_mapping_combo->currentData().toInt());

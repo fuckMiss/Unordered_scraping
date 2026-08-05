@@ -130,6 +130,20 @@ void BigLeftMapsToHeadType3()
     assert(result.head_type_code == 3);
 }
 
+void BigHeadBelowRightGripMapsToLocalLeft()
+{
+    const FrameInferenceResult result = RunPostprocess({
+        MakeObb(kGripClass, 0.90f, { 140.0f, 110.0f }, { 20.0f, 10.0f }, 0.0f),
+        MakeObb(kBigClass, 0.80f, { 140.0f, 150.0f }, { 16.0f, 8.0f }, 0.0f),
+    });
+
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index >= 0);
+    assert(result.detections[result.primary_index].angle_deg < 1.0f);
+    assert(result.head_type_code == 3);
+    assert(result.detections[result.primary_index].head_type_text == "大上左");
+}
+
 void SmallRightMapsToHeadType4()
 {
     const FrameInferenceResult result = RunPostprocess({
@@ -522,6 +536,7 @@ int main()
 {
     BigRightMapsToHeadType1();
     BigLeftMapsToHeadType3();
+    BigHeadBelowRightGripMapsToLocalLeft();
     SmallRightMapsToHeadType4();
     SmallLeftMapsToHeadType2();
     HeadOnlyRejects();

@@ -40,6 +40,29 @@ Point2f ExtendLineEnd(const Point2f& start, const Point2f& end, float scale)
     return start + ray * scale;
 }
 
+float NormalizeAngleDiffDeg(float target_angle_deg, float source_angle_deg)
+{
+    float diff = std::fmod(target_angle_deg - source_angle_deg + 180.0f, 360.0f);
+    if (diff < 0.0f) {
+        diff += 360.0f;
+    }
+    return diff - 180.0f;
+}
+
+Point2f RotatePointAroundCenter(const Point2f& point,
+                                const Point2f& center,
+                                float angle_deg)
+{
+    const float angle_rad = static_cast<float>(angle_deg * CV_PI / 180.0);
+    const float cos_angle = std::cos(angle_rad);
+    const float sin_angle = std::sin(angle_rad);
+    const Point2f vector = point - center;
+    return {
+        center.x + vector.x * cos_angle - vector.y * sin_angle,
+        center.y + vector.x * sin_angle + vector.y * cos_angle,
+    };
+}
+
 void DrawPolyline(Mat& image,
                   const vector<Point2f>& points,
                   const Scalar& color,
@@ -325,11 +348,34 @@ void DrawDetectionPolygon(Mat& image,
                           bool draw_rays,
                           bool draw_plc_center_debug,
                           bool show_head_ray_debug,
+                          bool use_plc_command_pose,
+                          bool draw_detection_corners,
                           double display_scale)
 {
     if (detection.corners.size() != 4) {
         return;
     }
+
+    const bool use_command_pose = use_plc_command_pose && detection.has_plc_command_pose;
+    const Point2f raw_center(detection.center_x, detection.center_y);
+    const Point2f command_delta = use_command_pose ? detection.plc_command_center - raw_center : Point2f();
+    const float command_angle_delta_deg = use_command_pose
+        ? NormalizeAngleDiffDeg(detection.plc_command_angle_deg, detection.angle_deg)
+        : 0.0f;
+    vector<Point2f> display_gripper_corners = detection.mechanical_gripper_corners;
+    if (use_command_pose) {
+        for (Point2f& point : display_gripper_corners) {
+            point = RotatePointAroundCenter(point, raw_center, command_angle_delta_deg) + command_delta;
+        }
+    }
+    vector<Point2f> display_detection_corners = detection.corners;
+    if (use_command_pose) {
+        for (Point2f& point : display_detection_corners) {
+            point = RotatePointAroundCenter(point, raw_center, command_angle_delta_deg) + command_delta;
+        }
+    }
+    const Point2f arrow_start = use_command_pose ? detection.plc_command_arrow_start : detection.arrow_start;
+    const Point2f arrow_end = use_command_pose ? detection.plc_command_arrow_end : detection.arrow_end;
 
     const Scalar original_color = GetClassColor(detection.class_id);
     const Scalar state_color = DetectionStateColor(detection, primary);
@@ -338,16 +384,18 @@ void DrawDetectionPolygon(Mat& image,
     const Scalar arrow_color(255, 0, 255);
     const int arrow_thickness = ScaledStroke(display_scale, emphasized ? 4 : 3);
 
-    DrawPolyline(image, detection.mechanical_gripper_corners, state_color, mechanical_gripper_thickness);
-    DrawPolyline(image, detection.corners, original_color, thickness);
+    DrawPolyline(image, display_gripper_corners, state_color, mechanical_gripper_thickness);
+    if (draw_detection_corners) {
+        DrawPolyline(image, display_detection_corners, original_color, thickness);
+    }
 
     if (!draw_rays) {
         return;
     }
 
-    const Point2f display_arrow_end = ExtendLineEnd(detection.arrow_start, detection.arrow_end, 4.0f);
-    arrowedLine(image, detection.arrow_start, display_arrow_end, arrow_color, arrow_thickness, LINE_AA, 0, 0.28);
-    circle(image, detection.arrow_start, ScaledRadius(display_scale, emphasized ? 5 : 4), arrow_color, FILLED, LINE_AA);
+    const Point2f display_arrow_end = ExtendLineEnd(arrow_start, arrow_end, 4.0f);
+    arrowedLine(image, arrow_start, display_arrow_end, arrow_color, arrow_thickness, LINE_AA, 0, 0.28);
+    circle(image, arrow_start, ScaledRadius(display_scale, emphasized ? 5 : 4), arrow_color, FILLED, LINE_AA);
 
     circle(image, detection.x_point, ScaledRadius(display_scale, emphasized ? 6 : 5), Scalar(255, 0, 255), FILLED, LINE_AA);
     const Scalar big_head_color(0, 255, 255);
@@ -443,6 +491,8 @@ void DrawFrameOverlay(Mat& image,
                                  draw_rays,
                                  draw_plc_debug,
                                  show_head_ray_debug,
+                                 true,
+                                 false,
                                  result.display_scale);
         }
         return;
@@ -461,6 +511,8 @@ void DrawFrameOverlay(Mat& image,
                              draw_rays,
                              draw_plc_debug,
                              show_head_ray_debug,
+                             true,
+                             true,
                              result.display_scale);
     }
 }

@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QString>
 
+#include <array>
 #include <cstdint>
 #include <mutex>
 #include <utility>
@@ -29,6 +30,8 @@ public:
     void setAngleCalibration(float offset_deg, bool reverse_direction, AngleRangeMode range_mode);
     void setAxisMapping(AxisMappingMode mode);
     void setAxisCompensation(float front_back_offset, float left_right_offset);
+    void setHeadTypeCompensations(const std::array<HeadTypeCompensation, 5>& head_type_compensations);
+    void setDebugLoggingEnabled(bool enabled);
     QString plcHost() const;
     PlcRegisterMap plcRegisterMap() const;
     bool simulationEnabled() const;
@@ -68,6 +71,8 @@ private:
     AxisMappingMode axis_mapping_mode_ = AxisMappingMode::FrontBackMachineY;
     float front_back_offset_ = 0.0f;
     float left_right_offset_ = 0.0f;
+    std::array<HeadTypeCompensation, 5> head_type_compensations_{};
+    bool debug_logging_enabled_ = false;
 };
 
 std::vector<std::pair<int, float>> BuildPlcFrameResultRegisterWrites(

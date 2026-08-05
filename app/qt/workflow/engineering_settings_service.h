@@ -5,6 +5,8 @@
 #include "grab_limit_evaluator.h"
 #include "plc_result_contract.h"
 
+#include <array>
+
 #include <QString>
 
 struct CameraSettings
@@ -49,6 +51,11 @@ struct UiOverlaySettings
     double mechanical_gripper_width = 0.0;
 };
 
+struct HeadTypeCompensationSettings
+{
+    std::array<HeadTypeCompensation, 5> types{};
+};
+
 class EngineeringSettingsService
 {
 public:
@@ -79,6 +86,10 @@ public:
 
     static UiOverlaySettings LoadUiOverlaySettings();
     static void SaveUiOverlaySettings(const UiOverlaySettings& settings);
+
+    static HeadTypeCompensationSettings LoadHeadTypeCompensationSettings();
+    static HeadTypeCompensationSettings LoadHeadTypeCompensationSettings(const HeadTypeCompensationSettings& defaults);
+    static void SaveHeadTypeCompensationSettings(const HeadTypeCompensationSettings& settings);
 
     static CoordinateTransformConfig LoadCoordinateTransformSettings();
     static bool SaveCoordinateTransformSettings(const CoordinateTransformConfig& config,

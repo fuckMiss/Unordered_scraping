@@ -1,9 +1,9 @@
-TankEye-Iris 1.4 使用说明
+TankEye-Iris 1.4.1 使用说明
 ========================
 
 一、首次使用
 
-1. 将 `TankEye-Iris_1.4.zip` 解压到本地磁盘，例如 `D:\TankEye-Iris_1.4`。
+1. 将 `TankEye-Iris_1.4.1.zip` 解压到本地磁盘，例如 `D:\TankEye-Iris_1.4.1`。
 2. 不要直接在压缩包里运行程序。
 3. 双击包根目录下的 `launch_tankeye_main_only.vbs`。
 4. 第一次启动时，程序会自动在当前 Windows 用户桌面创建 `TankEye-Iris` 图标。

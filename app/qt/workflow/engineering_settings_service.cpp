@@ -60,6 +60,13 @@ QString AxisMappingKey(AxisMappingMode mode)
                                                       : QStringLiteral("machine_y");
 }
 
+constexpr int kHeadTypeCompensationCount = 5;
+
+QString HeadTypeCompensationGroupKey(int head_type_code)
+{
+    return QStringLiteral("head_type_%1").arg(head_type_code);
+}
+
 AxisMappingMode ParseAxisMappingMode(const QString& value)
 {
     return value.trimmed().toLower() == QStringLiteral("machine_x")
@@ -336,6 +343,46 @@ void EngineeringSettingsService::SaveUiOverlaySettings(const UiOverlaySettings& 
                        overlays.mechanical_gripper_length > 0.0 ? overlays.mechanical_gripper_length : 0.0);
     settings->setValue(QStringLiteral("mechanical_gripper_width"),
                        overlays.mechanical_gripper_width > 0.0 ? overlays.mechanical_gripper_width : 0.0);
+    settings->endGroup();
+    settings->sync();
+}
+
+HeadTypeCompensationSettings EngineeringSettingsService::LoadHeadTypeCompensationSettings()
+{
+    return LoadHeadTypeCompensationSettings(HeadTypeCompensationSettings{});
+}
+
+HeadTypeCompensationSettings EngineeringSettingsService::LoadHeadTypeCompensationSettings(const HeadTypeCompensationSettings& defaults)
+{
+    HeadTypeCompensationSettings settings_value = defaults;
+    auto settings = CreateSettings();
+    settings->beginGroup(QStringLiteral("head_type_compensation"));
+    for (int head_type = 1; head_type < kHeadTypeCompensationCount; ++head_type) {
+        const QString group = HeadTypeCompensationGroupKey(head_type);
+        settings->beginGroup(group);
+        settings_value.types[head_type].angle_offset_deg =
+            settings->value(QStringLiteral("angle_offset_deg"),
+                            settings_value.types[head_type].angle_offset_deg).toDouble();
+        settings_value.types[head_type].ac_ray_offset_mm =
+            settings->value(QStringLiteral("ac_ray_offset_mm"),
+                            settings_value.types[head_type].ac_ray_offset_mm).toDouble();
+        settings->endGroup();
+    }
+    settings->endGroup();
+    return settings_value;
+}
+
+void EngineeringSettingsService::SaveHeadTypeCompensationSettings(const HeadTypeCompensationSettings& settings_value)
+{
+    auto settings = CreateSettings();
+    settings->beginGroup(QStringLiteral("head_type_compensation"));
+    for (int head_type = 1; head_type < kHeadTypeCompensationCount; ++head_type) {
+        const QString group = HeadTypeCompensationGroupKey(head_type);
+        settings->beginGroup(group);
+        settings->setValue(QStringLiteral("angle_offset_deg"), settings_value.types[head_type].angle_offset_deg);
+        settings->setValue(QStringLiteral("ac_ray_offset_mm"), settings_value.types[head_type].ac_ray_offset_mm);
+        settings->endGroup();
+    }
     settings->endGroup();
     settings->sync();
 }

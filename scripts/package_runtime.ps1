@@ -1,6 +1,6 @@
 ﻿param(
     [string]$BuildDir = "build",
-    [string]$ReleaseName = "TankEye-Iris_1.4",
+    [string]$ReleaseName = "TankEye-Iris_1.4.1",
     [switch]$Force
 )
 
@@ -464,7 +464,7 @@ Write-Host "Desktop shortcut created: $ShortcutPath"
 Write-Utf8File (Join-Path $StagingDir "create_desktop_shortcut.ps1") $ShortcutScript
 
 $Readme = @'
-# TankEye-Iris 1.4 独立运行包
+# TankEye-Iris 1.4.1 独立运行包
 
 ## 启动
 
@@ -503,7 +503,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 
 此运行包不包含 C/C++ 源码、头文件、Python 脚本、CMake 工程、测试、调试符号、`.lib` 或训练资产。
 
-## 1.4 说明
+## 1.4.1 说明
 
 - 主界面左侧图像区约 75%，右侧控制栏约 25%。
 - 图像完整显示，允许边缘留白，不裁剪。
@@ -560,7 +560,7 @@ $HashEntries = @($FilesForHash | ForEach-Object { Add-HashEntry $StagingDir $_ }
 
 $Manifest = [PSCustomObject]@{
     name = $ReleaseName
-    version = "1.4"
+    version = "1.4.1"
     built_at = (Get-Date).ToString("o")
     source_build_dir = $BuildDir
     runtime_only = $true

@@ -646,9 +646,14 @@ GrabLimitDecision EvaluateGrabLimits(const FrameInferenceResult& result,
         return decision;
     }
 
-    const PoseDetection& target = result.detections[result.primary_index];
-    const float active_front_back = FrontBackValue(target, plc_config.axis_mapping_mode);
-    const float active_left_right = LeftRightValue(target, plc_config.axis_mapping_mode);
+    const PlcWriteResult write_result = BuildPlcWriteResult(result, plc_config);
+    if (write_result.type_compensation_failed) {
+        decision.rejected = true;
+        decision.reason = "类型中心补偿需要有效的九点坐标转换和 AC 射线方向。";
+        return decision;
+    }
+    const float active_front_back = write_result.x;
+    const float active_left_right = write_result.y;
     if (!IsValueWithinRange(active_front_back, limits.x)) {
         decision.rejected = true;
         decision.reason = FormatLimitReason(FrontBackAxisLabel(plc_config.axis_mapping_mode),
@@ -664,7 +669,7 @@ GrabLimitDecision EvaluateGrabLimits(const FrameInferenceResult& result,
         return decision;
     }
 
-    const float active_angle = ApplyPlcAngleCalibration(target.angle_deg, plc_config);
+    const float active_angle = write_result.angle;
     if (!IsValueWithinRange(active_angle, limits.angle)) {
         decision.rejected = true;
         decision.reason = FormatLimitReason("旋转角度", active_angle, limits.angle);

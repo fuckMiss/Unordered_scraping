@@ -1,4 +1,4 @@
-# TankEye-Iris 1.4 编译、启动、打包流程
+# TankEye-Iris 1.4.1 编译、启动、打包流程
 
 本文档按当前项目约定整理。以后统一使用 `build` 目录，不再使用 `build_qt_codex`、`build_repackage` 等临时目录。Visual Studio 生成器是多配置构建，Release 程序生成在：
 
@@ -115,7 +115,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin
 打包命令：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.4 -Force
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.4.1 -Force
 ```
 
 脚本会自动从下面这些位置查找主程序：
@@ -138,27 +138,27 @@ build\Release\tankeye-openvino_qt_app.exe
 成功后生成：
 
 ```text
-dist\TankEye-Iris_1.4
-dist\TankEye-Iris_1.4.zip
+dist\TankEye-Iris_1.4.1
+dist\TankEye-Iris_1.4.1.zip
 ```
 
-`dist\TankEye-Iris_1.4` 是可直接运行的文件夹，`dist\TankEye-Iris_1.4.zip` 是给新电脑拷贝用的压缩包。
+`dist\TankEye-Iris_1.4.1` 是可直接运行的文件夹，`dist\TankEye-Iris_1.4.1.zip` 是给新电脑拷贝用的压缩包。
 
 ## 9. 验证打包结果
 
 检查关键文件：
 
 ```powershell
-Test-Path .\dist\TankEye-Iris_1.4\tankeye-openvino_qt_app.exe
-Test-Path .\dist\TankEye-Iris_1.4\platforms\qwindows.dll
-Test-Path .\dist\TankEye-Iris_1.4\models\weights\best_obb.xml
-Test-Path .\dist\TankEye-Iris_1.4\models\weights\best_seg.xml
-Test-Path .\dist\TankEye-Iris_1.4\openvino_intel_cpu_plugin.dll
-Test-Path .\dist\TankEye-Iris_1.4\openvino_intel_gpu_plugin.dll
-Test-Path .\dist\TankEye-Iris_1.4\config\admin_auth.key
-Test-Path .\dist\TankEye-Iris_1.4\USAGE_GUIDE.txt
-Test-Path .\dist\TankEye-Iris_1.4\docs
-Test-Path .\dist\TankEye-Iris_1.4\AGENTS.md
+Test-Path .\dist\TankEye-Iris_1.4.1\tankeye-openvino_qt_app.exe
+Test-Path .\dist\TankEye-Iris_1.4.1\platforms\qwindows.dll
+Test-Path .\dist\TankEye-Iris_1.4.1\models\weights\best_obb.xml
+Test-Path .\dist\TankEye-Iris_1.4.1\models\weights\best_seg.xml
+Test-Path .\dist\TankEye-Iris_1.4.1\openvino_intel_cpu_plugin.dll
+Test-Path .\dist\TankEye-Iris_1.4.1\openvino_intel_gpu_plugin.dll
+Test-Path .\dist\TankEye-Iris_1.4.1\config\admin_auth.key
+Test-Path .\dist\TankEye-Iris_1.4.1\USAGE_GUIDE.txt
+Test-Path .\dist\TankEye-Iris_1.4.1\docs
+Test-Path .\dist\TankEye-Iris_1.4.1\AGENTS.md
 ```
 
 前 8 项应返回 `True`；`docs` 和 `AGENTS.md` 两项必须返回 `False`，说明运行包未包含源码文档和协作规则文件。
@@ -166,7 +166,7 @@ Test-Path .\dist\TankEye-Iris_1.4\AGENTS.md
 校验打包出的 exe 是否就是本次 build 的 exe：
 
 ```powershell
-(Get-FileHash .\build\Release\tankeye-openvino_qt_app.exe).Hash -eq (Get-FileHash .\dist\TankEye-Iris_1.4\tankeye-openvino_qt_app.exe).Hash
+(Get-FileHash .\build\Release\tankeye-openvino_qt_app.exe).Hash -eq (Get-FileHash .\dist\TankEye-Iris_1.4.1\tankeye-openvino_qt_app.exe).Hash
 ```
 
 返回 `True` 表示一致。
@@ -176,7 +176,7 @@ Test-Path .\dist\TankEye-Iris_1.4\AGENTS.md
 进入运行包目录：
 
 ```powershell
-cd .\dist\TankEye-Iris_1.4
+cd .\dist\TankEye-Iris_1.4.1
 ```
 
 正常启动：
@@ -197,7 +197,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 launch_tankeye_main_only.vbs
 ```
 
-## 11. 当前 1.4 行为说明
+## 11. 当前 1.4.1 行为说明
 
 - 主界面比例为左侧图像区约 75%、右侧控制栏约 25%。
 - 右侧栏采用双列布局，并随窗口尺寸自适应。
@@ -247,7 +247,7 @@ Select-String -Path .\scripts\package_runtime.ps1 -Pattern "Build output"
 改用：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.4 -Force
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.4.1 -Force
 ```
 
 ### 提示：VCINSTALLDIR is not set
@@ -259,7 +259,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtim
 [Package] Release zip: ...
 ```
 
-并且 `dist\TankEye-Iris_1.4.zip` 已生成，就说明打包成功。
+并且 `dist\TankEye-Iris_1.4.1.zip` 已生成，就说明打包成功。
 
 ### 图片中文路径导致加载失败或异常
 
@@ -276,7 +276,7 @@ Windows 下 OpenCV 直接读取中文路径可能不稳定。临时规避方法�
 运行包会把缓存保存在：
 
 ```text
-dist\TankEye-Iris_1.4\openvino_cache
+dist\TankEye-Iris_1.4.1\openvino_cache
 ```
 
 只要不删除这个目录，第二次启动、第二次加载同一套模型，通常会比第一次快。
@@ -334,5 +334,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 cd D:\work_floder\jiezhifa\TankEye_source_for_new_pc
 cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-admin-auth-code tankeye-openvino_frame_postprocess_smoke
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter "*frame_postprocess_smoke*.exe"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.4 -Force
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.4.1 -Force
 ```

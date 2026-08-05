@@ -158,6 +158,69 @@ void MechanicalGripperOverlayUsesRejectedStateColor()
     assert(pixel[2] > pixel[0]);
 }
 
+void NormalViewDrawsPlcCommandPoseWhenAvailable()
+{
+    cv::Mat image(120, 140, CV_8UC3, cv::Scalar(0, 0, 0));
+    FrameInferenceResult result;
+    result.display_scale = 1.0;
+    result.primary_index = 0;
+    PoseDetection detection = MakeDisplayDetection(0, 0.95f, true, { 30.0f, 40.0f });
+    detection.angle_deg = 0.0f;
+    detection.mechanical_gripper_corners = {
+        { 16.0f, 30.0f },
+        { 44.0f, 30.0f },
+        { 44.0f, 50.0f },
+        { 16.0f, 50.0f },
+    };
+    detection.center_x = 30.0f;
+    detection.center_y = 40.0f;
+    detection.has_plc_command_pose = true;
+    detection.plc_command_center = { 80.0f, 40.0f };
+    detection.plc_command_arrow_start = { 80.0f, 40.0f };
+    detection.plc_command_arrow_end = { 80.0f, 55.0f };
+    detection.plc_command_angle_deg = 90.0f;
+    result.detections.push_back(detection);
+
+    DrawFrameOverlay(image, result, -1, false, false, false, true, nullptr);
+
+    assert(CountNonBlackPixels(image, cv::Rect(18, 30, 24, 20)) == 0);
+    assert(CountNonBlackPixels(image, cv::Rect(68, 26, 26, 28)) > 0);
+    assert(CountNonBlackPixels(image, cv::Rect(74, 54, 12, 30)) > 0);
+    assert(CountNonBlackPixels(image, cv::Rect(100, 34, 20, 12)) == 0);
+}
+
+void DebugViewDrawsRawObbOnceAndCommandPoseWhenCommandPoseExists()
+{
+    cv::Mat image(80, 120, CV_8UC3, cv::Scalar(0, 0, 0));
+    FrameInferenceResult result;
+    result.display_scale = 1.0;
+    result.primary_index = 0;
+    PoseDetection detection = MakeDisplayDetection(0, 0.95f, true, { 30.0f, 40.0f });
+    detection.mechanical_gripper_corners = {
+        { 20.0f, 32.0f },
+        { 40.0f, 32.0f },
+        { 40.0f, 48.0f },
+        { 20.0f, 48.0f },
+    };
+    detection.center_x = 30.0f;
+    detection.center_y = 40.0f;
+    detection.has_plc_command_pose = true;
+    detection.plc_command_center = { 80.0f, 40.0f };
+    detection.plc_command_arrow_start = { 80.0f, 40.0f };
+    detection.plc_command_arrow_end = { 95.0f, 40.0f };
+    result.detections.push_back(detection);
+    ObbRegion raw;
+    raw.class_id = detection.class_id;
+    raw.center = detection.obb_center;
+    raw.corners = detection.corners;
+    result.raw_obb_regions.push_back(raw);
+
+    DrawFrameOverlay(image, result, -1, false, true, false, true, nullptr);
+
+    assert(CountNonBlackPixels(image, cv::Rect(18, 30, 24, 20)) > 0);
+    assert(CountNonBlackPixels(image, cv::Rect(68, 30, 24, 20)) > 0);
+}
+
 void OverlayDrawsVisibleGrabLimitPolygon()
 {
     cv::Mat image(120, 160, CV_8UC3, cv::Scalar(0, 0, 0));
@@ -250,6 +313,8 @@ int main()
     DebugViewStillDrawsDuplicateSegmentDetections();
     MechanicalGripperOverlayDrawsConfiguredRectangle();
     MechanicalGripperOverlayUsesRejectedStateColor();
+    NormalViewDrawsPlcCommandPoseWhenAvailable();
+    DebugViewDrawsRawObbOnceAndCommandPoseWhenCommandPoseExists();
     OverlayDrawsVisibleGrabLimitPolygon();
     HiddenOverlayDoesNotPolluteFrame();
     PartiallyOutOfFrameOverlayDoesNotCrash();

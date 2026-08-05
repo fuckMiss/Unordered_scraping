@@ -167,6 +167,8 @@ private:
     void saveAxisMappingSettings() const;
     void loadAxisCompensationSettings();
     void saveAxisCompensationSettings() const;
+    void loadHeadTypeCompensationSettings();
+    void saveHeadTypeCompensationSettings() const;
     void loadCoordinateTransformSettings();
     bool saveCoordinateTransformSettings(QString* error_message = nullptr) const;
     void applyEngineeringSettingsDraft(const EngineeringSettingsDraft& draft);
@@ -284,6 +286,7 @@ private:
     bool show_grab_limit_overlay_ = true;
     double mechanical_gripper_length_ = 0.0;
     double mechanical_gripper_width_ = 0.0;
+    HeadTypeCompensationSettings head_type_compensation_settings_;
     bool angle_reverse_direction_ = false;
     AngleRangeMode angle_range_mode_ = AngleRangeMode::ZeroTo360;
     AxisMappingMode axis_mapping_mode_ = AxisMappingMode::FrontBackMachineY;

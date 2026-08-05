@@ -28,5 +28,5 @@ FrameProcessingResult ProcessVisionFrame(GraspWorkflow& workflow,
                                          const GrabLimitConfig& limits,
                                          const MechanicalGripperCollisionConfig& mechanical_gripper,
                                          const CoordinateTransformState& coordinate_state,
-                                         AxisMappingMode axis_mapping_mode,
+                                         const PlcOutputConfig& plc_config,
                                          bool reject_invalid_coordinate_state_when_limits_disabled);
