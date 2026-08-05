@@ -258,3 +258,10 @@
 - 结果：主提交 `55f9b46` 已推送到 `origin/Unordered_Scraping_V5`，远端从 `998dfff` 更新到 `55f9b46`。
 - 验证：推送前确认暂存范围不包含 `dist/`、`build/`、模型权重或 `config/admin_auth.key`；`git push origin Unordered_Scraping_V5` 在提权网络环境下成功返回 `998dfff..55f9b46`。
 - 遗留：运行包产物 `dist\TankEye-Iris_1.4` 和 `dist\TankEye-Iris_1.4.zip` 留在本地且未纳入 Git；本次未连接真实 PLC/真实相机。
+
+## 2026-08-05 - 将真实夹爪方向演进到 Python 1.0.14 AC 垂直语义
+- 目标：按用户确认的 `推理v1.0.13.py` 到 `推理v1.0.14(1).py` 几何变化，将 C++ 后处理从“夹爪长轴沿对齐红框长边”演进为“先确定 AC 射线，真实夹爪长轴垂直 AC、宽度沿 AC”，不恢复旧 2 倍/3 倍延长框。
+- 修改：`frame_postprocess` 保持 AC 选择仍基于 `SEG 中心 O -> A -> C`，但 `PoseDetection::grip_long_angle_deg` 改为 `AC angle + 90°` 并归一化，用于真实夹爪长轴；后处理调试日志 `ray_logic` 更新为 `v1.0.14_ac_perp_gripper` 并输出新的 `gripper_long_angle_deg`。`grab_limit_evaluator` 继续使用真实夹爪长宽和九点坐标转换生成 `mechanical_gripper_corners`，碰撞规则不变。
+- 结果：PLC/overlay 的 AC 箭头角度仍来自 `A -> C`，真实夹爪框长边改为垂直 AC，C 点和中心偏移在真实夹爪框边界上按 AC 方向求得；旧 `extended_corners`、`ExtendedObb`、`ScaleObbLongEdge` 等延长框逻辑未恢复。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_grab_limit_evaluator_test`、`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` 均通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 启动真实 Qt 程序并生成 `build/Release/logs/tankeye_20260805_152102.log`，日志确认 `[PLC_SIM] enabled`、主窗口创建并进入 Qt 事件循环，GUI 常驻导致 60 秒超时后确认无残留 `tankeye` 进程；`git diff --check` 无空白错误，仅有 CRLF 提示。
+- 遗留：未连接真实 PLC/真实相机；仍需用户用现场图片或相机画面复核真实夹爪框长轴垂直 AC 后的方向、C 点、中心偏移、D504 角度和拒抓效果是否符合实际夹具。

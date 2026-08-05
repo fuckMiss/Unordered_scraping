@@ -102,7 +102,8 @@ FrameInferenceResult MakeMechanicalGripperCollisionResult()
     target.center_x = 50.0f;
     target.center_y = 50.0f;
     target.obb_center = { 50.0f, 50.0f };
-    target.grip_long_angle_deg = 0.0f;
+    target.seg_center = { 0.0f, 50.0f };
+    target.grip_long_angle_deg = 90.0f;
     result.detections.push_back(target);
     result.primary_index = 0;
     result.pick_status_code = 1;
@@ -250,11 +251,19 @@ void MechanicalGripperFinalizesPoseFromRealFrameBoundary()
     assert(result.detections.front().can_grab);
     assert(NearlyEqual(result.detections.front().arrow_start.x, 50.0f));
     assert(NearlyEqual(result.detections.front().arrow_start.y, 50.0f));
-    assert(NearlyEqual(result.detections.front().arrow_end.x, 70.0f));
+    assert(NearlyEqual(result.detections.front().arrow_end.x, 60.0f));
     assert(NearlyEqual(result.detections.front().arrow_end.y, 50.0f));
     assert(NearlyEqual(result.detections.front().angle_deg, 0.0f));
     assert(NearlyEqual(result.detections.front().center_x, 60.0f));
     assert(NearlyEqual(result.detections.front().center_y, 50.0f));
+    const std::vector<cv::Point2f>& corners = result.detections.front().mechanical_gripper_corners;
+    assert(corners.size() == 4);
+    assert(NearlyEqual(std::hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y), 40.0f));
+    assert(NearlyEqual(std::hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y), 20.0f));
+    assert(NearlyEqual(corners[0].x, 60.0f));
+    assert(NearlyEqual(corners[1].x, 60.0f));
+    assert(NearlyEqual(corners[0].y, 30.0f));
+    assert(NearlyEqual(corners[1].y, 70.0f));
     assert(result.primary_index == 0);
     assert(result.pick_status_code == 1);
 }

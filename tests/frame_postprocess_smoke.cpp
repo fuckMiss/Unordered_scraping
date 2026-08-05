@@ -449,6 +449,7 @@ void FinalRayAngleMatchesAcRay()
     assert(NearlyEqual(target.angle_deg, AngleBetween(target.arrow_start, target.arrow_end)));
     assert(target.arrow_end.x > target.arrow_start.x);
     assert(NearlyEqual(target.angle_deg, 0.0f));
+    assert(NearlyEqual(target.grip_long_angle_deg, 90.0f));
     assert(NearlyEqual(target.obb_center.x, 110.0f));
     assert(NearlyEqual(target.obb_center.y, 110.0f));
 }
@@ -468,7 +469,7 @@ void AcRayKeepsOriginalCenterBeforeMechanicalGripperFinalization()
     assert(NearlyEqual(target.center_x, 110.0f));
     assert(NearlyEqual(target.center_y, 110.0f));
     assert(NearlyEqual(target.obb_center.y, 110.0f));
-    assert(NearlyEqual(target.grip_long_angle_deg, -90.0f));
+    assert(NearlyEqual(target.grip_long_angle_deg, 90.0f));
 }
 
 void MissingHeadKeepsTargetRejectedWithoutAcFallback()

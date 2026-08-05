@@ -178,3 +178,11 @@
 - 已提交并推送主改动到 `origin/Unordered_Scraping_V5`：提交 `55f9b46`，提交标题 `Use mechanical gripper frame for collision and package 1.4`；远端从 `998dfff` 更新到 `55f9b46`。
 - 该提交包含真实夹爪框完全接管旧延长框、相关测试、TankEye-Iris 1.4 打包脚本/使用说明和项目记忆更新；推送前确认未纳入 `dist/`、`build/`、模型权重或 `config/admin_auth.key`。
 - 本地运行包产物仍在 `dist\TankEye-Iris_1.4` 和 `dist\TankEye-Iris_1.4.zip`，未纳入 Git；本次未连接真实 PLC、真实相机或真实设备。
+
+## 2026-08-05 当前补充记忆：1.0.14 AC 垂直夹爪语义
+- 用户提供 `models/推理v1.0.14(1).py` 作为相对 `models/推理v1.0.13.py` 的参考变化，并确认采用“真实夹爪长轴垂直 AC、真实夹爪宽度沿 AC”的 C++ 迁移口径；不要恢复 Python 临时 2 倍框或旧 3 倍延长 OBB 框。
+- 已实现：`frame_postprocess` 仍先按现有 A/B/SEG 匹配和 `O -> A -> C` 几何选择 AC 射线，PLC/overlay 的 `angle_deg` 仍等于 `A -> C`；但输出给真实夹爪生成的 `grip_long_angle_deg` 改为 `AC angle + 90°` 并归一化，后处理日志标识更新为 `ray_logic=v1.0.14_ac_perp_gripper`。
+- 已保持：`grab_limit_evaluator` 继续用工程设置真实夹爪长宽、九点坐标转换和 `grip_long_angle_deg` 生成 `mechanical_gripper_corners`；真实夹爪 mask 碰撞规则仍是 `mechanical_gripper_corners ∩ 旁边 SEG mask ∩ 非当前自身 mask`；长宽/坐标/自身 mask/C 点失败仍保守不可抓。
+- 已补测试：`frame_postprocess_smoke` 验证 AC 角度仍为最终抓取角且 `grip_long_angle_deg` 与 AC 相差 90°；`grab_limit_evaluator_test` 验证水平 AC 下真实夹爪长边竖直、宽边水平，C 点落在宽向边界。
+- 验证已完成：四个 Release 目标 `tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_grab_limit_evaluator_test`、`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` 构建通过；默认测试脚本全部通过；单独 `frame_postprocess_smoke` 通过；模拟 PLC 启动日志为 `build/Release/logs/tankeye_20260805_152102.log`，GUI 常驻 60 秒超时后确认无残留 `tankeye` 进程；`git diff --check` 仅提示 CRLF。
+- 当前工作区注意：`docs/project-memory/AI_ROLE_WORKFLOW.md` 是用户此前未提交修改，`models/推理v1.0.14(1).py` 是未跟踪参考脚本；后续不要覆盖或误删。未连接真实 PLC/真实相机，仍需现场复核真实夹爪方向、C 点、中心偏移和拒抓效果。

@@ -219,6 +219,18 @@ float ComputeFinalRayAngle(const Point2f& obb_center, const Point2f& keep_point)
     return ComputeObbRayAngle(obb_center, keep_point);
 }
 
+float NormalizeAngleDeg(float angle_deg)
+{
+    if (!isfinite(angle_deg)) {
+        return angle_deg;
+    }
+    angle_deg = fmod(angle_deg, 360.0f);
+    if (angle_deg < 0.0f) {
+        angle_deg += 360.0f;
+    }
+    return angle_deg;
+}
+
 float PointLength(const Point2f& point)
 {
     return std::hypot(point.x, point.y);
@@ -617,7 +629,7 @@ PoseDetection BuildPoseDetection(const OBBDetection& detection,
     const Point2f arrow_end = ac_geometry.valid ? ac_geometry.arrow_end : original_center;
     const float ray_angle_deg = ComputeFinalRayAngle(arrow_start, arrow_end);
     const float grip_long_angle_deg = ac_geometry.valid
-        ? ac_geometry.final_long_angle_rad * 180.0f / static_cast<float>(CV_PI)
+        ? NormalizeAngleDeg(ray_angle_deg + 90.0f)
         : detection.rotated_rect.angle;
 
     PoseDetection pose;
@@ -878,7 +890,11 @@ vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& ob
                  << " target_long_angle_deg=" << ac_geometry.target_long_angle_rad * 180.0f / static_cast<float>(CV_PI)
                  << " final_long_angle_deg=" << ac_geometry.final_long_angle_rad * 180.0f / static_cast<float>(CV_PI)
                  << " ac_angle_deg=" << ComputeFinalRayAngle(ac_geometry.arrow_start, ac_geometry.arrow_end)
-                 << " ray_logic=v1.0.13_seg_center_ac"
+                 << " gripper_long_angle_deg=" << (ac_geometry.valid
+                                                       ? NormalizeAngleDeg(ComputeFinalRayAngle(ac_geometry.arrow_start,
+                                                                                                ac_geometry.arrow_end) + 90.0f)
+                                                       : numeric_limits<float>::quiet_NaN())
+                 << " ray_logic=v1.0.14_ac_perp_gripper"
                  << " ray_intersects_head=" << BoolText(ray_intersects_head_ray);
             cout << " can_grab=" << BoolText(can_grab);
             if (head_detection == nullptr) {
