@@ -186,3 +186,8 @@
 - 已补测试：`frame_postprocess_smoke` 验证 AC 角度仍为最终抓取角且 `grip_long_angle_deg` 与 AC 相差 90°；`grab_limit_evaluator_test` 验证水平 AC 下真实夹爪长边竖直、宽边水平，C 点落在宽向边界。
 - 验证已完成：四个 Release 目标 `tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_grab_limit_evaluator_test`、`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` 构建通过；默认测试脚本全部通过；单独 `frame_postprocess_smoke` 通过；模拟 PLC 启动日志为 `build/Release/logs/tankeye_20260805_152102.log`，GUI 常驻 60 秒超时后确认无残留 `tankeye` 进程；`git diff --check` 仅提示 CRLF。
 - 当前工作区注意：`docs/project-memory/AI_ROLE_WORKFLOW.md` 是用户此前未提交修改，`models/推理v1.0.14(1).py` 是未跟踪参考脚本；后续不要覆盖或误删。未连接真实 PLC/真实相机，仍需现场复核真实夹爪方向、C 点、中心偏移和拒抓效果。
+
+## 2026-08-05 当前补充记忆：参考脚本纳入仓库
+- 用户要求将 `models/推理v1.0.14(1).py` 也上传到 GitHub，但明确 `models/推理v1.0.13.py` 不必改动。
+- 本次仅是把 1.0.14 参考脚本纳入版本库管理，不改变当前 C++ 后处理和测试语义；后续若继续演进，仍以 C++ 现状和现场验证为准。
+- 当前仓库同时保留 `推理v1.0.13.py` 和 `推理v1.0.14(1).py`，方便对照 1.0.13 与 1.0.14 的几何变化。未引入新的构建/运行验证需求。

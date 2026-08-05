@@ -265,3 +265,10 @@
 - 结果：PLC/overlay 的 AC 箭头角度仍来自 `A -> C`，真实夹爪框长边改为垂直 AC，C 点和中心偏移在真实夹爪框边界上按 AC 方向求得；旧 `extended_corners`、`ExtendedObb`、`ScaleObbLongEdge` 等延长框逻辑未恢复。
 - 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_grab_limit_evaluator_test`、`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` 均通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 启动真实 Qt 程序并生成 `build/Release/logs/tankeye_20260805_152102.log`，日志确认 `[PLC_SIM] enabled`、主窗口创建并进入 Qt 事件循环，GUI 常驻导致 60 秒超时后确认无残留 `tankeye` 进程；`git diff --check` 无空白错误，仅有 CRLF 提示。
 - 遗留：未连接真实 PLC/真实相机；仍需用户用现场图片或相机画面复核真实夹爪框长轴垂直 AC 后的方向、C 点、中心偏移、D504 角度和拒抓效果是否符合实际夹具。
+
+## 2026-08-05 - 补充上传 Python 1.0.14 参考脚本
+- 目标：按用户要求把 `models/推理v1.0.14(1).py` 也纳入 Git/GitHub，作为 1.0.14 参考实现保留在仓库中；`models/推理v1.0.13.py` 继续保留不变。
+- 修改：本轮仅新增未跟踪的 `models/推理v1.0.14(1).py` 到版本库暂存/提交范围，未改动 C++ 源码、测试或其他项目文件。
+- 结果：仓库中同时保留 `推理v1.0.13.py` 和 `推理v1.0.14(1).py`，便于后续继续对照 Python 参考语义；未触碰现有 C++ 实现。
+- 验证：这次只涉及参考脚本入库，没有新的编译目标或运行时行为变化；沿用上一轮已通过的 Release 构建、默认测试和模拟 PLC Qt 启动结果作为当前基线。
+- 遗留：后续如继续对照 Python 版本演进，仍需优先以当前 C++ 实现和现场验证为准，不可再次把旧临时放大框语义误带回实现。
