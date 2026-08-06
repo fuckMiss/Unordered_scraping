@@ -53,3 +53,10 @@
 - 放大夹取 OBB 碰撞归属修正已完成 `tankeye-openvino_frame_postprocess_smoke`、`tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` Release 构建、默认测试脚本和模拟 PLC 真实启动，日志：`build/Release/logs/tankeye_20260803_182210.log`；未连接真实 PLC/相机，仍需用用户同一张现场图片复核中间目标。
 - 普通显示按 SEG 去重 OBB 框已完成 `tankeye-openvino_frame_overlay_test`、`tankeye-openvino_qt_app` Release 构建、默认测试脚本和模拟 PLC 真实启动，日志：`build/Release/logs/tankeye_20260803_184719.log`；未连接真实 PLC/相机，仍需用现场图片人工切换普通/全显确认显示差异。
 - 本次源码与协作文档改动尚未提交；后续继续改动时仍需避免覆盖用户新增变更。
+
+- 2026-08-06 note: Startup entry generation now includes `-AutoLoadModels`; `0s` only removes TankEye's extra sleep and Windows can still wait for user login/session startup.
+- `main.cpp` 已读取 `TANKEYE_AUTO_START_GRASP` 并传入主窗，启动入口与运行包生成脚本也都同步带上 `-AutoLoadModels -AutoStartGrasp`。
+- `main.cpp` 现在会在程序启动时按工程设置自愈同步当前用户 Startup 入口；已确认当前用户 `Startup\TankEye-Iris.vbs` 指向 `dist\TankEye-Iris_1.4.1\launch_tankeye.ps1`，并带 `-StartupDelaySeconds 0 -AutoLoadModels -AutoStartGrasp`。
+- 已重新生成 `dist\TankEye-Iris_1.4.1` 和 `dist\TankEye-Iris_1.4.1.zip`；包内 `launch_tankeye.ps1` 已能接收自启参数，包内模拟 PLC 启动日志为 `dist\TankEye-Iris_1.4.1\logs\tankeye_20260806_141949.log`。
+- 按当前约束，这轮没有实际跑带自动抓取的 GUI 冒烟，因为自动抓取会进入相机链路；如果后续要补最终现场确认，建议在允许相机动作的环境里单独做一次启动验证。
+- 2026-08-06 latest: startup contract has been refactored to `-StartupProfile AutoStart -StartupDelaySeconds 0`; the old Startup LNK path is now only migration cleanup. Source and packaged launchers no longer expose legacy `-AutoLoadModels/-AutoStartGrasp`; `StartupProfile` is the only automatic startup contract.

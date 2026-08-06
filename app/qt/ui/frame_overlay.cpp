@@ -63,6 +63,50 @@ Point2f RotatePointAroundCenter(const Point2f& point,
     };
 }
 
+Point2f AverageQuadPoint(const vector<Point2f>& points)
+{
+    Point2f sum;
+    if (points.empty()) {
+        return sum;
+    }
+    for (const Point2f& point : points) {
+        sum += point;
+    }
+    return sum * (1.0f / static_cast<float>(points.size()));
+}
+
+float ResolveQuadLongEdgeAngleDeg(const vector<Point2f>& points)
+{
+    if (points.size() != 4) {
+        return 0.0f;
+    }
+    const Point2f first_edge = points[1] - points[0];
+    const Point2f second_edge = points[3] - points[0];
+    const Point2f long_edge =
+        std::hypot(first_edge.x, first_edge.y) >= std::hypot(second_edge.x, second_edge.y)
+            ? first_edge
+            : second_edge;
+    return static_cast<float>(std::atan2(long_edge.y, long_edge.x) * 180.0 / CV_PI);
+}
+
+void AlignDetectionCornersToGripper(vector<Point2f>& detection_corners,
+                                    const vector<Point2f>& gripper_corners)
+{
+    if (detection_corners.size() != 4 || gripper_corners.size() != 4) {
+        return;
+    }
+    const float detection_angle = ResolveQuadLongEdgeAngleDeg(detection_corners);
+    const float gripper_angle = ResolveQuadLongEdgeAngleDeg(gripper_corners);
+    const float angle_delta = NormalizeAngleDiffDeg(gripper_angle, detection_angle);
+    if (std::fabs(angle_delta) < 0.01f) {
+        return;
+    }
+    const Point2f center = AverageQuadPoint(detection_corners);
+    for (Point2f& point : detection_corners) {
+        point = RotatePointAroundCenter(point, center, angle_delta);
+    }
+}
+
 void DrawPolyline(Mat& image,
                   const vector<Point2f>& points,
                   const Scalar& color,
@@ -373,6 +417,9 @@ void DrawDetectionPolygon(Mat& image,
         for (Point2f& point : display_detection_corners) {
             point = RotatePointAroundCenter(point, raw_center, command_angle_delta_deg) + command_delta;
         }
+    }
+    if (draw_detection_corners) {
+        AlignDetectionCornersToGripper(display_detection_corners, display_gripper_corners);
     }
     const Point2f arrow_start = use_command_pose ? detection.plc_command_arrow_start : detection.arrow_start;
     const Point2f arrow_end = use_command_pose ? detection.plc_command_arrow_end : detection.arrow_end;

@@ -1,6 +1,6 @@
-﻿param(
+param(
     [string]$BuildDir = "build",
-    [string]$ReleaseName = "TankEye-Iris_1.4.1",
+    [string]$ReleaseName = "TankEye-Iris_1.4.2",
     [switch]$Force
 )
 
@@ -295,11 +295,21 @@ param(
     [int]$PlcPort = 0,
     [switch]$SimulatePlc,
     [switch]$DebugPostprocess,
+    [switch]$AutoLoadModels,
+    [ValidateSet("Manual", "AutoStart")]
+    [string]$StartupProfile = "Manual",
     [switch]$ClearOpenVinoCache,
-    [string]$CameraIp = "192.168.0.233"
+    [string]$CameraIp = "192.168.0.233",
+    [int]$StartupDelaySeconds = 0
 )
 
 $ErrorActionPreference = "Stop"
+
+$UseAutoStartProfile = ($StartupProfile -eq "AutoStart")
+if ($UseAutoStartProfile) {
+    $Device = "AUTO"
+    $WindowMode = "Maximized"
+}
 
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $AppExe = Join-Path $AppDir "tankeye-openvino_qt_app.exe"
@@ -378,6 +388,11 @@ if ($DebugPostprocess) {
 } else {
     Remove-Item Env:\TANKEYE_DEBUG_POSTPROCESS -ErrorAction SilentlyContinue
 }
+if ($UseAutoStartProfile) {
+    $env:TANKEYE_AUTO_START_GRASP = "1"
+} else {
+    Remove-Item Env:\TANKEYE_AUTO_START_GRASP -ErrorAction SilentlyContinue
+}
 if ($CameraIp) {
     $env:TANKEYE_CAMERA_IP = $CameraIp
 }
@@ -403,8 +418,16 @@ function Invoke-TankEyeApp {
     Write-Host "[TankEye] SEG: $SegModel"
     Write-Host "[TankEye] Device: $SelectedDevice"
     Write-Host "[TankEye] PLC: $(if ($SimulatePlc) { 'SIMULATED' } elseif ($PlcHost) { "$PlcHost`:$PlcPort" } else { 'config default' })"
+    Write-Host "[TankEye] Startup profile: $StartupProfile"
+    Write-Host "[TankEye] Auto model loading: ON"
+    Write-Host "[TankEye] Auto start grasp: $(if ($env:TANKEYE_AUTO_START_GRASP -eq '1') { 'ON' } else { 'OFF' })"
     Write-Host "[TankEye] Log: $SelectedLogFile"
     Write-Host "[TankEye] OpenVINO cache: $OpenVinoCacheDir"
+    if ($StartupDelaySeconds -gt 0) {
+        $StartupDelaySeconds = [Math]::Min($StartupDelaySeconds, 600)
+        Write-Host "[TankEye] Startup delay: $StartupDelaySeconds seconds"
+        Start-Sleep -Seconds $StartupDelaySeconds
+    }
 
     $Process = Start-Process -FilePath $AppExe -ArgumentList @($ObbModel, $SegModel) -WorkingDirectory $AppDir -PassThru
     if ($StartupGuardSeconds -gt 0) {
@@ -445,10 +468,18 @@ shell.Run command, 0, False
 Write-Utf8File (Join-Path $StagingDir "launch_tankeye_main_only.vbs") $LauncherVbs
 
 $ShortcutScript = @'
+param(
+    [int]$StartupDelaySeconds = 0,
+    [switch]$NoAutoStart
+)
+
 $ErrorActionPreference = "Stop"
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Desktop = [Environment]::GetFolderPath("Desktop")
+$Startup = [Environment]::GetFolderPath("Startup")
 $ShortcutPath = Join-Path $Desktop "TankEye-Iris.lnk"
+$StartupVbsPath = Join-Path $Startup "TankEye-Iris.vbs"
+$LegacyStartupShortcutPath = Join-Path $Startup "TankEye-Iris.lnk"
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = "powershell.exe"
@@ -460,11 +491,32 @@ if (Test-Path -LiteralPath $IconPath) {
 }
 $Shortcut.Save()
 Write-Host "Desktop shortcut created: $ShortcutPath"
+if (-not $NoAutoStart) {
+    $StartupDelaySeconds = [Math]::Max(0, [Math]::Min($StartupDelaySeconds, 600))
+    Remove-Item -LiteralPath $LegacyStartupShortcutPath -Force -ErrorAction SilentlyContinue
+    $StartupVbs = @"
+Option Explicit
+
+Dim shell, appDir, launchScript, command
+
+Set shell = CreateObject("WScript.Shell")
+
+appDir = "$($AppDir.Replace('"', '""'))"
+launchScript = "$((Join-Path $AppDir 'launch_tankeye.ps1').Replace('"', '""'))"
+command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " & _
+          """" & launchScript & """" & " -StartupProfile AutoStart -StartupDelaySeconds $StartupDelaySeconds"
+
+shell.CurrentDirectory = appDir
+shell.Run command, 0, False
+"@
+    [System.IO.File]::WriteAllText($StartupVbsPath, $StartupVbs, [System.Text.UTF8Encoding]::new($false))
+    Write-Host "Startup shortcut created: $StartupVbsPath"
+}
 '@
 Write-Utf8File (Join-Path $StagingDir "create_desktop_shortcut.ps1") $ShortcutScript
 
 $Readme = @'
-# TankEye-Iris 1.4.1 独立运行包
+# TankEye-Iris 1.4.2 独立运行包
 
 ## 启动
 
@@ -489,6 +541,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 - 演示图：`samples\images\2.jpg`
 - 运行库：Qt、OpenCV、OpenVINO、TBB、Hikrobot MVS Runtime
 - 工具：`nine_point_circle_picker.exe`、`create_desktop_shortcut.ps1`
+- 运行 `create_desktop_shortcut.ps1` 生成桌面图标时默认同步创建当前用户开机自启入口；自启入口统一使用 `-StartupProfile AutoStart`，会自动加载模型并在模型加载完成后请求进入 PLC 抓取联动，可在工程设置中关闭并调整延迟秒数。
 - 缓存：`openvino_cache\`
 - 日志：`logs\tankeye_*.log`
 
@@ -503,7 +556,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 
 此运行包不包含 C/C++ 源码、头文件、Python 脚本、CMake 工程、测试、调试符号、`.lib` 或训练资产。
 
-## 1.4.1 说明
+## 1.4.2 说明
 
 - 主界面左侧图像区约 75%，右侧控制栏约 25%。
 - 图像完整显示，允许边缘留白，不裁剪。
@@ -560,7 +613,7 @@ $HashEntries = @($FilesForHash | ForEach-Object { Add-HashEntry $StagingDir $_ }
 
 $Manifest = [PSCustomObject]@{
     name = $ReleaseName
-    version = "1.4.1"
+    version = "1.4.2"
     built_at = (Get-Date).ToString("o")
     source_build_dir = $BuildDir
     runtime_only = $true

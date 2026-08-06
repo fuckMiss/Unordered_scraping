@@ -1,5 +1,8 @@
 #include "runtime_status_presenter.h"
 
+#include <QApplication>
+#include <QPushButton>
+
 #include <cassert>
 #include <iostream>
 
@@ -45,12 +48,31 @@ void PlcCompletionTextKeepsResultContractVisible()
     assert(with_target.contains(QStringLiteral("D506=1")));
 }
 
+void PlcLinkButtonUsesShortLabels()
+{
+    DeviceStatusView view;
+    QPushButton button;
+    view.plc_link_button = &button;
+
+    RuntimeStatusSnapshot snapshot;
+    snapshot.models_loaded = true;
+    snapshot.plc_link_active = false;
+    RuntimeStatusPresenter::RefreshDeviceStatus(view, snapshot);
+    assert(button.text() == QStringLiteral("开始"));
+
+    snapshot.plc_link_active = true;
+    RuntimeStatusPresenter::RefreshDeviceStatus(view, snapshot);
+    assert(button.text() == QStringLiteral("关闭"));
+}
+
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    QApplication app(argc, argv);
     PlcStatusTextIsCentralized();
     PlcCompletionTextKeepsResultContractVisible();
+    PlcLinkButtonUsesShortLabels();
 
     std::cout << "runtime_status_presenter_test passed" << std::endl;
     return 0;

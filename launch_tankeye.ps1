@@ -13,12 +13,22 @@ param(
     [switch]$SimulatePlc,
     [switch]$DebugPostprocess,
     [switch]$AutoLoadModels,
+    [ValidateSet("Manual", "AutoStart")]
+    [string]$StartupProfile = "Manual",
     [string]$CameraIp = "192.168.0.233",
     [string]$Configuration = "Release",
-    [string]$BuildDir = "build"
+    [string]$BuildDir = "build",
+    [int]$StartupDelaySeconds = 0
 )
 
 $ErrorActionPreference = "Stop"
+
+$UseAutoStartProfile = ($StartupProfile -eq "AutoStart")
+if ($UseAutoStartProfile) {
+    $WindowMode = "Maximized"
+    $Device = "AUTO"
+}
+$LoadModels = ($AutoLoadModels -or $UseAutoStartProfile)
 
 function Join-ProcessArguments($Arguments) {
     $Quoted = foreach ($Argument in $Arguments) {
@@ -172,6 +182,11 @@ if ($SimulatePlc) {
 if ($DebugPostprocess) {
     $env:TANKEYE_DEBUG_POSTPROCESS = "1"
 }
+if ($UseAutoStartProfile) {
+    $env:TANKEYE_AUTO_START_GRASP = "1"
+} else {
+    Remove-Item Env:\TANKEYE_AUTO_START_GRASP -ErrorAction SilentlyContinue
+}
 if (-not [string]::IsNullOrWhiteSpace($CameraIp)) {
     $env:TANKEYE_CAMERA_IP = $CameraIp
 } else {
@@ -201,6 +216,9 @@ Write-Host "[TankEye] PLC: $PlcDisplay"
 Write-Host "[TankEye] Camera IP: $(if ($env:TANKEYE_CAMERA_IP) { $env:TANKEYE_CAMERA_IP } else { "first enumerated camera" })"
 Write-Host "[TankEye] UI scale: $(if ($UiScale -gt 0) { $UiScale } else { "Qt/Windows auto" })"
 Write-Host "[TankEye] Postprocess debug: $(if ($env:TANKEYE_DEBUG_POSTPROCESS -eq "1") { "ON" } else { "OFF" })"
+Write-Host "[TankEye] Startup profile: $StartupProfile"
+Write-Host "[TankEye] Auto model loading: $(if ($LoadModels) { "ON" } else { "OFF" })"
+Write-Host "[TankEye] Auto start grasp: $(if ($env:TANKEYE_AUTO_START_GRASP -eq "1") { "ON" } else { "OFF" })"
 Write-Host "[TankEye] Log: $LogFile"
 Write-Host "[TankEye] OpenVINO cache: $OpenVinoCacheDir"
 Write-Host "[TankEye] Admin auth key: $(if ($AdminAuthKey) { $AdminAuthKey } else { "development default" })"
@@ -209,13 +227,19 @@ foreach ($PathItem in $RuntimePaths) {
     Write-Host "  $PathItem"
 }
 
-if ($AutoLoadModels -and (Test-Path -LiteralPath $ObbModel) -and (Test-Path -LiteralPath $SegModel)) {
+if ($StartupDelaySeconds -gt 0) {
+    $StartupDelaySeconds = [Math]::Min($StartupDelaySeconds, 600)
+    Write-Host "[TankEye] Startup delay: $StartupDelaySeconds seconds"
+    Start-Sleep -Seconds $StartupDelaySeconds
+}
+
+if ($LoadModels -and (Test-Path -LiteralPath $ObbModel) -and (Test-Path -LiteralPath $SegModel)) {
     $Process = Start-Process -FilePath $AppExe -ArgumentList @($ObbModel, $SegModel) -WorkingDirectory $TargetDir -Wait -PassThru
     $LASTEXITCODE = $Process.ExitCode
 } else {
-    if (-not $AutoLoadModels) {
+    if (-not $LoadModels) {
         Write-Host "[TankEye] Auto model loading is disabled for this source-tree launch."
-        Write-Host "[TankEye] Use -AutoLoadModels only from an ASCII-only path or after Unicode path support is fixed."
+        Write-Host "[TankEye] Use -AutoLoadModels for manual model loading, or -StartupProfile AutoStart for startup-style auto loading."
     } else {
         Write-Warning "Model files not found. Starting app without model arguments."
         Write-Warning "Expected OBB: $ObbModel"

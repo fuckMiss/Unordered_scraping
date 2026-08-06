@@ -1,7 +1,9 @@
-#include "engineering_settings_service.h"
+﻿#include "engineering_settings_service.h"
+#include "app_startup_manager.h"
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QSettings>
 
 #include <cassert>
@@ -112,6 +114,16 @@ void PlcRelatedSettingsRoundTrip()
     assert(NearlyEqual(loaded_overlay.mechanical_gripper_length, 88.5));
     assert(NearlyEqual(loaded_overlay.mechanical_gripper_width, 12.25));
 
+    const StartupLaunchSettings default_startup = EngineeringSettingsService::LoadStartupLaunchSettings();
+    assert(default_startup.auto_start_enabled);
+    assert(default_startup.delay_seconds == 0);
+    EngineeringSettingsService::SaveStartupLaunchSettings({ false, 45 });
+    const StartupLaunchSettings loaded_startup = EngineeringSettingsService::LoadStartupLaunchSettings();
+    assert(!loaded_startup.auto_start_enabled);
+    assert(loaded_startup.delay_seconds == 45);
+    EngineeringSettingsService::SaveStartupLaunchSettings({ true, 999 });
+    assert(EngineeringSettingsService::LoadStartupLaunchSettings().delay_seconds == 600);
+
     ModelThresholdSettings thresholds;
     thresholds.obb_conf_threshold = 0.62;
     thresholds.obb_nms_threshold = 0.35;
@@ -175,6 +187,57 @@ void SettingsOverrideProvidedDefaults()
     assert(NearlyEqual(overridden_camera.exposure_us, 789.0));
 }
 
+void StartupShortcutSyncUsesRequestedDirectory()
+{
+    assert(BuildStartupLaunchArguments(15) ==
+           QStringLiteral("-StartupProfile AutoStart -StartupDelaySeconds 15"));
+    assert(BuildStartupLaunchArguments(999).contains(QStringLiteral("-StartupDelaySeconds 600")));
+
+    const QString temp_root = QDir::temp().absoluteFilePath(QStringLiteral("tankeye_startup_shortcut_test"));
+    QDir(temp_root).removeRecursively();
+    QDir().mkpath(temp_root);
+    const QString app_dir = QDir(temp_root).absoluteFilePath(QStringLiteral("app"));
+    const QString startup_dir = QDir(temp_root).absoluteFilePath(QStringLiteral("Startup"));
+    QDir().mkpath(app_dir);
+    QFile launch_script(QDir(app_dir).absoluteFilePath(QStringLiteral("launch_tankeye.ps1")));
+    assert(launch_script.open(QIODevice::WriteOnly | QIODevice::Text));
+    launch_script.write("param()\n");
+    launch_script.close();
+
+    QFile legacy_startup_entry(QDir(startup_dir).absoluteFilePath(QStringLiteral("TankEye-Iris.vbs")));
+    assert(legacy_startup_entry.open(QIODevice::WriteOnly | QIODevice::Text));
+    legacy_startup_entry.write("legacy entry\r\n");
+    legacy_startup_entry.close();
+    QFile legacy_lnk_entry(QDir(startup_dir).absoluteFilePath(QStringLiteral("TankEye-Iris.lnk")));
+    assert(legacy_lnk_entry.open(QIODevice::WriteOnly | QIODevice::Text));
+    legacy_lnk_entry.write("legacy shortcut\r\n");
+    legacy_lnk_entry.close();
+
+    const StartupShortcutSyncResult enabled =
+        SyncStartupShortcut({ true, 15 }, app_dir, startup_dir);
+    assert(enabled.success);
+    assert(QFile::exists(enabled.startup_entry_path));
+
+    QFile startup_entry(enabled.startup_entry_path);
+    assert(startup_entry.open(QIODevice::ReadOnly));
+    const QByteArray content = startup_entry.readAll();
+    assert(content.contains("-StartupDelaySeconds 15"));
+    assert(content.contains("-StartupProfile AutoStart"));
+    assert(!content.contains("legacy entry"));
+    assert(!QFile::exists(QDir(startup_dir).absoluteFilePath(QStringLiteral("TankEye-Iris.lnk"))));
+    assert(content.contains("launch_tankeye.ps1"));
+    assert(!content.contains("_\r\n\r\n"));
+    assert(!content.contains("_\n\n"));
+    assert(content.contains(
+        "command = \"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \" & _\r\n"
+        "          \"\"\"\" & launchScript & \"\"\"\" & \" -StartupProfile AutoStart -StartupDelaySeconds 15\"\r\n"));
+
+    const StartupShortcutSyncResult disabled =
+        SyncStartupShortcut({ false, 15 }, app_dir, startup_dir);
+    assert(disabled.success);
+    assert(!QFile::exists(enabled.startup_entry_path));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -185,6 +248,7 @@ int main(int argc, char** argv)
 
     CameraSettingsRoundTrip();
     PlcRelatedSettingsRoundTrip();
+    StartupShortcutSyncUsesRequestedDirectory();
     GrabLimitLegacyDefaultsAreSanitized();
     PrepareTemporarySettingsPath(settings_path);
     SettingsOverrideProvidedDefaults();

@@ -34,6 +34,7 @@
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSpacerItem>
+#include <QSpinBox>
 #include <QStringList>
 #include <QTimer>
 #include <QToolButton>
@@ -214,6 +215,7 @@ void EngineeringSettingsDialogController::show()
     ui_settings.beginGroup(QStringLiteral("engineering_ui"));
     const bool basic_expanded = ui_settings.value(QStringLiteral("basic_expanded"), true).toBool();
     const bool angle_debug_expanded = ui_settings.value(QStringLiteral("angle_debug_expanded"), true).toBool();
+    const bool startup_expanded = ui_settings.value(QStringLiteral("startup_expanded"), true).toBool();
     const bool debug_expanded = ui_settings.value(QStringLiteral("debug_expanded"), false).toBool();
     const bool limits_expanded = ui_settings.value(QStringLiteral("limits_expanded"), false).toBool();
     const bool coordinate_expanded = ui_settings.value(QStringLiteral("coordinate_expanded"), false).toBool();
@@ -298,6 +300,16 @@ void EngineeringSettingsDialogController::show()
     auto* postprocess_debug_logging_check = new QCheckBox(QStringLiteral("启用后处理调试日志"), dialog);
     postprocess_debug_logging_check->setChecked(owner->postprocess_debug_logging_enabled_);
     postprocess_debug_logging_check->setToolTip(QStringLiteral("在日志中输出 [PostprocessDebug] 明细，包含 O/A/B/C、AC角度、B点选择和可抓/拒抓原因。"));
+    auto* auto_start_check = new QCheckBox(QStringLiteral("开机自启"), dialog);
+    auto_start_check->setChecked(owner->auto_start_enabled_);
+    auto_start_check->setToolTip(QStringLiteral("在当前用户 Startup 文件夹中创建或移除 TankEye-Iris 启动入口。"));
+    auto* startup_delay_spin = new QSpinBox(dialog);
+    startup_delay_spin->setRange(0, 600);
+    startup_delay_spin->setSingleStep(1);
+    startup_delay_spin->setSuffix(QStringLiteral(" 秒"));
+    startup_delay_spin->setValue(owner->startup_delay_seconds_);
+    startup_delay_spin->setFixedWidth(S(150));
+    startup_delay_spin->setToolTip(QStringLiteral("仅开机自启时生效；等待现场网络、相机和 PLC 服务完成初始化后再启动。"));
     auto* mechanical_gripper_length_spin = CreateGripperDimensionSpinBox(dialog, owner->mechanical_gripper_length_);
     mechanical_gripper_length_spin->setToolTip(QStringLiteral("真实夹爪机械长度；为 0 时保守判为不可抓。"));
     auto* mechanical_gripper_width_spin = CreateGripperDimensionSpinBox(dialog, owner->mechanical_gripper_width_);
@@ -534,6 +546,8 @@ void EngineeringSettingsDialogController::show()
     settings_controls.show_plc_center_debug_check = show_plc_center_debug_check;
     settings_controls.show_head_ray_debug_check = show_head_ray_debug_check;
     settings_controls.postprocess_debug_logging_check = postprocess_debug_logging_check;
+    settings_controls.auto_start_check = auto_start_check;
+    settings_controls.startup_delay_spin = startup_delay_spin;
     settings_controls.mechanical_gripper_length_spin = mechanical_gripper_length_spin;
     settings_controls.mechanical_gripper_width_spin = mechanical_gripper_width_spin;
     settings_controls.head_type_angle_offset_spins = head_type_angle_offset_spins;
@@ -670,6 +684,25 @@ void EngineeringSettingsDialogController::show()
                                                       advanced_angle_content,
                                                       angle_debug_expanded,
                                                       QStringLiteral("angle_debug_expanded")));
+
+    scroll_layout->addSpacing(S(4));
+
+    auto* startup_content = new QWidget(dialog);
+    auto* startup_content_layout = new QVBoxLayout(startup_content);
+    startup_content_layout->setContentsMargins(0, 0, 0, 0);
+    startup_content_layout->setSpacing(S(8));
+    startup_content_layout->addWidget(auto_start_check);
+    auto* startup_grid = CreateSettingsGrid(10, 8);
+    SetGridColumnMinimumWidths(startup_grid, { 120, 170 });
+    SetGridColumnStretches(startup_grid, { 0, 0, 1 });
+    startup_grid->addWidget(new QLabel(QStringLiteral("延迟启动"), dialog), 0, 0);
+    startup_grid->addWidget(startup_delay_spin, 0, 1, Qt::AlignLeft);
+    startup_content_layout->addLayout(startup_grid);
+    scroll_layout->addWidget(CreateCollapsibleSection(dialog,
+                                                      QStringLiteral("启动设置"),
+                                                      startup_content,
+                                                      startup_expanded,
+                                                      QStringLiteral("startup_expanded")));
 
     scroll_layout->addSpacing(S(4));
 
@@ -1040,6 +1073,13 @@ void EngineeringSettingsDialogController::show()
         owner->saveModelThresholdSettings();
         owner->saveAngleCalibrationSettings();
         owner->saveObbPostprocessSettings();
+        QString startup_error;
+        if (!owner->saveStartupLaunchSettings(&startup_error)) {
+            QMessageBox::warning(owner,
+                                 QStringLiteral("开机自启设置失败"),
+                                 startup_error);
+            return;
+        }
         owner->saveUiOverlaySettings();
         owner->saveAxisMappingSettings();
         owner->saveAxisCompensationSettings();

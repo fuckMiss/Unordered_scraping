@@ -16,6 +16,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QSizePolicy>
+#include <QSpinBox>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QtGlobal>
@@ -438,6 +439,8 @@ bool ReadEngineeringSettingsDraft(const EngineeringSettingsControls& controls,
     next_draft.show_plc_center_debug = controls.show_plc_center_debug_check->isChecked();
     next_draft.show_head_ray_debug = controls.show_head_ray_debug_check->isChecked();
     next_draft.postprocess_debug_logging_enabled = controls.postprocess_debug_logging_check->isChecked();
+    next_draft.auto_start_enabled = controls.auto_start_check->isChecked();
+    next_draft.startup_delay_seconds = controls.startup_delay_spin->value();
     next_draft.show_grab_limit_overlay = controls.show_grab_limit_overlay_check->isChecked();
     next_draft.mechanical_gripper_length = controls.mechanical_gripper_length_spin->value();
     next_draft.mechanical_gripper_width = controls.mechanical_gripper_width_spin->value();

@@ -347,6 +347,30 @@ void EngineeringSettingsService::SaveUiOverlaySettings(const UiOverlaySettings& 
     settings->sync();
 }
 
+StartupLaunchSettings EngineeringSettingsService::LoadStartupLaunchSettings()
+{
+    StartupLaunchSettings startup;
+    auto settings = CreateSettings();
+    settings->beginGroup(QStringLiteral("startup"));
+    startup.auto_start_enabled =
+        settings->value(QStringLiteral("auto_start_enabled"), startup.auto_start_enabled).toBool();
+    startup.delay_seconds =
+        settings->value(QStringLiteral("delay_seconds"), startup.delay_seconds).toInt();
+    settings->endGroup();
+    startup.delay_seconds = std::max(0, std::min(600, startup.delay_seconds));
+    return startup;
+}
+
+void EngineeringSettingsService::SaveStartupLaunchSettings(const StartupLaunchSettings& startup)
+{
+    auto settings = CreateSettings();
+    settings->beginGroup(QStringLiteral("startup"));
+    settings->setValue(QStringLiteral("auto_start_enabled"), startup.auto_start_enabled);
+    settings->setValue(QStringLiteral("delay_seconds"), std::max(0, std::min(600, startup.delay_seconds)));
+    settings->endGroup();
+    settings->sync();
+}
+
 HeadTypeCompensationSettings EngineeringSettingsService::LoadHeadTypeCompensationSettings()
 {
     return LoadHeadTypeCompensationSettings(HeadTypeCompensationSettings{});

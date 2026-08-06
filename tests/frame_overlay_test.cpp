@@ -189,6 +189,35 @@ void NormalViewDrawsPlcCommandPoseWhenAvailable()
     assert(CountNonBlackPixels(image, cv::Rect(100, 34, 20, 12)) == 0);
 }
 
+void NormalViewAlignsBaseObbToMechanicalGripper()
+{
+    cv::Mat image(120, 140, CV_8UC3, cv::Scalar(0, 0, 0));
+    FrameInferenceResult result;
+    result.display_scale = 1.0;
+    result.primary_index = 0;
+    PoseDetection detection = MakeDisplayDetection(0, 0.95f, true, { 70.0f, 60.0f });
+    detection.center_x = 70.0f;
+    detection.center_y = 60.0f;
+    detection.corners = {
+        { 65.0f, 40.0f },
+        { 75.0f, 40.0f },
+        { 75.0f, 80.0f },
+        { 65.0f, 80.0f },
+    };
+    detection.mechanical_gripper_corners = {
+        { 50.0f, 55.0f },
+        { 90.0f, 55.0f },
+        { 90.0f, 65.0f },
+        { 50.0f, 65.0f },
+    };
+    result.detections.push_back(detection);
+
+    DrawFrameOverlay(image, result, -1, false, false, false, true, nullptr);
+
+    assert(CountNonBlackPixels(image, cv::Rect(62, 38, 16, 8)) == 0);
+    assert(CountNonBlackPixels(image, cv::Rect(48, 52, 44, 16)) > 0);
+}
+
 void DebugViewDrawsRawObbOnceAndCommandPoseWhenCommandPoseExists()
 {
     cv::Mat image(80, 120, CV_8UC3, cv::Scalar(0, 0, 0));
@@ -314,6 +343,7 @@ int main()
     MechanicalGripperOverlayDrawsConfiguredRectangle();
     MechanicalGripperOverlayUsesRejectedStateColor();
     NormalViewDrawsPlcCommandPoseWhenAvailable();
+    NormalViewAlignsBaseObbToMechanicalGripper();
     DebugViewDrawsRawObbOnceAndCommandPoseWhenCommandPoseExists();
     OverlayDrawsVisibleGrabLimitPolygon();
     HiddenOverlayDoesNotPolluteFrame();

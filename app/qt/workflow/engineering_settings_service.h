@@ -51,6 +51,12 @@ struct UiOverlaySettings
     double mechanical_gripper_width = 0.0;
 };
 
+struct StartupLaunchSettings
+{
+    bool auto_start_enabled = true;
+    int delay_seconds = 0;
+};
+
 struct HeadTypeCompensationSettings
 {
     std::array<HeadTypeCompensation, 5> types{};
@@ -86,6 +92,9 @@ public:
 
     static UiOverlaySettings LoadUiOverlaySettings();
     static void SaveUiOverlaySettings(const UiOverlaySettings& settings);
+
+    static StartupLaunchSettings LoadStartupLaunchSettings();
+    static void SaveStartupLaunchSettings(const StartupLaunchSettings& settings);
 
     static HeadTypeCompensationSettings LoadHeadTypeCompensationSettings();
     static HeadTypeCompensationSettings LoadHeadTypeCompensationSettings(const HeadTypeCompensationSettings& defaults);

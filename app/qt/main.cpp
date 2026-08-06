@@ -1,4 +1,6 @@
-﻿#include "grasp_main_window.h"
+﻿#include "app_startup_manager.h"
+#include "engineering_settings_service.h"
+#include "grasp_main_window.h"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -175,11 +177,26 @@ int main(int argc, char** argv)
     });
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/app/icon.ico")));
     const QString log_path = ConfigureFileLog();
+    const StartupLaunchSettings startup_launch_settings = EngineeringSettingsService::LoadStartupLaunchSettings();
+    const StartupShortcutSyncResult startup_sync_result =
+        SyncStartupShortcut(startup_launch_settings, QCoreApplication::applicationDirPath());
+    if (!startup_sync_result.success) {
+        std::cerr << "[Startup] auto sync failed: "
+                  << startup_sync_result.error_message.toStdString() << std::endl;
+    } else {
+        std::cout << "[Startup] auto sync "
+                  << (startup_launch_settings.auto_start_enabled ? "enabled" : "disabled")
+                  << " entry=" << startup_sync_result.startup_entry_path.toStdString()
+                  << " delay_seconds=" << startup_launch_settings.delay_seconds << std::endl;
+    }
 
     std::cout << "Creating main window..." << std::endl;
     std::cout.flush();
     const AppConfig app_config = AppConfigService::Load();
     GraspMainWindow window(app_config);
+    const bool auto_start_grasp_requested =
+        QString::fromLocal8Bit(qgetenv("TANKEYE_AUTO_START_GRASP")).trimmed() == QStringLiteral("1");
+    window.setAutoStartGraspRequested(auto_start_grasp_requested);
     std::cout << "Main window created." << std::endl;
     std::cout.flush();
     QTimer log_cleanup_timer;
@@ -193,6 +210,7 @@ int main(int argc, char** argv)
     const QString seg_model_path = argc > 2 ? QString::fromLocal8Bit(argv[2]) : QString();
     std::cout << "OBB model argument: " << obb_model_path.toStdString() << std::endl;
     std::cout << "SEG model argument: " << seg_model_path.toStdString() << std::endl;
+    std::cout << "Auto start grasp requested: " << (auto_start_grasp_requested ? "1" : "0") << std::endl;
     std::cout << "QT_SCALE_FACTOR: " << qgetenv("QT_SCALE_FACTOR").constData() << std::endl;
     std::cout << "TANKEYE_UI_SCALE: " << qgetenv("TANKEYE_UI_SCALE").constData() << std::endl;
     if (QScreen* screen = QGuiApplication::primaryScreen()) {
@@ -243,5 +261,3 @@ int main(int argc, char** argv)
     std::cout.flush();
     return exit_code;
 }
-
-

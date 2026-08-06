@@ -254,3 +254,38 @@
 - 已生成本地运行包：`dist\TankEye-Iris_1.4.1` 与 `dist\TankEye-Iris_1.4.1.zip`。包内 `RELEASE_MANIFEST.json` 显示 `name=TankEye-Iris_1.4.1`、`version=1.4.1`、`runtime_only=true`、`files=129`；包目录和 zip 均不包含 `docs/` 或 `AGENTS.md`。
 - 验证已完成：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`git diff --check` 无空白错误，仅有 CRLF 提示；打包命令成功，仅有已知 `VCINSTALLDIR is not set` 警告；包内 exe 哈希与 `build\Release` exe 一致；包内 `launch_tankeye.ps1 -Device CPU -SimulatePlc` 已启动真实 Qt 程序并正常退出，日志 `dist\TankEye-Iris_1.4.1\logs\tankeye_20260805_192737.log` 确认模拟 PLC、主窗口创建、OBB/SEG CPU 模型加载成功，退出后无残留 `tankeye` 进程。
 - 本轮未连接真实 PLC、真实相机或真实设备；长期稳定性仍建议现场用真实相机连续采集观察内存占用、日志增长和 PLC 模拟/实机节拍，但实机连接必须先取得用户明确同意。
+## 2026-08-05 当前补充记忆：开机自启与延迟启动
+
+- 已完成开机自启功能：工程设置新增“启动设置”，包含“开机自启”开关和“延迟启动”秒数，默认开启、默认延迟 0 秒，合法范围 0~600 秒。
+- 自启实现限定为当前 Windows 用户 Startup 文件夹入口，不使用注册表、服务或计划任务；关闭开机自启时会移除 `TankEye-Iris.vbs` 和 `TankEye-Iris.lnk` 启动入口。
+- 生成桌面图标脚本已同步：源码 `scripts/create_desktop_shortcut.ps1` 和运行包内 `create_desktop_shortcut.ps1` 默认创建 Startup 快捷方式，可用 `-NoAutoStart` 跳过；启动脚本支持 `-StartupDelaySeconds`。
+- 已重新生成本地运行包：`dist\TankEye-Iris_1.4.1` 和 `dist\TankEye-Iris_1.4.1.zip`。包内 manifest 仍为 `version=1.4.1`，文件数 129。
+- 验证已完成：Release 主程序构建通过；`engineering_settings_service_test` 覆盖启动设置读写、延迟夹紧和临时 Startup 目录创建/删除；默认测试脚本全部通过；脚本语法检查通过；打包成功。未实际写入真实桌面/Startup，也未重启 Windows 做真实开机自启验证。
+## 2026-08-05 当前补充记忆：普通 OBB 显示对齐真实夹爪框
+
+- 用户基于 `build/Release/logs/tankeye_20260805_221938.log` 指出：普通画面中基础 OBB 框和真实夹爪框有时角度不同，有时又一致，期望后逻辑统一处理后两者同向。
+- 根因已确认：`pose.corners` 来自 AC 几何候选对齐，候选可为 `head_long_angle` 或 `head_long_angle+90`；真实夹爪框固定使用 `grip_long_angle_deg=AC+90`。因此不同目标会因候选分支不同出现 0 度或 90 度视觉差异。
+- 已修复显示层：普通 overlay 绘制基础 detection corners 前，根据真实夹爪框长边方向旋转对齐基础 OBB；不改 CV/PLC/碰撞/全显 raw OBB。全显仍保留 raw OBB、SEG、mask collision 和最终夹爪姿态用于对照。
+- 验证已完成：`frame_overlay_test` 新增对齐回归并通过，Qt 主程序 Release 构建通过，默认测试脚本全部通过，1.4.1 运行包已重新生成。仍需现场图片肉眼复核普通/全显观感。
+## 2026-08-06 - 修正开机自启 VBS 续行语法
+
+- 用户重启后报 `TankEye-Iris.vbs` 第 18 行 `800A03EA`，新电脑“闪退”日志也只证明 Qt 主程序已进入主窗口和 OpenVINO 初始化，不是主程序先崩。
+- 根因定位：`app_startup_manager` 生成的 VBS 含有 `command = "... & _"` 续行，但写文件时若再走 Qt 文本模式会把已带 CRLF 的内容二次换行，导致 `_` 与下一行之间插入空白行。
+- 修正：开机启动脚本改为二进制原样写入，测试改为按原始字节检查 `"_\r\n\r\n"` / `"_\n\n"` 不存在，并确认续行命令行连续。
+- 验证：`tankeye-openvino_engineering_settings_service_test`、`tankeye-openvino_qt_app` 构建通过，`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过。
+
+## 2026-08-06 - 开机自启默认延迟改为 0 秒并重新打包
+
+- 用户确认目标口径：生成桌面图标后默认创建开机自启入口，且默认延迟为 0 秒；只有进入管理员工程设置关闭后才不自启。
+- 已同步默认值：`StartupLaunchSettings::delay_seconds`、工程设置草稿默认值、源码 `scripts/create_desktop_shortcut.ps1`、运行包模板内 `create_desktop_shortcut.ps1` 均改为 0 秒。
+- 已同步文档和测试：`engineering_settings_service_test` 默认启动延迟断言改为 0；`docs/PACKAGING_README.md`、`runtime/USAGE_GUIDE.txt` 和项目记忆同步默认 0 秒口径。
+- 验证与产物：`tankeye-openvino_engineering_settings_service_test`、`tankeye-openvino_qt_app` Release 构建通过；默认 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；已重新生成 `dist\TankEye-Iris_1.4.1` 与 `dist\TankEye-Iris_1.4.1.zip`，包内 `create_desktop_shortcut.ps1` 显示 `[int]$StartupDelaySeconds = 0`。
+
+- 2026-08-06: Startup auto-start now also appends `-AutoLoadModels`, so `0s` means no extra wait, not manual model selection.
+- 2026-08-06: Startup auto-start now also appends `-AutoStartGrasp`; the app reads `TANKEYE_AUTO_START_GRASP` in `main.cpp`, only auto-enters PLC grasp after models are loaded, and the main toggle button label is now `开始 / 关闭`.
+- 2026-08-06: Startup chain was consolidated further after finding the stale Startup entry problem. `main.cpp` now self-syncs the current user's Startup entry on app launch, `app_startup_manager` exposes `BuildStartupLaunchArguments()` for the single auto-start argument contract, and package `launch_tankeye.ps1` now accepts `-AutoLoadModels -AutoStartGrasp -StartupDelaySeconds` instead of failing on those arguments. Rebuilt `dist\TankEye-Iris_1.4.1` and zip; package smoke log `dist\TankEye-Iris_1.4.1\logs\tankeye_20260806_141949.log` confirms simulated PLC and CPU OBB/SEG model loading. Current user's `Startup\TankEye-Iris.vbs` was verified to contain `-StartupDelaySeconds 0 -AutoLoadModels -AutoStartGrasp`. No real camera/PLC auto-grasp smoke was run because auto-grasp attempts to open the camera.
+- 2026-08-06: Startup chain was refactored again to reduce patchiness: the startup contract is now `-StartupProfile AutoStart -StartupDelaySeconds N`, not a long repeated switch list. `SyncStartupShortcut()` now skips rewriting unchanged VBS content and only migrates old `TankEye-Iris.lnk` leftovers. Both source and packaged `create_desktop_shortcut.ps1` now generate a Startup VBS instead of a Startup LNK, and the packaged launcher expands `StartupProfile` into auto-load/auto-start behavior. Rebuilt `dist\TankEye-Iris_1.4.1` and the current user Startup entry now contains `-StartupProfile AutoStart -StartupDelaySeconds 0`. No real camera auto-grasp smoke was run.
+- 2026-08-06: Removed the leftover `-AutoLoadModels/-AutoStartGrasp` compatibility switches from source and packaged launch scripts after the user correctly pointed out that the first cleanup increased code. `-StartupProfile AutoStart` is now the only automatic startup contract; manual launch remains manual. Rebuilt `dist\TankEye-Iris_1.4.1`; package smoke log `dist\TankEye-Iris_1.4.1\logs\tankeye_20260806_145501.log` confirms simulated PLC and model loading.
+- 2026-08-06: Generated project architecture diagram artifacts under `docs/architecture/`: editable source `TankEye-Iris_Architecture_Map.html` and PDF `TankEye-Iris_Architecture_Map.pdf`. The PDF contains a mind map, runtime flow architecture, and boundary notes for UI/workflow/CV/PLC/scripts.
+- 2026-08-06: Restored source-tree `launch_tankeye.ps1 -AutoLoadModels` as a manual model-loading switch after the user ran the documented old command and saw empty OBB/SEG model arguments. The automatic startup contract remains `-StartupProfile AutoStart`; `-AutoLoadModels` only means "manual launch should pass default OBB/SEG model paths". Verified script parse, Release Qt build, default test script, and simulated PLC GUI launch log `build/Release/logs/tankeye_20260806_152730.log`, which shows non-empty OBB/SEG model arguments and OpenVINO loading both models.
+- 2026-08-06: Packaged `TankEye-Iris_1.4.2` after restoring manual `-AutoLoadModels`. Updated package version/default release name/usage docs to 1.4.2 and made the packaged launcher accept `-AutoLoadModels` as a harmless manual compatibility switch. Verification passed: PowerShell parse, Release Qt/settings/status builds, default test script, package generation, manifest check (`name=TankEye-Iris_1.4.2`, `version=1.4.2`, `files=129`), no packaged `docs/` or `AGENTS.md`, exe hash matches build output, and packaged simulated-PLC launch log `dist/TankEye-Iris_1.4.2/logs/tankeye_20260806_153900.log` confirms OBB/SEG model arguments and CPU OpenVINO loading/warmup. No real PLC/camera/auto-grasp verification was run.

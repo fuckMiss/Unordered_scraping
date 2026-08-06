@@ -781,6 +781,7 @@ GraspMainWindow::GraspMainWindow(const AppConfig& app_config, QWidget* parent)
     loadModelThresholdSettings();
     loadAngleCalibrationSettings();
     loadObbPostprocessSettings();
+    loadStartupLaunchSettings();
     loadUiOverlaySettings();
     loadAxisMappingSettings();
     loadAxisCompensationSettings();
@@ -805,6 +806,11 @@ void GraspMainWindow::setInitialModelPaths(const QString& obb_model_path, const 
 {
     obb_model_path_ = obb_model_path;
     seg_model_path_ = seg_model_path;
+}
+
+void GraspMainWindow::setAutoStartGraspRequested(bool enabled)
+{
+    auto_start_grasp_requested_ = enabled;
 }
 
 void GraspMainWindow::setShowAllDetections(bool show_all_detections)
@@ -1009,6 +1015,8 @@ void GraspMainWindow::showEvent(QShowEvent* event)
             QTimer::singleShot(0, this, [this]() {
                 loadModelsFromPathsAsync(obb_model_path_, seg_model_path_, false, true);
             });
+        } else {
+            maybeStartAutoGrasp();
         }
     }
 }
@@ -1324,7 +1332,7 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     load_image_button_ = new QPushButton(QStringLiteral("加载图片"), this);
     open_camera_button_ = new QPushButton(QStringLiteral("打开相机"), this);
     start_button_ = new QPushButton(QStringLiteral("开始检测"), this);
-    plc_link_button_ = new QPushButton(QStringLiteral("抓取"), this);
+    plc_link_button_ = new QPushButton(QStringLiteral("开始"), this);
     plc_test_button_ = new QPushButton(QStringLiteral("测试"), this);
     stop_button_ = new QPushButton(QStringLiteral("关闭相机"), this);
     display_mode_button_ = new QPushButton(QStringLiteral("全显"), this);
@@ -2216,6 +2224,8 @@ void GraspMainWindow::applyEngineeringSettingsDraft(const EngineeringSettingsDra
     show_plc_center_debug_ = draft.show_plc_center_debug;
     show_head_ray_debug_ = draft.show_head_ray_debug;
     postprocess_debug_logging_enabled_ = draft.postprocess_debug_logging_enabled;
+    auto_start_enabled_ = draft.auto_start_enabled;
+    startup_delay_seconds_ = draft.startup_delay_seconds;
     show_grab_limit_overlay_ = draft.show_grab_limit_overlay;
     mechanical_gripper_length_ = draft.mechanical_gripper_length;
     mechanical_gripper_width_ = draft.mechanical_gripper_width;
@@ -2409,7 +2419,7 @@ void GraspMainWindow::openCamera()
 void GraspMainWindow::closeCamera()
 {
     if (plc_runtime_state_.active()) {
-        updateStatusMessage(QStringLiteral("抓取运行中，请使用“停止抓取”退出 PLC 抓取。"), 5000);
+        updateStatusMessage(QStringLiteral("抓取运行中，请使用“关闭”退出 PLC 抓取。"), 5000);
         return;
     }
 
@@ -2891,7 +2901,7 @@ void GraspMainWindow::writePlcTestValues()
                 updateStatusMessage(QStringLiteral("PLC test sent, but PLC link is not active."), 5000);
                 QMessageBox::information(this,
                                          QStringLiteral("测试"),
-                                         QStringLiteral("模拟触发已发送。请先点击“抓取”，再点击“测试”，才能看到检测返回结果。"));
+                                         QStringLiteral("模拟触发已发送。请先点击“开始”，再点击“测试”，才能看到检测返回结果。"));
             } else {
                 const PlcWriteResult test_result = BuildDiagnosticPlcWriteResult(plcOutputConfig());
                 const PlcRegisterMap registers = robot_controller_.plcRegisterMap();
@@ -3333,6 +3343,33 @@ void GraspMainWindow::setModelLoadingState(bool loading)
     refreshRuntimeStrip();
 }
 
+void GraspMainWindow::maybeStartAutoGrasp()
+{
+    if (!auto_start_grasp_requested_ || auto_start_grasp_attempted_) {
+        return;
+    }
+    if (!auto_start_enabled_) {
+        auto_start_grasp_attempted_ = true;
+        cout << "[Startup] auto start grasp skipped: startup auto-start disabled in settings." << endl;
+        return;
+    }
+    if (models_loading_ || !workflow_.areModelsLoaded()) {
+        return;
+    }
+    if (plc_runtime_state_.active()) {
+        auto_start_grasp_attempted_ = true;
+        return;
+    }
+
+    auto_start_grasp_attempted_ = true;
+    cout << "[Startup] auto start grasp requested; entering PLC grasp link." << endl;
+    QTimer::singleShot(0, this, [this]() {
+        if (!plc_runtime_state_.active() && workflow_.areModelsLoaded()) {
+            togglePlcLinkMode();
+        }
+    });
+}
+
 void GraspMainWindow::loadModelsFromPathsAsync(const QString& obb_model_path,
                                                const QString& seg_model_path,
                                                bool show_error_dialog,
@@ -3383,6 +3420,7 @@ void GraspMainWindow::loadModelsFromPathsAsync(const QString& obb_model_path,
 
         refreshDeviceStatus();
         refreshRuntimeStrip();
+        maybeStartAutoGrasp();
         if (close_after_model_load_) {
             close_after_model_load_ = false;
             close();

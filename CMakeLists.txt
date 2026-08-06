@@ -129,6 +129,7 @@ set(COMMON_HEADERS
 
 set(QT_WORKFLOW_BUSINESS_SOURCES
     app/qt/workflow/app_config_service.cpp
+    app/qt/workflow/app_startup_manager.cpp
     app/qt/workflow/engineering_settings_service.cpp
     app/qt/workflow/frame_processing_service.cpp
     app/qt/workflow/grab_limit_evaluator.cpp
@@ -137,6 +138,7 @@ set(QT_WORKFLOW_BUSINESS_SOURCES
 )
 set(QT_WORKFLOW_BUSINESS_HEADERS
     app/qt/workflow/app_config_service.h
+    app/qt/workflow/app_startup_manager.h
     app/qt/workflow/engineering_settings_service.h
     app/qt/workflow/frame_processing_service.h
     app/qt/workflow/grab_limit_evaluator.h
@@ -273,6 +275,7 @@ if(BUILD_QT_APP)
     add_tankeye_test(engineering_settings_service_test
         SOURCES
             tests/engineering_settings_service_test.cpp
+            app/qt/workflow/app_startup_manager.cpp
             app/qt/workflow/app_config_service.cpp
             app/qt/workflow/engineering_settings_service.cpp
             app/qt/workflow/calibration_profile_store.cpp

@@ -1,5 +1,6 @@
 #include "grasp_main_window.h"
 
+#include "app_startup_manager.h"
 #include "engineering_settings_service.h"
 
 #include <QtGlobal>
@@ -87,6 +88,37 @@ void GraspMainWindow::loadObbPostprocessSettings()
     workflow_.setCenterRayOffsetPx(center_ray_offset_px_);
     workflow_.setPostprocessDebugLoggingEnabled(postprocess_debug_logging_enabled_);
     robot_controller_.setDebugLoggingEnabled(postprocess_debug_logging_enabled_);
+}
+
+void GraspMainWindow::loadStartupLaunchSettings()
+{
+    const StartupLaunchSettings startup = EngineeringSettingsService::LoadStartupLaunchSettings();
+    auto_start_enabled_ = startup.auto_start_enabled;
+    startup_delay_seconds_ = ClampStartupDelaySeconds(startup.delay_seconds);
+}
+
+bool GraspMainWindow::saveStartupLaunchSettings(QString* error_message) const
+{
+    const StartupLaunchSettings startup{
+        auto_start_enabled_,
+        ClampStartupDelaySeconds(startup_delay_seconds_),
+    };
+    EngineeringSettingsService::SaveStartupLaunchSettings(startup);
+
+    const StartupShortcutSyncResult sync_result = SyncStartupShortcut(startup);
+    if (!sync_result.success) {
+        if (error_message != nullptr) {
+            *error_message = sync_result.error_message;
+        }
+        std::cerr << "[Startup] sync failed: "
+                  << sync_result.error_message.toStdString() << std::endl;
+        return false;
+    }
+    std::cout << "[Startup] "
+              << (startup.auto_start_enabled ? "enabled" : "disabled")
+              << " entry=" << sync_result.startup_entry_path.toStdString()
+              << " delay_seconds=" << startup.delay_seconds << std::endl;
+    return true;
 }
 
 void GraspMainWindow::loadUiOverlaySettings()

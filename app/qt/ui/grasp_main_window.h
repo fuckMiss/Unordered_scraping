@@ -51,6 +51,7 @@ public:
 
     void setInitialModelPaths(const QString& obb_model_path, const QString& seg_model_path);
     void setShowAllDetections(bool show_all_detections);
+    void setAutoStartGraspRequested(bool enabled);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -161,6 +162,8 @@ private:
     void saveAngleCalibrationSettings() const;
     void loadObbPostprocessSettings();
     void saveObbPostprocessSettings() const;
+    void loadStartupLaunchSettings();
+    bool saveStartupLaunchSettings(QString* error_message = nullptr) const;
     void loadUiOverlaySettings();
     void saveUiOverlaySettings() const;
     void loadAxisMappingSettings();
@@ -197,6 +200,7 @@ private:
     void clearResults();
     void setEmptyPreviewMessage(const QString& message);
     void setModelLoadingState(bool loading);
+    void maybeStartAutoGrasp();
     void loadModelsFromPathsAsync(const QString& obb_model_path,
                                   const QString& seg_model_path,
                                   bool show_error_dialog,
@@ -283,6 +287,8 @@ private:
     bool show_plc_center_debug_ = false;
     bool show_head_ray_debug_ = true;
     bool postprocess_debug_logging_enabled_ = false;
+    bool auto_start_enabled_ = true;
+    int startup_delay_seconds_ = 10;
     bool show_grab_limit_overlay_ = true;
     double mechanical_gripper_length_ = 0.0;
     double mechanical_gripper_width_ = 0.0;
@@ -309,6 +315,8 @@ private:
     bool models_loading_ = false;
     bool image_detection_running_ = false;
     bool close_after_model_load_ = false;
+    bool auto_start_grasp_requested_ = false;
+    bool auto_start_grasp_attempted_ = false;
     QFutureWatcher<QString>* model_load_watcher_ = nullptr;
     QFutureWatcher<QString>* image_detection_watcher_ = nullptr;
     QFutureWatcher<QString>* plc_poll_watcher_ = nullptr;

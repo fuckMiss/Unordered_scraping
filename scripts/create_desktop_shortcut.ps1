@@ -4,7 +4,9 @@ param(
     [string]$WindowMode = "Maximized",
     [int]$WindowWidth = 1280,
     [int]$WindowHeight = 720,
-    [double]$UiScale = 0
+    [double]$UiScale = 0,
+    [int]$StartupDelaySeconds = 0,
+    [switch]$NoAutoStart
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,7 +36,10 @@ if ([string]::IsNullOrWhiteSpace($AppExe)) {
 }
 
 $DesktopDir = [Environment]::GetFolderPath("Desktop")
+$StartupDir = [Environment]::GetFolderPath("Startup")
 $ShortcutPath = Join-Path $DesktopDir "$ShortcutName.lnk"
+$StartupVbsPath = Join-Path $StartupDir "$ShortcutName.vbs"
+$LegacyStartupShortcutPath = Join-Path $StartupDir "$ShortcutName.lnk"
 $OldUrlPath = Join-Path $DesktopDir "$ShortcutName.url"
 $WScriptExe = Join-Path $env:SystemRoot "System32\wscript.exe"
 
@@ -50,7 +55,32 @@ $Shortcut.IconLocation = "$AppExe,0"
 $Shortcut.Description = "Start TankEye-Iris"
 $Shortcut.Save()
 
+if (-not $NoAutoStart) {
+    $StartupDelaySeconds = [Math]::Max(0, [Math]::Min($StartupDelaySeconds, 600))
+    Remove-Item -LiteralPath $LegacyStartupShortcutPath -Force -ErrorAction SilentlyContinue
+    $StartupVbs = @"
+Option Explicit
+
+Dim shell, appDir, launchScript, command
+
+Set shell = CreateObject("WScript.Shell")
+
+appDir = "$($AppDir.Replace('"', '""'))"
+launchScript = "$($LaunchScript.Replace('"', '""'))"
+command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " & _
+          """" & launchScript & """" & " -StartupProfile AutoStart -StartupDelaySeconds $StartupDelaySeconds"
+
+shell.CurrentDirectory = appDir
+shell.Run command, 0, False
+"@
+    [System.IO.File]::WriteAllText($StartupVbsPath, $StartupVbs, [System.Text.UTF8Encoding]::new($false))
+}
+
 Write-Host "Desktop shortcut created:"
 Write-Host "  $ShortcutPath"
+if (-not $NoAutoStart) {
+    Write-Host "Startup shortcut created:"
+    Write-Host "  $StartupVbsPath"
+}
 Write-Host "Target:"
 Write-Host "  $WScriptExe $($Shortcut.Arguments)"

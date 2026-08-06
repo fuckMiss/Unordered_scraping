@@ -21,6 +21,7 @@ class QGridLayout;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
+class QSpinBox;
 class QWidget;
 
 QLabel* CreateGroupCaption(const QString& text, QWidget* parent);
@@ -63,6 +64,8 @@ struct EngineeringSettingsControls
     QCheckBox* show_plc_center_debug_check = nullptr;
     QCheckBox* show_head_ray_debug_check = nullptr;
     QCheckBox* postprocess_debug_logging_check = nullptr;
+    QCheckBox* auto_start_check = nullptr;
+    QSpinBox* startup_delay_spin = nullptr;
     QDoubleSpinBox* mechanical_gripper_length_spin = nullptr;
     QDoubleSpinBox* mechanical_gripper_width_spin = nullptr;
     std::array<QDoubleSpinBox*, 5> head_type_angle_offset_spins{};
@@ -103,6 +106,8 @@ struct EngineeringSettingsDraft
     bool show_plc_center_debug = false;
     bool show_head_ray_debug = true;
     bool postprocess_debug_logging_enabled = false;
+    bool auto_start_enabled = true;
+    int startup_delay_seconds = 0;
     bool show_grab_limit_overlay = true;
     double mechanical_gripper_length = 0.0;
     double mechanical_gripper_width = 0.0;

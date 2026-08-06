@@ -99,8 +99,8 @@ void RuntimeStatusPresenter::RefreshDeviceStatus(const DeviceStatusView& view,
             view.start_button->setEnabled(false);
         }
         if (view.plc_link_button != nullptr) {
-            view.plc_link_button->setText(snapshot.plc_link_active ? QStringLiteral("停止抓取")
-                                                                   : QStringLiteral("抓取"));
+            view.plc_link_button->setText(snapshot.plc_link_active ? QStringLiteral("关闭")
+                                                                   : QStringLiteral("开始"));
             view.plc_link_button->setEnabled(false);
         }
         if (view.plc_test_button != nullptr) {
@@ -121,8 +121,8 @@ void RuntimeStatusPresenter::RefreshDeviceStatus(const DeviceStatusView& view,
             view.start_button->setEnabled(false);
         }
         if (view.plc_link_button != nullptr) {
-            view.plc_link_button->setText(snapshot.plc_link_active ? QStringLiteral("停止抓取")
-                                                                   : QStringLiteral("抓取"));
+            view.plc_link_button->setText(snapshot.plc_link_active ? QStringLiteral("关闭")
+                                                                   : QStringLiteral("开始"));
             view.plc_link_button->setEnabled(false);
         }
         if (view.plc_test_button != nullptr) {
@@ -145,8 +145,8 @@ void RuntimeStatusPresenter::RefreshDeviceStatus(const DeviceStatusView& view,
         view.start_button->setEnabled(snapshot.models_loaded && snapshot.has_input);
     }
     if (view.plc_link_button != nullptr) {
-        view.plc_link_button->setText(snapshot.plc_link_active ? QStringLiteral("停止抓取")
-                                                               : QStringLiteral("抓取"));
+        view.plc_link_button->setText(snapshot.plc_link_active ? QStringLiteral("关闭")
+                                                               : QStringLiteral("开始"));
         view.plc_link_button->setEnabled(snapshot.models_loaded);
     }
     if (view.plc_test_button != nullptr) {

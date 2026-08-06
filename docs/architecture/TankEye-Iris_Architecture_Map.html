@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>TankEye-Iris 架构图</title>
+  <style>
+    @page { size: A4 landscape; margin: 10mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      color: #17212b;
+      background: #eef2f6;
+    }
+    .page {
+      width: 277mm;
+      height: 190mm;
+      margin: 0 auto 12mm;
+      padding: 10mm 12mm;
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      page-break-after: always;
+    }
+    h1 {
+      margin: 0 0 2mm;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      margin: 0 0 6mm;
+      color: #5d6978;
+      font-size: 12px;
+    }
+    .note {
+      margin-top: 3mm;
+      color: #5d6978;
+      font-size: 11px;
+    }
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .label { font-size: 13px; font-weight: 700; fill: #17212b; }
+    .small { font-size: 10px; fill: #394655; }
+    .tiny { font-size: 9px; fill: #526171; }
+    .node { stroke: #607085; stroke-width: 1.2; rx: 7; ry: 7; }
+    .root { fill: #1f6feb; stroke: #1454b8; }
+    .blue { fill: #e8f1ff; }
+    .green { fill: #e8f6ef; }
+    .orange { fill: #fff2df; }
+    .red { fill: #ffe9e8; }
+    .purple { fill: #f0eafa; }
+    .gray { fill: #f3f5f8; }
+    .line { stroke: #8a97a8; stroke-width: 1.4; fill: none; }
+    .arrow { stroke: #627085; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+    .section-title { font-size: 15px; font-weight: 800; fill: #17212b; }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <h1>TankEye-Iris 项目架构思维导图</h1>
+    <p class="subtitle">事实来源：当前源码、CMake、脚本、测试和 docs/project-memory；README 不作为主依据。</p>
+    <svg viewBox="0 0 1120 650" role="img" aria-label="TankEye-Iris architecture mind map">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
+          <path d="M0,0 L8,3.5 L0,7 Z" fill="#627085"></path>
+        </marker>
+      </defs>
+
+      <rect x="450" y="280" width="220" height="72" rx="14" fill="#1f6feb" stroke="#1454b8" stroke-width="2"/>
+      <text x="560" y="308" text-anchor="middle" font-size="22" font-weight="800" fill="#fff">TankEye-Iris</text>
+      <text x="560" y="332" text-anchor="middle" font-size="12" fill="#dce9ff">V5 / 1.4.1 运行包</text>
+
+      <path class="line" d="M450 304 C360 260 300 190 235 116"/>
+      <path class="line" d="M450 332 C360 370 300 455 235 535"/>
+      <path class="line" d="M670 304 C765 250 830 176 908 93"/>
+      <path class="line" d="M670 330 C765 360 840 460 930 545"/>
+      <path class="line" d="M560 280 C560 215 560 150 560 86"/>
+      <path class="line" d="M560 352 C560 420 560 493 560 565"/>
+
+      <rect class="node blue" x="56" y="46" width="280" height="146"/>
+      <text class="label" x="196" y="72" text-anchor="middle">Qt 主程序 app/qt</text>
+      <text class="small" x="78" y="101">main.cpp：日志、启动参数、Startup 同步</text>
+      <text class="small" x="78" y="124">GraspMainWindow：主界面、检测、PLC 联动</text>
+      <text class="small" x="78" y="147">frame_overlay：OBB / SEG / 夹爪框 / AC 射线</text>
+      <text class="small" x="78" y="170">runtime_status_presenter：开始 / 关闭状态</text>
+
+      <rect class="node green" x="48" y="470" width="304" height="132"/>
+      <text class="label" x="200" y="496" text-anchor="middle">Workflow 工作流</text>
+      <text class="small" x="70" y="525">grasp_workflow：模型加载、相机采集线程</text>
+      <text class="small" x="70" y="548">frame_processing_service：坐标转换与结果整合</text>
+      <text class="small" x="70" y="571">plc_trigger_coordinator：PLC 触发闭环</text>
+
+      <rect class="node orange" x="420" y="24" width="280" height="128"/>
+      <text class="label" x="560" y="50" text-anchor="middle">CV / 推理 core</text>
+      <text class="small" x="442" y="79">YOLOv11_OBB / YOLOv11_SEG</text>
+      <text class="small" x="442" y="102">openvino_utils：预处理、warmup、输出解析</text>
+      <text class="small" x="442" y="125">frame_postprocess：A/B/SEG、AC 几何、D508</text>
+
+      <rect class="node red" x="420" y="540" width="280" height="92"/>
+      <text class="label" x="560" y="566" text-anchor="middle">安全与 PLC 合同</text>
+      <text class="small" x="442" y="596">grab_limit_evaluator：真实夹爪框、mask 碰撞、ROI/角度限位</text>
+      <text class="small" x="442" y="619">plc_result_contract：D500/D502/D504/D506/D508 与补偿</text>
+
+      <rect class="node purple" x="802" y="44" width="288" height="118"/>
+      <text class="label" x="946" y="70" text-anchor="middle">硬件与设备</text>
+      <text class="small" x="824" y="99">hik_camera：海康相机打开、曝光、抓帧</text>
+      <text class="small" x="824" y="122">robot_controller：PLC 通信、模拟 PLC、寄存器</text>
+      <text class="small" x="824" y="145">真实设备动作必须先确认</text>
+
+      <rect class="node gray" x="776" y="480" width="312" height="138"/>
+      <text class="label" x="932" y="506" text-anchor="middle">配置 / 脚本 / 测试 / 打包</text>
+      <text class="small" x="798" y="535">config、models/weights、calibration_profiles</text>
+      <text class="small" x="798" y="558">launch_tankeye.ps1：Manual / StartupProfile AutoStart</text>
+      <text class="small" x="798" y="581">package_runtime.ps1：生成 dist 运行包与 manifest</text>
+      <text class="small" x="798" y="604">tests：后处理、overlay、PLC 合同、工程设置</text>
+    </svg>
+    <p class="note">当前自启合同已收敛为：<strong>-StartupProfile AutoStart -StartupDelaySeconds N</strong>；旧 Startup LNK 只作为迁移残留清理。</p>
+  </section>
+
+  <section class="page">
+    <h1>核心运行链路架构图</h1>
+    <p class="subtitle">从启动、模型、相机/图片、CV 后处理到 PLC 写入和画面显示。</p>
+    <svg viewBox="0 0 1120 650" role="img" aria-label="TankEye-Iris runtime architecture flow">
+      <defs>
+        <marker id="arrow2" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
+          <path d="M0,0 L8,3.5 L0,7 Z" fill="#627085"></path>
+        </marker>
+      </defs>
+      <style>
+        .flow-arrow { stroke: #627085; stroke-width: 1.5; fill: none; marker-end: url(#arrow2); }
+      </style>
+
+      <text class="section-title" x="36" y="32">启动层</text>
+      <rect class="node blue" x="36" y="52" width="190" height="70"/>
+      <text class="label" x="131" y="82" text-anchor="middle">launch_tankeye.ps1</text>
+      <text class="tiny" x="131" y="104" text-anchor="middle">Manual / AutoStart</text>
+
+      <rect class="node blue" x="276" y="52" width="190" height="70"/>
+      <text class="label" x="371" y="82" text-anchor="middle">main.cpp</text>
+      <text class="tiny" x="371" y="104" text-anchor="middle">日志、参数、Startup 同步</text>
+
+      <rect class="node blue" x="516" y="52" width="190" height="70"/>
+      <text class="label" x="611" y="82" text-anchor="middle">GraspMainWindow</text>
+      <text class="tiny" x="611" y="104" text-anchor="middle">UI 状态与工作流入口</text>
+
+      <path class="flow-arrow" d="M226 87 H276"/>
+      <path class="flow-arrow" d="M466 87 H516"/>
+
+      <text class="section-title" x="36" y="180">视觉处理链路</text>
+      <rect class="node orange" x="36" y="202" width="170" height="74"/>
+      <text class="label" x="121" y="232" text-anchor="middle">输入</text>
+      <text class="tiny" x="121" y="254" text-anchor="middle">相机 / 图片</text>
+
+      <rect class="node orange" x="246" y="202" width="180" height="74"/>
+      <text class="label" x="336" y="232" text-anchor="middle">OBB / SEG 推理</text>
+      <text class="tiny" x="336" y="254" text-anchor="middle">OpenVINO CPU/GPU/AUTO</text>
+
+      <rect class="node orange" x="466" y="202" width="206" height="74"/>
+      <text class="label" x="569" y="232" text-anchor="middle">frame_postprocess</text>
+      <text class="tiny" x="569" y="254" text-anchor="middle">A/B/SEG、AC 射线、D508</text>
+
+      <rect class="node red" x="712" y="202" width="192" height="74"/>
+      <text class="label" x="808" y="232" text-anchor="middle">grab_limit_evaluator</text>
+      <text class="tiny" x="808" y="254" text-anchor="middle">真实夹爪框、碰撞、限位</text>
+
+      <rect class="node red" x="944" y="202" width="142" height="74"/>
+      <text class="label" x="1015" y="232" text-anchor="middle">PLC 合同</text>
+      <text class="tiny" x="1015" y="254" text-anchor="middle">补偿后 D 寄存器</text>
+
+      <path class="flow-arrow" d="M206 239 H246"/>
+      <path class="flow-arrow" d="M426 239 H466"/>
+      <path class="flow-arrow" d="M672 239 H712"/>
+      <path class="flow-arrow" d="M904 239 H944"/>
+
+      <text class="section-title" x="36" y="340">输出与反馈</text>
+      <rect class="node green" x="80" y="370" width="226" height="88"/>
+      <text class="label" x="193" y="402" text-anchor="middle">frame_overlay</text>
+      <text class="tiny" x="193" y="424" text-anchor="middle">基础 OBB、真实夹爪框、AC 射线</text>
+      <text class="tiny" x="193" y="444" text-anchor="middle">普通 / 全显调试层</text>
+
+      <rect class="node purple" x="444" y="370" width="226" height="88"/>
+      <text class="label" x="557" y="402" text-anchor="middle">robot_controller</text>
+      <text class="tiny" x="557" y="424" text-anchor="middle">PLC 模拟 / 真实 PLC 写入</text>
+      <text class="tiny" x="557" y="444" text-anchor="middle">真实 PLC 操作需确认</text>
+
+      <rect class="node gray" x="808" y="370" width="226" height="88"/>
+      <text class="label" x="921" y="402" text-anchor="middle">运行包与测试</text>
+      <text class="tiny" x="921" y="424" text-anchor="middle">dist/TankEye-Iris_1.4.1</text>
+      <text class="tiny" x="921" y="444" text-anchor="middle">run_build_tests.ps1</text>
+
+      <path class="flow-arrow" d="M808 276 C760 334 690 370 670 392"/>
+      <path class="flow-arrow" d="M1015 276 C940 330 760 364 670 402"/>
+      <path class="flow-arrow" d="M808 276 C625 330 390 360 306 402"/>
+      <path class="flow-arrow" d="M611 122 C610 152 610 172 610 202"/>
+      <path class="flow-arrow" d="M1015 276 V370"/>
+
+      <rect x="46" y="520" width="1018" height="92" rx="8" fill="#f3f5f8" stroke="#ccd5df"/>
+      <text class="section-title" x="72" y="548">关键边界</text>
+      <text class="small" x="72" y="576">UI 层只负责显示和交互；CV 层负责 AC 几何、真实夹爪框、碰撞和限位；PLC 合同层负责最终 D500/D502/D504/D506/D508。</text>
+      <text class="small" x="72" y="600">脚本层负责启动画像、运行环境和打包；真实 PLC、真实相机、真实设备动作仍必须先由用户确认。</text>
+    </svg>
+  </section>
+</body>
+</html>
