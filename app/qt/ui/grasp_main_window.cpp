@@ -76,6 +76,19 @@ constexpr int kDensityBaseHeight = 720;
 double g_responsive_ui_scale = 1.0;
 double g_sidebar_compact_scale = 1.0;
 
+QString AppDisplayLabel(const AppDisplayConfig& config)
+{
+    const QString name = config.name.trimmed().isEmpty() ? QStringLiteral("TankEye-Iris") : config.name.trimmed();
+    const QString version = config.version.trimmed();
+    return version.isEmpty() ? name : QStringLiteral("%1 V%2").arg(name, version);
+}
+
+QString AppTitleLabel(const AppDisplayConfig& config)
+{
+    const QString title = config.title.trimmed();
+    return title.isEmpty() ? QStringLiteral("截止阀抓取上料系统") : title;
+}
+
 double MsSince(const std::chrono::steady_clock::time_point& start,
                const std::chrono::steady_clock::time_point& end)
 {
@@ -1026,7 +1039,7 @@ void GraspMainWindow::setupUi()
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     resize(SS(1360, 820));
     setMinimumSize(SS(960, 600));
-    setWindowTitle(QStringLiteral("截止阀抓取上料系统"));
+    setWindowTitle(QStringLiteral("%1 - %2").arg(AppDisplayLabel(app_config_.app), AppTitleLabel(app_config_.app)));
     setWindowIcon(QIcon(DefaultLogoPath()));
 
     central_panel_ = new QWidget(this);
@@ -1083,6 +1096,7 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
     top_layout->setVerticalSpacing(0);
 
     auto* left_widget = new QWidget(top_bar_);
+    left_widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     auto* left_layout = new QHBoxLayout(left_widget);
     left_layout->setContentsMargins(0, 0, 0, 0);
     left_layout->setSpacing(S(10));
@@ -1099,15 +1113,16 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
         logo_label_->setText(QStringLiteral("L"));
     }
 
-    brand_label_ = new QLabel(QStringLiteral("TankEye-Iris"), top_bar_);
+    brand_label_ = new QLabel(AppDisplayLabel(app_config_.app), top_bar_);
     brand_label_->setObjectName("brandLabel");
-    brand_label_->setMinimumWidth(0);
-    brand_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    brand_label_->setMinimumWidth(S(170));
+    brand_label_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    brand_label_->setToolTip(AppDisplayLabel(app_config_.app));
 
     left_layout->addWidget(logo_label_);
     left_layout->addWidget(brand_label_);
 
-    title_label_ = new QLabel(QStringLiteral("截止阀抓取上料系统"), top_bar_);
+    title_label_ = new QLabel(AppTitleLabel(app_config_.app), top_bar_);
     title_label_->setObjectName("titleLabel");
     title_label_->setAlignment(Qt::AlignCenter);
     title_label_->setMinimumWidth(0);
@@ -1137,12 +1152,13 @@ void GraspMainWindow::buildTopBar(QVBoxLayout* root_layout)
     right_layout->addWidget(maximize_window_button_);
     right_layout->addWidget(close_window_button_);
 
-    top_layout->addWidget(title_label_, 0, 0, 1, 3, Qt::AlignCenter);
+    top_layout->addWidget(title_label_, 0, 1, Qt::AlignCenter);
     top_layout->addWidget(left_widget, 0, 0, Qt::AlignLeft | Qt::AlignVCenter);
     top_layout->addWidget(top_right_controls_, 0, 2, Qt::AlignRight | Qt::AlignVCenter);
-    top_layout->setColumnStretch(0, 1);
+    top_layout->setColumnStretch(0, 0);
     top_layout->setColumnStretch(1, 1);
     top_layout->setColumnStretch(2, 0);
+    top_layout->setColumnMinimumWidth(0, left_widget->sizeHint().width());
     top_layout->setColumnMinimumWidth(2, top_right_controls_->sizeHint().width());
 
     root_layout->addWidget(top_bar_, 0);
@@ -1471,7 +1487,7 @@ void GraspMainWindow::applyStyles()
         "#imageViewport { background: #060b10; border-radius: %5px; border: 1px solid #34506a; color: #d7e0e8;"
         " font-size: %6px; font-weight: 600; }"
         "#logoLabel { background: transparent; border: none; padding: 0px; }"
-        "#brandLabel { color: #ece4dc; font-size: %7px; font-weight: 500; }"
+        "#brandLabel { color: #ffffff; font-size: %7px; font-weight: 700; }"
         "#titleLabel { color: #f3eee8; font-size: %8px; font-weight: 800; }"
         "#sectionTitle { color: #eef5fb; font-size: %9px; font-weight: 700; padding-top: %10px; }"
         "#infoCard { background: rgba(255,255,255,0.045); border: 1px solid #2f465b; border-radius: %11px; }"
@@ -1654,9 +1670,9 @@ void GraspMainWindow::refreshTopBarMetrics()
         }
     }
     if (brand_label_) {
-        brand_label_->setMinimumWidth(0);
-        brand_label_->setMaximumWidth(TS(160));
-        brand_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        brand_label_->setMinimumWidth(TS(170));
+        brand_label_->setMaximumWidth(TS(220));
+        brand_label_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     }
     if (title_label_) {
         title_label_->setMinimumWidth(0);
@@ -1691,8 +1707,11 @@ void GraspMainWindow::refreshTopBarMetrics()
         top_right_controls_->setMinimumWidth(controls_width);
         top_right_controls_->setMaximumWidth(controls_width);
         if (auto* top_layout = qobject_cast<QGridLayout*>(top_bar_->layout())) {
+            if (logo_label_ && brand_label_) {
+                top_layout->setColumnMinimumWidth(0, logo_label_->width() + brand_label_->minimumWidth() + TS(10));
+            }
             top_layout->setColumnMinimumWidth(2, controls_width);
-            top_layout->setColumnStretch(0, 1);
+            top_layout->setColumnStretch(0, 0);
             top_layout->setColumnStretch(1, 1);
             top_layout->setColumnStretch(2, 0);
             top_layout->setAlignment(title_label_, Qt::AlignCenter);

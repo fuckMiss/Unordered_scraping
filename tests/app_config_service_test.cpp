@@ -31,6 +31,11 @@ void FullJsonIsParsed()
     WriteTextFile(path, R"json(
 {
   "version": 2,
+  "app": {
+    "name": "FieldEye",
+    "version": "9.8.7",
+    "title": "Field Test System"
+  },
   "plc": {
     "host": "10.0.0.10",
     "port": 1502,
@@ -73,6 +78,9 @@ void FullJsonIsParsed()
 
     const AppConfig config = AppConfigService::LoadFromPath(path);
     assert(config.version == 2);
+    assert(config.app.name == QStringLiteral("FieldEye"));
+    assert(config.app.version == QStringLiteral("9.8.7"));
+    assert(config.app.title == QStringLiteral("Field Test System"));
     assert(config.plc.host == QStringLiteral("10.0.0.10"));
     assert(config.plc.port == 1502);
     assert(config.plc.unit_id == 5);
@@ -92,6 +100,9 @@ void FullJsonIsParsed()
 void MissingAndInvalidValuesFallBack()
 {
     const AppConfig missing = AppConfigService::LoadFromPath(QStringLiteral("Z:/missing/tankeye.json"));
+    assert(missing.app.name == QStringLiteral("TankEye-Iris"));
+    assert(missing.app.version == QStringLiteral("1.4.3"));
+    assert(missing.app.title == QStringLiteral("截止阀抓取上料系统"));
     assert(missing.plc.registers.photo_trigger == 1500);
     assert(missing.plc.registers.pick_status == 506);
 
@@ -118,6 +129,30 @@ void MissingAndInvalidValuesFallBack()
     assert(NearlyEqual(invalid.machine_limits.roi_margin, 5.0));
 }
 
+void AppDisplayCanBeLocked()
+{
+    QTemporaryDir directory;
+    assert(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("tankeye.json"));
+    WriteTextFile(path, R"json(
+{
+  "app": {
+    "name": "EditedName",
+    "version": "0.0.1",
+    "title": "Edited Title"
+  }
+}
+)json");
+
+    qputenv("TANKEYE_LOCK_APP_DISPLAY", "1");
+    const AppConfig locked = AppConfigService::LoadFromPath(path);
+    qunsetenv("TANKEYE_LOCK_APP_DISPLAY");
+
+    assert(locked.app.name == QStringLiteral("TankEye-Iris"));
+    assert(locked.app.version == QStringLiteral("1.4.3"));
+    assert(locked.app.title == QStringLiteral("截止阀抓取上料系统"));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -125,6 +160,7 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     FullJsonIsParsed();
     MissingAndInvalidValuesFallBack();
+    AppDisplayCanBeLocked();
     std::cout << "app_config_service_test passed" << std::endl;
     return 0;
 }

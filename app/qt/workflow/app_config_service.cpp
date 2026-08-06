@@ -108,6 +108,15 @@ PlcFloatWordOrder ParseFloatWordOrder(const QString& value, PlcFloatWordOrder fa
     return fallback;
 }
 
+bool IsAppDisplayLocked()
+{
+    const QString value = QString::fromLocal8Bit(qgetenv("TANKEYE_LOCK_APP_DISPLAY")).trimmed().toLower();
+    return value == QStringLiteral("1") ||
+           value == QStringLiteral("true") ||
+           value == QStringLiteral("yes") ||
+           value == QStringLiteral("on");
+}
+
 void ApplyEnvironmentOverrides(AppConfig& config)
 {
     const QString env_host = QString::fromLocal8Bit(qgetenv("TANKEYE_PLC_HOST")).trimmed();
@@ -134,6 +143,13 @@ void ApplyEnvironmentOverrides(AppConfig& config)
 void ApplyJson(AppConfig& config, const QJsonObject& root)
 {
     config.version = IntValue(root, "version", config.version, 1, 999);
+
+    if (!IsAppDisplayLocked()) {
+        const QJsonObject app = ObjectValue(root, "app");
+        config.app.name = StringValue(app, "name", config.app.name);
+        config.app.version = StringValue(app, "version", config.app.version);
+        config.app.title = StringValue(app, "title", config.app.title);
+    }
 
     const QJsonObject plc = ObjectValue(root, "plc");
     config.plc.host = StringValue(plc, "host", config.plc.host);

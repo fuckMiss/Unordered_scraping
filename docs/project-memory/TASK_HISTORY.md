@@ -426,3 +426,35 @@
 - Result: Generated `dist\TankEye-Iris_1.4.2` and `dist\TankEye-Iris_1.4.2.zip`.
 - Verification: PowerShell parse passed for launch/package/shortcut scripts; `cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_engineering_settings_service_test tankeye-openvino_runtime_status_presenter_test` passed; default `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` passed; package generation passed with known `VCINSTALLDIR is not set` warning; manifest shows `name=TankEye-Iris_1.4.2`, `version=1.4.2`, `runtime_only=true`, `files=129`; package contains no `docs/` or `AGENTS.md`; packaged exe hash matches `build\Release`; packaged simulated-PLC launch with `-Device CPU -SimulatePlc -AutoLoadModels` produced `dist\TankEye-Iris_1.4.2\logs\tankeye_20260806_153900.log` confirming OBB/SEG model arguments, CPU OpenVINO loading, compile, and warmup.
 - Leftover: No real PLC, real camera, or auto-grasp smoke was run.
+
+## 2026-08-06 - Show App Name And Version In Top Bar
+
+- Goal: Print the current software name and version next to the top-left icon, and make both the left app label and the centered system title editable from config.
+- Change: Updated `GraspMainWindow` top-bar brand label to show the configured app display label, reused the same label for the window title, and fixed the top-bar layout after screenshot feedback showed the first label was still invisible. The brand label now uses white bold text, fixed readable width, and its own left grid column instead of sharing the centered title cell. Added editable `config/tankeye.json` keys `app.name`, `app.version`, and `app.title`, plus `AppConfigService` parsing and tests. Added UTF-8 default read/write rules to `AGENTS.md` and `docs/project-memory/OPERATING_LIMITS.md`.
+- Result: The top-left header should show the configured software name/version beside the icon, and the top-center title should show `app.title`. Future display changes can be made by editing `config/tankeye.json`, for example `"app": { "name": "TankEye-Iris", "version": "1.4.3", "title": "截止阀抓取上料系统" }`.
+- Verification: `cmake --build build --config Release --target tankeye-openvino_app_config_service_test tankeye-openvino_qt_app` passed; default `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` passed; `git diff --check` reported no whitespace errors, only the known CRLF warning.
+- Leftover: No package rebuild was run. Real GUI screenshot verification was not run because launching the app can self-sync the current user's Windows Startup entry outside the repository; ask before doing that environment-touching check.
+
+## 2026-08-06 - Repair Packaging And Runtime Usage Docs Encoding
+
+- Goal: Fix mojibake in `docs/PACKAGING_README.md` and `runtime/USAGE_GUIDE.txt`.
+- Change: Rewrote both files as clean UTF-8 Chinese documentation, preserving current 1.4.2 build/package/startup guidance and adding the editable `config\tankeye.json` app display keys.
+- Result: Both files are readable with `Get-Content -Encoding UTF8`; the previous mojibake text is removed.
+- Verification: Read the first sections of both files with explicit UTF-8; searched both files for common mojibake markers (`缂`, `鐩`, `鍚`, replacement characters) with no remaining bad-content hits other than intentional “避免中文乱码” wording; `cmake --build build --config Release --target tankeye-openvino_qt_app` passed; default `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` passed.
+- Leftover: No package rebuild was run, so existing `dist\TankEye-Iris_1.4.2` still contains the older generated usage guide until repackaged.
+
+## 2026-08-06 - Repackage 1.4.2 With Locked App Display
+
+- Goal: Rebuild the runtime package and prevent field testers from changing the displayed app name, version, or centered title through ordinary packaged config edits.
+- Change: Added `TANKEYE_LOCK_APP_DISPLAY=1` handling in `AppConfigService`; when set, the app ignores `config\tankeye.json` `app.name/app.version/app.title` and uses built-in defaults. The packaged launcher now sets that lock variable. Updated the packaged docs and fixed `scripts/package_runtime.ps1` to read and rewrite packaged JSON with explicit UTF-8 when disabling invalid machine limits.
+- Result: Regenerated `dist\TankEye-Iris_1.4.2` and `dist\TankEye-Iris_1.4.2.zip`. Package config remains readable UTF-8 and keeps `app.version=1.4.3`, but ordinary package launches ignore runtime edits to these display fields because the launcher locks app display.
+- Verification: `cmake --build build --config Release --target tankeye-openvino_app_config_service_test tankeye-openvino_qt_app` passed; default `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` passed; packaging command passed with known `VCINSTALLDIR is not set` warning; manifest check shows `name=TankEye-Iris_1.4.2`, `version=1.4.2`, `runtime_only=True`, `files=129`; packaged launcher contains `TANKEYE_LOCK_APP_DISPLAY = "1"`; packaged `config\tankeye.json` reads cleanly as UTF-8; packaged exe hash matches `build\Release`; zip exists; package contains no `docs` or `AGENTS.md`.
+- Leftover: No packaged GUI smoke was run because launching the app can self-sync the current user's Windows Startup entry outside the repository; ask before doing that environment-touching check.
+
+## 2026-08-06 - Repackage TankEye-Iris 1.4.3 With Locked App Display
+
+- Goal: Align the runtime package with the current 1.4.3 display/version settings.
+- Change: Updated `scripts/package_runtime.ps1`, docs, and runtime usage notes to `1.4.3`; kept the packaged app-display lock so ordinary field edits to `config\tankeye.json` do not change the visible app name/version/title.
+- Result: Generated `dist\TankEye-Iris_1.4.3` and `dist\TankEye-Iris_1.4.3.zip`. The package now carries `app.version=1.4.3` in its config, while the launcher enforces `TANKEYE_LOCK_APP_DISPLAY=1`.
+- Verification: `cmake --build build --config Release --target tankeye-openvino_app_config_service_test tankeye-openvino_qt_app` passed; default `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` passed; package generation passed with known `VCINSTALLDIR is not set` warning; manifest check shows `name=TankEye-Iris_1.4.3`, `version=1.4.3`, `runtime_only=True`, `files=129`; packaged launcher contains `TANKEYE_LOCK_APP_DISPLAY = "1"`; packaged `config\tankeye.json` reads cleanly as UTF-8; packaged exe hash matches `build\Release`; zip exists; package contains no `docs` or `AGENTS.md`.
+- Leftover: If the user later needs a field-side version change without source access, there is still no secure way to allow that while keeping ordinary config edits blocked; that would require a separate approved override mechanism or a new package build.

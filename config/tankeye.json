@@ -1,5 +1,10 @@
 {
   "version": 1,
+  "app": {
+    "name": "TankEye-Iris",
+    "version": "1.4.3",
+    "title": "截止阀抓取上料系统"
+  },
   "plc": {
     "host": "192.168.3.205",
     "port": 502,

@@ -32,9 +32,17 @@ struct PlcConnectionConfig
     PlcRegisterMap registers;
 };
 
+struct AppDisplayConfig
+{
+    QString name = QStringLiteral("TankEye-Iris");
+    QString version = QStringLiteral("1.4.3");
+    QString title = QStringLiteral("截止阀抓取上料系统");
+};
+
 struct AppConfig
 {
     int version = 1;
+    AppDisplayConfig app;
     PlcConnectionConfig plc;
     GrabLimitConfig machine_limits;
     AxisMappingMode axis_mapping_mode = AxisMappingMode::FrontBackMachineY;

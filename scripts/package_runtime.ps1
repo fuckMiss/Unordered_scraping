@@ -1,6 +1,6 @@
 param(
     [string]$BuildDir = "build",
-    [string]$ReleaseName = "TankEye-Iris_1.4.2",
+    [string]$ReleaseName = "TankEye-Iris_1.4.3",
     [switch]$Force
 )
 
@@ -258,10 +258,10 @@ if (Test-Path -LiteralPath $PackagedProfileDir) {
 }
 if (-not $HasValidCoordinateProfile) {
     try {
-        $config_json = Get-Content -LiteralPath $PackagedConfigPath -Raw | ConvertFrom-Json
+        $config_json = Get-Content -LiteralPath $PackagedConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($null -ne $config_json.machine_limits) {
             $config_json.machine_limits.enabled = $false
-            $config_json | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $PackagedConfigPath -Encoding utf8
+            Write-Utf8File $PackagedConfigPath ($config_json | ConvertTo-Json -Depth 20)
             Write-Host "[Package] No valid enabled nine-point profile found; packaged machine_limits.enabled=false."
         }
     } catch {
@@ -393,6 +393,7 @@ if ($UseAutoStartProfile) {
 } else {
     Remove-Item Env:\TANKEYE_AUTO_START_GRASP -ErrorAction SilentlyContinue
 }
+$env:TANKEYE_LOCK_APP_DISPLAY = "1"
 if ($CameraIp) {
     $env:TANKEYE_CAMERA_IP = $CameraIp
 }
@@ -516,7 +517,7 @@ shell.Run command, 0, False
 Write-Utf8File (Join-Path $StagingDir "create_desktop_shortcut.ps1") $ShortcutScript
 
 $Readme = @'
-# TankEye-Iris 1.4.2 独立运行包
+# TankEye-Iris 1.4.3 独立运行包
 
 ## 启动
 
@@ -542,6 +543,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 - 运行库：Qt、OpenCV、OpenVINO、TBB、Hikrobot MVS Runtime
 - 工具：`nine_point_circle_picker.exe`、`create_desktop_shortcut.ps1`
 - 运行 `create_desktop_shortcut.ps1` 生成桌面图标时默认同步创建当前用户开机自启入口；自启入口统一使用 `-StartupProfile AutoStart`，会自动加载模型并在模型加载完成后请求进入 PLC 抓取联动，可在工程设置中关闭并调整延迟秒数。
+- 启动脚本会锁定顶部显示名、版本号和标题，现场普通修改 `config\tankeye.json` 不会改变这些显示项。
 - 缓存：`openvino_cache\`
 - 日志：`logs\tankeye_*.log`
 
@@ -556,7 +558,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 
 此运行包不包含 C/C++ 源码、头文件、Python 脚本、CMake 工程、测试、调试符号、`.lib` 或训练资产。
 
-## 1.4.2 说明
+## 1.4.3 说明
 
 - 主界面左侧图像区约 75%，右侧控制栏约 25%。
 - 图像完整显示，允许边缘留白，不裁剪。
@@ -613,7 +615,7 @@ $HashEntries = @($FilesForHash | ForEach-Object { Add-HashEntry $StagingDir $_ }
 
 $Manifest = [PSCustomObject]@{
     name = $ReleaseName
-    version = "1.4.2"
+    version = "1.4.3"
     built_at = (Get-Date).ToString("o")
     source_build_dir = $BuildDir
     runtime_only = $true
