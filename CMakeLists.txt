@@ -181,6 +181,9 @@ target_link_libraries(${PROJECT_NAME}_obb ${PROJECT_NAME}_deploy_obb)
 add_executable(${PROJECT_NAME}_seg app/cli/main_seg.cpp)
 target_link_libraries(${PROJECT_NAME}_seg ${PROJECT_NAME}_deploy_seg)
 
+add_executable(${PROJECT_NAME}_device_probe app/cli/main_device_probe.cpp)
+target_link_libraries(${PROJECT_NAME}_device_probe openvino::runtime)
+
 enable_testing()
 
 function(add_tankeye_test test_name)
@@ -306,6 +309,21 @@ if(BUILD_QT_APP)
         SOURCES
             tests/runtime_status_presenter_test.cpp
             app/qt/ui/runtime_status_presenter.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Widgets
+            ${OpenCV_LIBS}
+    )
+
+    add_tankeye_test(engineering_settings_spinbox_wheel_test
+        SOURCES
+            tests/engineering_settings_spinbox_wheel_test.cpp
+            app/qt/ui/engineering_settings_dialog_helpers.cpp
+            app/qt/workflow/calibration_profile_store.cpp
+            app/qt/workflow/coordinate_transform.cpp
         INCLUDE_DIRS
             ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui
             ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow

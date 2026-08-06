@@ -1,6 +1,6 @@
 param(
     [string]$BuildDir = "build",
-    [string]$ReleaseName = "TankEye-Iris_1.4.3",
+    [string]$ReleaseName = "TankEye-Iris_1.4.5",
     [switch]$Force
 )
 
@@ -51,16 +51,6 @@ function Write-Utf8File($Path, $Content) {
     [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
-function Add-HashEntry($Root, $File) {
-    $relative = $File.FullName.Substring($Root.Length + 1).Replace("\", "/")
-    $hash = (Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    [PSCustomObject]@{
-        path = $relative
-        bytes = $File.Length
-        sha256 = $hash
-    }
-}
-
 $BuildOutputCandidates = @(
     $BuildPath,
     (Join-Path $BuildPath "Release"),
@@ -78,6 +68,7 @@ if ([string]::IsNullOrWhiteSpace($BuildOutputPath)) {
 }
 Write-Host "[Package] Build output: $BuildOutputPath"
 Require-File (Join-Path $BuildOutputPath "tankeye-openvino_qt_app.exe") "Qt app executable"
+Require-File (Join-Path $BuildOutputPath "tankeye-openvino_device_probe.exe") "OpenVINO device probe executable"
 Require-File (Join-Path $AppDir "models\weights\best_obb.xml") "OBB model XML"
 Require-File (Join-Path $AppDir "models\weights\best_obb.bin") "OBB model BIN"
 Require-File (Join-Path $AppDir "models\weights\best_seg.xml") "SEG model XML"
@@ -171,6 +162,7 @@ if ([string]::IsNullOrWhiteSpace($OpenVinoBin)) {
 
 $env:Path = (($QtBin, $OpenCvBin, $OpenVinoBin, $env:Path) -join ";")
 Copy-File (Join-Path $BuildOutputPath "tankeye-openvino_qt_app.exe") $StagingDir
+Copy-File (Join-Path $BuildOutputPath "tankeye-openvino_device_probe.exe") $StagingDir
 & $WinDeployQt --release --compiler-runtime --no-translations (Join-Path $StagingDir "tankeye-openvino_qt_app.exe")
 if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
@@ -300,19 +292,20 @@ param(
     [string]$StartupProfile = "Manual",
     [switch]$ClearOpenVinoCache,
     [string]$CameraIp = "192.168.0.233",
-    [int]$StartupDelaySeconds = 0
+    [int]$StartupDelaySeconds = 0,
+    [int]$DeviceProbeTimeoutSeconds = 60
 )
 
 $ErrorActionPreference = "Stop"
 
 $UseAutoStartProfile = ($StartupProfile -eq "AutoStart")
 if ($UseAutoStartProfile) {
-    $Device = "AUTO"
     $WindowMode = "Maximized"
 }
 
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $AppExe = Join-Path $AppDir "tankeye-openvino_qt_app.exe"
+$DeviceProbeExe = Join-Path $AppDir "tankeye-openvino_device_probe.exe"
 $ObbModel = Join-Path $AppDir "models\weights\best_obb.xml"
 $SegModel = Join-Path $AppDir "models\weights\best_seg.xml"
 $LogDir = Join-Path $AppDir "logs"
@@ -320,7 +313,7 @@ $LogStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $LogFile = Join-Path $LogDir "tankeye_$LogStamp.log"
 $OpenVinoCacheDir = Join-Path $AppDir "openvino_cache"
 
-foreach ($Required in @($AppExe, $ObbModel, $SegModel)) {
+foreach ($Required in @($AppExe, $DeviceProbeExe, $ObbModel, $SegModel)) {
     if (-not (Test-Path -LiteralPath $Required)) {
         throw "Required runtime file not found: $Required"
     }
@@ -364,6 +357,7 @@ $env:Path = (($RuntimePaths + @($env:Path)) -join ";")
 
 $env:TANKEYE_OPENVINO_CACHE_DIR = $OpenVinoCacheDir
 $env:TANKEYE_CONFIG_PATH = Join-Path $AppDir "config\tankeye.json"
+$env:TANKEYE_SETTINGS_INI_PATH = Join-Path $AppDir "config\engineering_settings.ini"
 $env:TANKEYE_WINDOW_MODE = $WindowMode
 $env:TANKEYE_WINDOW_WIDTH = [string]$WindowWidth
 $env:TANKEYE_WINDOW_HEIGHT = [string]$WindowHeight
@@ -424,6 +418,7 @@ function Invoke-TankEyeApp {
     Write-Host "[TankEye] Auto start grasp: $(if ($env:TANKEYE_AUTO_START_GRASP -eq '1') { 'ON' } else { 'OFF' })"
     Write-Host "[TankEye] Log: $SelectedLogFile"
     Write-Host "[TankEye] OpenVINO cache: $OpenVinoCacheDir"
+    Write-Host "[TankEye] Engineering settings: $env:TANKEYE_SETTINGS_INI_PATH"
     if ($StartupDelaySeconds -gt 0) {
         $StartupDelaySeconds = [Math]::Min($StartupDelaySeconds, 600)
         Write-Host "[TankEye] Startup delay: $StartupDelaySeconds seconds"
@@ -445,7 +440,57 @@ function Invoke-TankEyeApp {
 }
 
 $RequestedDevice = $Device.ToUpperInvariant()
-exit (Invoke-TankEyeApp -SelectedDevice $RequestedDevice -SelectedLogFile $LogFile -StartupGuardSeconds 0)
+function Resolve-TankEyeOpenVinoDevice {
+    param(
+        [string]$RequestedDevice,
+        [string]$ProbeExe,
+        [string]$ObbModelPath,
+        [string]$SegModelPath,
+        [string]$CacheDir,
+        [int]$TimeoutSeconds
+    )
+
+    $UpperDevice = $RequestedDevice.ToUpperInvariant()
+    if ($UpperDevice -ne "AUTO") {
+        $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "not required; requested $UpperDevice"
+        return $UpperDevice
+    }
+
+    $TimeoutSeconds = [Math]::Max(1, [Math]::Min($TimeoutSeconds, 120))
+    Write-Host "[TankEye] AUTO device probe: GPU, timeout ${TimeoutSeconds}s"
+    $ProbeProcess = Start-Process -FilePath $ProbeExe `
+        -ArgumentList @($ObbModelPath, $SegModelPath, "--device=GPU", "--cache-dir=$CacheDir") `
+        -WorkingDirectory $AppDir `
+        -WindowStyle Hidden `
+        -PassThru
+    $Exited = $ProbeProcess.WaitForExit($TimeoutSeconds * 1000)
+    if (-not $Exited) {
+        Stop-Process -Id $ProbeProcess.Id -Force -ErrorAction SilentlyContinue
+        $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "AUTO GPU probe timed out after ${TimeoutSeconds}s; resolved CPU"
+        Write-Warning "[TankEye] AUTO GPU probe timed out; resolved to CPU."
+        return "CPU"
+    }
+    if ($ProbeProcess.ExitCode -eq 0) {
+        $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "AUTO GPU probe succeeded; resolved GPU"
+        Write-Host "[TankEye] AUTO GPU probe succeeded; resolved to GPU."
+        return "GPU"
+    }
+
+    $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "AUTO GPU probe exited with code $($ProbeProcess.ExitCode); resolved CPU"
+    Write-Warning "[TankEye] AUTO GPU probe failed with code $($ProbeProcess.ExitCode); resolved to CPU."
+    return "CPU"
+}
+
+$ResolvedDevice = Resolve-TankEyeOpenVinoDevice `
+    -RequestedDevice $RequestedDevice `
+    -ProbeExe $DeviceProbeExe `
+    -ObbModelPath $ObbModel `
+    -SegModelPath $SegModel `
+    -CacheDir $OpenVinoCacheDir `
+    -TimeoutSeconds $DeviceProbeTimeoutSeconds
+Write-Host "[TankEye] Requested device: $RequestedDevice"
+Write-Host "[TankEye] Resolved device: $ResolvedDevice"
+exit (Invoke-TankEyeApp -SelectedDevice $ResolvedDevice -SelectedLogFile $LogFile -StartupGuardSeconds 0)
 '@
 Write-Utf8File (Join-Path $StagingDir "launch_tankeye.ps1") $Launcher
 
@@ -516,79 +561,8 @@ shell.Run command, 0, False
 '@
 Write-Utf8File (Join-Path $StagingDir "create_desktop_shortcut.ps1") $ShortcutScript
 
-$Readme = @'
-# TankEye-Iris 1.4.3 独立运行包
-
-## 启动
-
-双击 `launch_tankeye_main_only.vbs`，或在 PowerShell 中运行：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1
-```
-
-测试 PLC 模拟和 CPU 推理：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -Device CPU -SimulatePlc
-```
-
-## 包内内容
-
-- 主程序：`tankeye-openvino_qt_app.exe`
-- 模型：`models\weights\best_obb.*`、`models\weights\best_seg.*`
-- 配置：`config\tankeye.json`
-- 标定：`calibration_profiles\`、`calibration_output\`
-- 演示图：`samples\images\2.jpg`
-- 运行库：Qt、OpenCV、OpenVINO、TBB、Hikrobot MVS Runtime
-- 工具：`nine_point_circle_picker.exe`、`create_desktop_shortcut.ps1`
-- 运行 `create_desktop_shortcut.ps1` 生成桌面图标时默认同步创建当前用户开机自启入口；自启入口统一使用 `-StartupProfile AutoStart`，会自动加载模型并在模型加载完成后请求进入 PLC 抓取联动，可在工程设置中关闭并调整延迟秒数。
-- 启动脚本会锁定顶部显示名、版本号和标题，现场普通修改 `config\tankeye.json` 不会改变这些显示项。
-- 缓存：`openvino_cache\`
-- 日志：`logs\tankeye_*.log`
-
-## 新电脑前置条件
-
-- Windows 64 位。
-- CPU 推理可直接运行。
-- GPU 推理需要目标电脑安装官方 Intel 显卡驱动。
-- 包内带 Hikrobot SDK 运行库；首次接入海康相机前，目标电脑仍需安装官方 MVS 相机驱动。
-
-## 不包含源码
-
-此运行包不包含 C/C++ 源码、头文件、Python 脚本、CMake 工程、测试、调试符号、`.lib` 或训练资产。
-
-## 1.4.3 说明
-
-- 主界面左侧图像区约 75%，右侧控制栏约 25%。
-- 图像完整显示，允许边缘留白，不裁剪。
-- 图片读取使用后台线程。
-- 真实夹爪框由工程设置中的夹爪长度/宽度和九点标定换算得到，负责可抓/不可抓状态显示、碰撞拒抓、抓取射线 C 点和中心偏移。
-- 旧 3 倍延长 OBB 框已从运行逻辑和画面显示中移除。
-- OpenVINO 缓存默认保留；如需清理，启动时显式添加 `-ClearOpenVinoCache`。
-- 运行日志默认带时间戳，可在程序内打开“运行日志”查看。
-- 本运行包不包含源码文档目录 `docs\`，也不包含协作规则文件 `AGENTS.md`。
-'@
-Write-Utf8File (Join-Path $StagingDir "README_RUNTIME.md") $Readme
-
 $UsageGuidePath = Join-Path $StagingDir "USAGE_GUIDE.txt"
 Require-File $UsageGuidePath "Usage guide"
-
-$Notices = @'
-# Third-party Runtime Notices
-
-This package bundles runtime components required to run TankEye-Iris:
-
-- Qt 5 runtime libraries and plugins
-- OpenCV runtime libraries
-- OpenVINO runtime libraries and plugins
-- Intel TBB runtime libraries
-- Hikrobot MVS runtime libraries and GenTL producers
-- Microsoft Visual C++ runtime components copied by the deployment toolchain
-
-These files are redistributed only as runtime dependencies for this application. Install official hardware drivers on target machines where required.
-'@
-Write-Utf8File (Join-Path $StagingDir "THIRD_PARTY_NOTICES.md") $Notices
 
 $ForbiddenPatterns = @("*.cpp", "*.c", "*.h", "*.hpp", "*.py", "*.cmake", "CMakeLists.txt", "*.sln", "*.vcxproj", "*.lib", "*.pdb", "*.ilk", "*.pt")
 $Forbidden = foreach ($Pattern in $ForbiddenPatterns) {
@@ -607,28 +581,6 @@ if ($ForbiddenPathHits.Count -gt 0) {
     $ForbiddenPathHits | ForEach-Object { Write-Host "[Package] Forbidden package path: $_" }
     throw "Forbidden documentation or agent files found in staging."
 }
-
-$FilesForHash = Get-ChildItem -LiteralPath $StagingDir -Recurse -File |
-    Where-Object { $_.Name -notin @("RELEASE_MANIFEST.json", "SHA256SUMS.txt") } |
-    Sort-Object FullName
-$HashEntries = @($FilesForHash | ForEach-Object { Add-HashEntry $StagingDir $_ })
-
-$Manifest = [PSCustomObject]@{
-    name = $ReleaseName
-    version = "1.4.3"
-    built_at = (Get-Date).ToString("o")
-    source_build_dir = $BuildDir
-    runtime_only = $true
-    cpu_supported = $true
-    gpu_requires_vendor_driver = $true
-    hikrobot_mvs_driver_prerequisite = $true
-    files = $HashEntries
-}
-$ManifestJson = $Manifest | ConvertTo-Json -Depth 5
-Write-Utf8File (Join-Path $StagingDir "RELEASE_MANIFEST.json") $ManifestJson
-
-$ShaLines = $HashEntries | ForEach-Object { "$($_.sha256)  $($_.path)" }
-Write-Utf8File (Join-Path $StagingDir "SHA256SUMS.txt") ($ShaLines -join [Environment]::NewLine)
 
 New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 Move-Item -LiteralPath $StagingDir -Destination $ReleaseDir

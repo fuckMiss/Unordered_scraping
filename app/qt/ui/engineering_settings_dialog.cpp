@@ -259,17 +259,17 @@ void EngineeringSettingsDialogController::show()
     exposure_row->addWidget(auto_exposure_button);
     exposure_row->addStretch(1);
     auto* angle_offset_spin = CreateAngleOffsetSpinBox(dialog, owner->angle_offset_deg_);
-    auto* angle_direction_combo = new QComboBox(dialog);
+    auto* angle_direction_combo = CreateClickFocusedComboBox(dialog);
     angle_direction_combo->addItem(QStringLiteral("正向"), false);
     angle_direction_combo->addItem(QStringLiteral("反向"), true);
     angle_direction_combo->setCurrentIndex(owner->angle_reverse_direction_ ? 1 : 0);
     angle_direction_combo->setFixedWidth(S(170));
-    auto* angle_range_combo = new QComboBox(dialog);
+    auto* angle_range_combo = CreateClickFocusedComboBox(dialog);
     angle_range_combo->addItem(QStringLiteral("0~360"), static_cast<int>(AngleRangeMode::ZeroTo360));
     angle_range_combo->addItem(QStringLiteral("-180~180"), static_cast<int>(AngleRangeMode::Signed180));
     angle_range_combo->setCurrentIndex(owner->angle_range_mode_ == AngleRangeMode::Signed180 ? 1 : 0);
     angle_range_combo->setFixedWidth(S(170));
-    auto* axis_mapping_combo = new QComboBox(dialog);
+    auto* axis_mapping_combo = CreateClickFocusedComboBox(dialog);
     axis_mapping_combo->addItem(QStringLiteral("前后=机械Y，左右=机械X"),
                                 static_cast<int>(AxisMappingMode::FrontBackMachineY));
     axis_mapping_combo->addItem(QStringLiteral("前后=机械X，左右=机械Y"),
@@ -303,12 +303,7 @@ void EngineeringSettingsDialogController::show()
     auto* auto_start_check = new QCheckBox(QStringLiteral("开机自启"), dialog);
     auto_start_check->setChecked(owner->auto_start_enabled_);
     auto_start_check->setToolTip(QStringLiteral("在当前用户 Startup 文件夹中创建或移除 TankEye-Iris 启动入口。"));
-    auto* startup_delay_spin = new QSpinBox(dialog);
-    startup_delay_spin->setRange(0, 600);
-    startup_delay_spin->setSingleStep(1);
-    startup_delay_spin->setSuffix(QStringLiteral(" 秒"));
-    startup_delay_spin->setValue(owner->startup_delay_seconds_);
-    startup_delay_spin->setFixedWidth(S(150));
+    auto* startup_delay_spin = CreateStartupDelaySpinBox(dialog, owner->startup_delay_seconds_);
     startup_delay_spin->setToolTip(QStringLiteral("仅开机自启时生效；等待现场网络、相机和 PLC 服务完成初始化后再启动。"));
     auto* mechanical_gripper_length_spin = CreateGripperDimensionSpinBox(dialog, owner->mechanical_gripper_length_);
     mechanical_gripper_length_spin->setToolTip(QStringLiteral("真实夹爪机械长度；为 0 时保守判为不可抓。"));
@@ -426,7 +421,7 @@ void EngineeringSettingsDialogController::show()
     roi_margin_spin->setRange(0.0, 999999.0);
     auto* coordinate_enabled_check = new QCheckBox(QStringLiteral("启用坐标转换"), dialog);
     coordinate_enabled_check->setChecked(owner->coordinate_transform_config_.enabled);
-    auto* profile_combo = new QComboBox(dialog);
+    auto* profile_combo = CreateClickFocusedComboBox(dialog);
     profile_combo->setFixedWidth(S(170));
     auto* apply_profile_button = new QPushButton(QStringLiteral("应用"), dialog);
     auto* import_profile_button = new QPushButton(QStringLiteral("导入"), dialog);

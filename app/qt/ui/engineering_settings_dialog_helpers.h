@@ -43,6 +43,8 @@ QDoubleSpinBox* CreateCenterRayOffsetSpinBox(QWidget* parent, double value);
 QDoubleSpinBox* CreateGripperDimensionSpinBox(QWidget* parent, double value);
 QDoubleSpinBox* CreateThresholdSpinBox(QWidget* parent, double value);
 QDoubleSpinBox* CreateCoordinateSpinBox(QWidget* parent, double value);
+QSpinBox* CreateStartupDelaySpinBox(QWidget* parent, int value);
+QComboBox* CreateClickFocusedComboBox(QWidget* parent);
 double CoordinateValueAt(const QList<QDoubleSpinBox*>& edits, int index);
 void SetCoordinateValue(const QList<QDoubleSpinBox*>& edits, int index, double value);
 QString CoordinateTransformStatusText(const CoordinateTransformState& state);

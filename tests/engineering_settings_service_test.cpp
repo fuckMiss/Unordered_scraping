@@ -33,6 +33,18 @@ void PrepareTemporarySettingsPath(const QString& settings_path)
     settings.sync();
 }
 
+void ExplicitSettingsIniPathIsUsed(const QString& settings_path)
+{
+    EngineeringSettingsService::SaveCameraSettings({ QStringLiteral("10.20.30.40"), 456.0 });
+    assert(QFile::exists(settings_path));
+
+    QSettings settings(settings_path, QSettings::IniFormat);
+    settings.beginGroup(QStringLiteral("camera"));
+    assert(settings.value(QStringLiteral("ip")).toString() == QStringLiteral("10.20.30.40"));
+    assert(NearlyEqual(settings.value(QStringLiteral("exposure_us")).toDouble(), 456.0));
+    settings.endGroup();
+}
+
 void CameraSettingsRoundTrip()
 {
     CameraSettings camera;
@@ -246,6 +258,7 @@ int main(int argc, char** argv)
     PrepareTemporarySettingsPath(settings_path);
     QCoreApplication app(argc, argv);
 
+    ExplicitSettingsIniPathIsUsed(settings_path);
     CameraSettingsRoundTrip();
     PlcRelatedSettingsRoundTrip();
     StartupShortcutSyncUsesRequestedDirectory();

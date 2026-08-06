@@ -210,6 +210,7 @@ int main(int argc, char** argv)
     const QString seg_model_path = argc > 2 ? QString::fromLocal8Bit(argv[2]) : QString();
     std::cout << "OBB model argument: " << obb_model_path.toStdString() << std::endl;
     std::cout << "SEG model argument: " << seg_model_path.toStdString() << std::endl;
+    std::cout << "Engineering settings path: " << qgetenv("TANKEYE_SETTINGS_INI_PATH").constData() << std::endl;
     std::cout << "Auto start grasp requested: " << (auto_start_grasp_requested ? "1" : "0") << std::endl;
     std::cout << "QT_SCALE_FACTOR: " << qgetenv("QT_SCALE_FACTOR").constData() << std::endl;
     std::cout << "TANKEYE_UI_SCALE: " << qgetenv("TANKEYE_UI_SCALE").constData() << std::endl;

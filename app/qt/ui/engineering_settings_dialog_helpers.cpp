@@ -3,6 +3,7 @@
 #include "calibration_profile_store.h"
 #include "ui_scale_utils.h"
 
+#include <QApplication>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFrame>
@@ -19,6 +20,7 @@
 #include <QSpinBox>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 #include <QtGlobal>
 
 #include <cmath>
@@ -29,6 +31,73 @@ int S(int value)
 {
     return ScalePx(value);
 }
+
+bool WidgetOrChildHasFocus(const QWidget* widget)
+{
+    const QWidget* focus_widget = QApplication::focusWidget();
+    return widget != nullptr && (widget->hasFocus() || focus_widget == widget ||
+                                 (focus_widget != nullptr && widget->isAncestorOf(focus_widget)));
+}
+
+class ClickFocusedDoubleSpinBox : public QDoubleSpinBox
+{
+public:
+    explicit ClickFocusedDoubleSpinBox(QWidget* parent = nullptr)
+        : QDoubleSpinBox(parent)
+    {
+        setFocusPolicy(Qt::StrongFocus);
+    }
+
+protected:
+    void wheelEvent(QWheelEvent* event) override
+    {
+        if (!WidgetOrChildHasFocus(this)) {
+            event->ignore();
+            return;
+        }
+        QDoubleSpinBox::wheelEvent(event);
+    }
+};
+
+class ClickFocusedSpinBox : public QSpinBox
+{
+public:
+    explicit ClickFocusedSpinBox(QWidget* parent = nullptr)
+        : QSpinBox(parent)
+    {
+        setFocusPolicy(Qt::StrongFocus);
+    }
+
+protected:
+    void wheelEvent(QWheelEvent* event) override
+    {
+        if (!WidgetOrChildHasFocus(this)) {
+            event->ignore();
+            return;
+        }
+        QSpinBox::wheelEvent(event);
+    }
+};
+
+class ClickFocusedComboBox : public QComboBox
+{
+public:
+    explicit ClickFocusedComboBox(QWidget* parent = nullptr)
+        : QComboBox(parent)
+    {
+        setFocusPolicy(Qt::StrongFocus);
+    }
+
+protected:
+    void wheelEvent(QWheelEvent* event) override
+    {
+        if (!WidgetOrChildHasFocus(this)) {
+            event->ignore();
+            return;
+        }
+        QComboBox::wheelEvent(event);
+    }
+};
 
 QLineEdit* CreateIpOctetEdit(QWidget* parent)
 {
@@ -51,7 +120,7 @@ QDoubleSpinBox* CreateSpinBox(QWidget* parent,
                               const QString& suffix = QString(),
                               const QString& special_value_text = QString())
 {
-    auto* spin_box = new QDoubleSpinBox(parent);
+    auto* spin_box = new ClickFocusedDoubleSpinBox(parent);
     spin_box->setRange(minimum, maximum);
     spin_box->setDecimals(decimals);
     spin_box->setSingleStep(single_step);
@@ -198,7 +267,7 @@ QDoubleSpinBox* CreateLimitSpinBox(QWidget* parent, double value)
 
 QDoubleSpinBox* CreateExposureSpinBox(QWidget* parent, double value)
 {
-    auto* spin_box = new QDoubleSpinBox(parent);
+    auto* spin_box = new ClickFocusedDoubleSpinBox(parent);
     spin_box->setRange(0.0, 10000000.0);
     spin_box->setDecimals(1);
     spin_box->setSingleStep(100.0);
@@ -237,6 +306,22 @@ QDoubleSpinBox* CreateThresholdSpinBox(QWidget* parent, double value)
 QDoubleSpinBox* CreateCoordinateSpinBox(QWidget* parent, double value)
 {
     return CreateSpinBox(parent, value, -9999999.0, 9999999.0, 3, 1.0, 96);
+}
+
+QSpinBox* CreateStartupDelaySpinBox(QWidget* parent, int value)
+{
+    auto* spin_box = new ClickFocusedSpinBox(parent);
+    spin_box->setRange(0, 600);
+    spin_box->setSingleStep(1);
+    spin_box->setSuffix(QStringLiteral(" 秒"));
+    spin_box->setValue(value);
+    spin_box->setFixedWidth(S(150));
+    return spin_box;
+}
+
+QComboBox* CreateClickFocusedComboBox(QWidget* parent)
+{
+    return new ClickFocusedComboBox(parent);
 }
 
 double CoordinateValueAt(const QList<QDoubleSpinBox*>& edits, int index)

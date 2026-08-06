@@ -1,4 +1,4 @@
-TankEye-Iris 1.4.3 使用说明
+TankEye-Iris 1.4.5 使用说明
 ========================
 
 本文件必须按 UTF-8 读写，避免中文乱码。
@@ -6,36 +6,16 @@ TankEye-Iris 1.4.3 使用说明
 一、首次使用
 ------------
 
-1. 将 `TankEye-Iris_1.4.3.zip` 解压到本地磁盘，例如 `D:\TankEye-Iris_1.4.3`。
+1. 将 `TankEye-Iris_1.4.5.zip` 解压到本地磁盘，例如 `D:\TankEye-Iris_1.4.5`。
 2. 不要直接在压缩包里运行程序。
 3. 双击包根目录下的 `launch_tankeye_main_only.vbs`。
 4. 第一次启动时，程序会在当前 Windows 用户桌面创建 `TankEye-Iris` 图标。
 5. 后续可以双击桌面图标启动。
 
-二、界面标题和版本显示
-----------------------
+默认启动会优先使用显卡加速；如果当前电脑显卡环境不稳定，程序会自动改用 CPU 启动，避免闪退。
+新电脑第一次启动可能会多等几十秒；后续保留缓存后通常会更快。
 
-运行包内配置文件：
-
-```text
-config\tankeye.json
-```
-
-顶部显示文案由 `app` 节控制：
-
-```json
-"app": {
-  "name": "TankEye-Iris",
-  "version": "1.4.3",
-  "title": "截止阀抓取上料系统"
-}
-```
-
-- 左上角显示：`name + V + version`。
-- 顶部中间标题显示：`title`。
-- 开发源码启动可通过这里调整显示；正式运行包启动脚本会锁定这些显示项，现场普通修改 `config\tankeye.json` 不会改变顶部显示名、版本号或标题。
-
-三、图片检测
+二、图片检测
 ------------
 
 1. 启动程序后，点击“加载图片”。
@@ -46,12 +26,13 @@ config\tankeye.json
 6. 真实夹爪框由工程设置中的夹爪长度/宽度和九点标定换算得到，负责可抓/不可抓颜色显示、碰撞拒抓、抓取射线 C 点和中心偏移。
 7. 如果夹爪长度/宽度为 0，或九点坐标转换未启用/无效，程序会保守判为不可抓。
 
-四、PLC 与相机
+三、PLC 与相机
 --------------
 
 - 默认运行包可用模拟 PLC 验证界面和模型加载。
 - 连接真实 PLC、真实相机或真实设备动作前，必须确认现场设备安全，并由负责人明确允许。
 - PLC 地址、端口和寄存器配置在 `config\tankeye.json` 中。
+- 工程设置会保存到当前运行包的 `config\engineering_settings.ini`，不同版本运行包互不共用。
 
 模拟 PLC + CPU 启动：
 
@@ -59,7 +40,7 @@ config\tankeye.json
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -Device CPU -SimulatePlc
 ```
 
-五、管理员授权
+四、管理员授权
 --------------
 
 首次创建管理员账号需要 `INIT` 授权码；忘记密码重置需要 `RESET` 授权码。
@@ -78,7 +59,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin
 
 正式运行包应包含 `config\admin_auth.key`。
 
-六、开机自启
+五、开机自启
 ------------
 
 运行 `create_desktop_shortcut.ps1` 生成桌面图标时，默认同步创建当前用户开机自启入口。
@@ -96,7 +77,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin
 - 可在工程设置中关闭开机自启或调整延迟秒数。
 - 自启入口使用当前用户 Startup 文件夹，不使用注册表、服务或计划任务。
 
-七、OpenVINO 缓存
+六、OpenVINO 缓存
 -----------------
 
 第一次加载模型可能较慢，因为 OpenVINO 会编译模型并生成缓存。缓存目录为：
@@ -115,7 +96,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -Cl
 
 正常使用不要加这个参数。
 
-八、常见问题
+七、常见问题
 ------------
 
 1. 图片中文路径加载失败：
@@ -130,11 +111,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -Cl
 4. 不想开机自启：
    进入管理员工程设置，关闭“开机自启”。
 
-九、当前关键行为
-----------------
-
-- 真实夹爪框已完全接管旧延长 OBB 框。
-- 真实夹爪长轴使用 1.0.14 语义：垂直 AC，宽度沿 AC。
-- D508 左右判定以夹取 OBB 本地方向为基准，使用 A->C 作为本地前向。
-- 普通显示补偿后姿态，全显保留 raw/原始对照。
-- 当前运行包未包含源码文档目录 `docs\`，也不包含 `AGENTS.md`。
+5. 仍然出现闪退：
+   使用上面的“模拟 PLC + CPU 启动”命令复测，并把 `logs\tankeye_*.log` 最新日志发给负责人。

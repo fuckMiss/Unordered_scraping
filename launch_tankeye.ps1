@@ -18,7 +18,8 @@ param(
     [string]$CameraIp = "192.168.0.233",
     [string]$Configuration = "Release",
     [string]$BuildDir = "build",
-    [int]$StartupDelaySeconds = 0
+    [int]$StartupDelaySeconds = 0,
+    [int]$DeviceProbeTimeoutSeconds = 60
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,7 +27,6 @@ $ErrorActionPreference = "Stop"
 $UseAutoStartProfile = ($StartupProfile -eq "AutoStart")
 if ($UseAutoStartProfile) {
     $WindowMode = "Maximized"
-    $Device = "AUTO"
 }
 $LoadModels = ($AutoLoadModels -or $UseAutoStartProfile)
 
@@ -68,6 +68,7 @@ if (-not (Test-Path -LiteralPath $AppExe)) {
 $LogDir = Join-Path $TargetDir "logs"
 $LogStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $LogFile = Join-Path $LogDir "tankeye_$LogStamp.log"
+$DeviceProbeExe = Join-Path $TargetDir "tankeye-openvino_device_probe.exe"
 
 if (-not (Test-Path -LiteralPath $AppExe)) {
     throw "Qt app executable not found: $AppExe"
@@ -145,12 +146,16 @@ $RuntimePaths = $RuntimePaths + ($OpenVinoBinCandidates | Where-Object { Test-Pa
 
 $env:Path = (($RuntimePaths + @($env:Path)) -join ";")
 $env:TANKEYE_LOG_FILE = $LogFile
-$env:TANKEYE_OPENVINO_DEVICE = $Device
 $OpenVinoCacheDir = Join-Path $TargetDir "openvino_cache"
 if (-not (Test-Path -LiteralPath $OpenVinoCacheDir)) {
     New-Item -ItemType Directory -Force -Path $OpenVinoCacheDir | Out-Null
 }
 $env:TANKEYE_OPENVINO_CACHE_DIR = $OpenVinoCacheDir
+$SettingsDir = Join-Path $TargetDir "config"
+if (-not (Test-Path -LiteralPath $SettingsDir)) {
+    New-Item -ItemType Directory -Force -Path $SettingsDir | Out-Null
+}
+$env:TANKEYE_SETTINGS_INI_PATH = Join-Path $SettingsDir "engineering_settings.ini"
 $AdminAuthKeyCandidates = @(
     (Join-Path $TargetDir "config\admin_auth.key"),
     (Join-Path $AppDir "config\admin_auth.key")
@@ -221,11 +226,76 @@ Write-Host "[TankEye] Auto model loading: $(if ($LoadModels) { "ON" } else { "OF
 Write-Host "[TankEye] Auto start grasp: $(if ($env:TANKEYE_AUTO_START_GRASP -eq "1") { "ON" } else { "OFF" })"
 Write-Host "[TankEye] Log: $LogFile"
 Write-Host "[TankEye] OpenVINO cache: $OpenVinoCacheDir"
+Write-Host "[TankEye] Engineering settings: $env:TANKEYE_SETTINGS_INI_PATH"
 Write-Host "[TankEye] Admin auth key: $(if ($AdminAuthKey) { $AdminAuthKey } else { "development default" })"
 Write-Host "[TankEye] Runtime PATH entries:"
 foreach ($PathItem in $RuntimePaths) {
     Write-Host "  $PathItem"
 }
+
+function Resolve-TankEyeOpenVinoDevice {
+    param(
+        [string]$RequestedDevice,
+        [string]$ProbeExe,
+        [string]$ObbModelPath,
+        [string]$SegModelPath,
+        [string]$CacheDir,
+        [int]$TimeoutSeconds
+    )
+
+    $UpperDevice = $RequestedDevice.ToUpperInvariant()
+    if ($UpperDevice -ne "AUTO") {
+        $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "not required; requested $UpperDevice"
+        return $UpperDevice
+    }
+
+    if (-not (Test-Path -LiteralPath $ProbeExe)) {
+        $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "AUTO GPU probe missing; resolved CPU"
+        Write-Warning "[TankEye] Device probe not found; AUTO resolved to CPU: $ProbeExe"
+        return "CPU"
+    }
+    if (-not (Test-Path -LiteralPath $ObbModelPath) -or -not (Test-Path -LiteralPath $SegModelPath)) {
+        $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "AUTO GPU probe skipped because model files are missing; resolved CPU"
+        Write-Warning "[TankEye] Model files missing; AUTO resolved to CPU."
+        return "CPU"
+    }
+
+    $TimeoutSeconds = [Math]::Max(1, [Math]::Min($TimeoutSeconds, 120))
+    Write-Host "[TankEye] AUTO device probe: GPU, timeout ${TimeoutSeconds}s"
+    $ProbeProcess = Start-Process -FilePath $ProbeExe `
+        -ArgumentList @($ObbModelPath, $SegModelPath, "--device=GPU", "--cache-dir=$CacheDir") `
+        -WorkingDirectory (Split-Path -Parent $ProbeExe) `
+        -WindowStyle Hidden `
+        -PassThru
+    $Exited = $ProbeProcess.WaitForExit($TimeoutSeconds * 1000)
+    if (-not $Exited) {
+        Stop-Process -Id $ProbeProcess.Id -Force -ErrorAction SilentlyContinue
+        $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "AUTO GPU probe timed out after ${TimeoutSeconds}s; resolved CPU"
+        Write-Warning "[TankEye] AUTO GPU probe timed out; resolved to CPU."
+        return "CPU"
+    }
+    if ($ProbeProcess.ExitCode -eq 0) {
+        $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "AUTO GPU probe succeeded; resolved GPU"
+        Write-Host "[TankEye] AUTO GPU probe succeeded; resolved to GPU."
+        return "GPU"
+    }
+
+    $env:TANKEYE_OPENVINO_DEVICE_PROBE_RESULT = "AUTO GPU probe exited with code $($ProbeProcess.ExitCode); resolved CPU"
+    Write-Warning "[TankEye] AUTO GPU probe failed with code $($ProbeProcess.ExitCode); resolved to CPU."
+    return "CPU"
+}
+
+$RequestedDevice = $Device.ToUpperInvariant()
+$ResolvedDevice = Resolve-TankEyeOpenVinoDevice `
+    -RequestedDevice $RequestedDevice `
+    -ProbeExe $DeviceProbeExe `
+    -ObbModelPath $ObbModel `
+    -SegModelPath $SegModel `
+    -CacheDir $OpenVinoCacheDir `
+    -TimeoutSeconds $DeviceProbeTimeoutSeconds
+$env:TANKEYE_OPENVINO_DEVICE = $ResolvedDevice
+Write-Host "[TankEye] Requested device: $RequestedDevice"
+Write-Host "[TankEye] Resolved device: $ResolvedDevice"
 
 if ($StartupDelaySeconds -gt 0) {
     $StartupDelaySeconds = [Math]::Min($StartupDelaySeconds, 600)

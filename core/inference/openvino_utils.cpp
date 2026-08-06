@@ -120,10 +120,14 @@ ov::CompiledModel CompileModelWithGpuFallback(ov::Core& core,
         requested_device = requested_device_env;
         transform(requested_device.begin(), requested_device.end(), requested_device.begin(), ::toupper);
     }
+    const string device_probe_result = ReadEnvString("TANKEYE_OPENVINO_DEVICE_PROBE_RESULT");
 
     cout << "[OpenVINO] Loading model: " << model_path << endl;
     cout << "[OpenVINO] Read model ms: " << MsSince(read_start, read_end) << endl;
     cout << "[OpenVINO] Requested device: " << requested_device << endl;
+    if (!device_probe_result.empty()) {
+        cout << "[OpenVINO] Device probe result: " << device_probe_result << endl;
+    }
     try {
         vector<string> devices = core.get_available_devices();
         cout << "[OpenVINO] Available devices:";
@@ -139,18 +143,29 @@ ov::CompiledModel CompileModelWithGpuFallback(ov::Core& core,
     }
 
     if (requested_device == "CPU") {
+        cout << "[OpenVINO] Resolved device: CPU" << endl;
+        return CompileModelForDevice(core, model, "CPU", actual_device);
+    }
+
+    if (requested_device == "AUTO") {
+        cout << "[OpenVINO] Resolved device: CPU" << endl;
+        cout << "[OpenVINO] AUTO reached the app without a successful GPU probe; using CPU for stability." << endl;
         return CompileModelForDevice(core, model, "CPU", actual_device);
     }
 
     if (requested_device != "AUTO" && requested_device != "GPU") {
         cerr << "[OpenVINO] Unsupported requested device '" << requested_device
-             << "', using GPU with CPU fallback." << endl;
+             << "', using CPU." << endl;
+        cout << "[OpenVINO] Resolved device: CPU" << endl;
+        return CompileModelForDevice(core, model, "CPU", actual_device);
     }
 
     try {
+        cout << "[OpenVINO] Resolved device: GPU" << endl;
         return CompileModelForDevice(core, model, "GPU", actual_device);
     } catch (const exception& gpu_error) {
         cerr << "[OpenVINO] GPU compile failed, falling back to CPU: " << gpu_error.what() << endl;
+        cout << "[OpenVINO] Resolved device: CPU" << endl;
         return CompileModelForDevice(core, model, "CPU", actual_device);
     }
 }
