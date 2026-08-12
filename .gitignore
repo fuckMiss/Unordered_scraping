@@ -1,0 +1,76 @@
+# Build outputs
+build/
+out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+*.obj
+*.o
+*.ilk
+*.pdb
+*.idb
+*.exp
+*.lib
+
+# Runtime and release packages
+dist/
+runtime/logs/
+logs/
+openvino_cache/
+*.zip
+*.7z
+*.rar
+
+# Local dependency/vendor bundles
+_deps/
+vendor/hik_mvs/
+
+# IDE and local agent state
+.vs/
+.vscode/
+.agents/
+.codex/
+*.user
+*.suo
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Generated or local calibration/runtime artifacts
+calibration_output/
+calibration_profiles/
+kernel.errors.txt
+config/admin_auth.key
+config/admin_license.json
+config/TankEye_admin_license_request_*.json
+
+# Large/private sample captures
+samples/Data/
+
+# Model artifacts are runtime assets, not source. Keep them outside git or use Git LFS/private release assets.
+models/weights/*.xml
+models/weights/*.bin
+models/weights/*.pt
+models/weights/*.onnx
+models/weights/*.engine
+models/weights/*.blob
+models/weights/*.py
+models/DG_8_weights/*.xml
+models/DG_8_weights/*.bin
+models/DG_8_weights/*.pt
+models/DG_8_weights/*.onnx
+models/DG_8_weights/*.engine
+models/DG_8_weights/*.blob
+models/DG_8_weights/*.py
+models/DG_10_weights/*.xml
+models/DG_10_weights/*.bin
+models/DG_10_weights/*.pt
+models/DG_10_weights/*.onnx
+models/DG_10_weights/*.engine
+models/DG_10_weights/*.blob
+models/DG_10_weights/*.py
+
+# Local archives
+_archive/

@@ -1,0 +1,136 @@
+{
+    "angle_calibration": {
+        "direction": "forward",
+        "offset_deg": 263.56,
+        "range_mode": "signed_180"
+    },
+    "axis_mapping": {
+        "front_back_axis": "machine_y",
+        "front_back_offset": 0,
+        "left_right_offset": 0
+    },
+    "camera": {
+        "exposure_us": 0
+    },
+    "coordinate_transform": {
+        "enabled": true,
+        "points": [
+            {
+                "image_x": 916.866,
+                "image_y": 366.526,
+                "machine_x": 185.79,
+                "machine_y": 453.26
+            },
+            {
+                "image_x": 1324.134,
+                "image_y": 361.221,
+                "machine_x": 138.18,
+                "machine_y": 454.17
+            },
+            {
+                "image_x": 1663.025,
+                "image_y": 359.835,
+                "machine_x": 98.51,
+                "machine_y": 455.2
+            },
+            {
+                "image_x": 1673.823,
+                "image_y": 735.471,
+                "machine_x": 97.91,
+                "machine_y": 410.15
+            },
+            {
+                "image_x": 1320.797,
+                "image_y": 733.178,
+                "machine_x": 138.63,
+                "machine_y": 411.03
+            },
+            {
+                "image_x": 943.378,
+                "image_y": 735.315,
+                "machine_x": 182.85,
+                "machine_y": 410.94
+            },
+            {
+                "image_x": 951.98,
+                "image_y": 1121.911,
+                "machine_x": 181.67,
+                "machine_y": 366.17
+            },
+            {
+                "image_x": 1333.03,
+                "image_y": 1118.676,
+                "machine_x": 136.82,
+                "machine_y": 366.47
+            },
+            {
+                "image_x": 1667.278,
+                "image_y": 1120.06,
+                "machine_x": 97.6,
+                "machine_y": 366.17
+            }
+        ],
+        "profile_name": "26.08.02ninepoint"
+    },
+    "grab_limits": {
+        "angle": {
+            "lower": 0,
+            "upper": 0
+        },
+        "enabled": false,
+        "roi_margin": 5,
+        "x": {
+            "lower": 0,
+            "upper": 0
+        },
+        "y": {
+            "lower": 0,
+            "upper": 0
+        }
+    },
+    "head_type_compensation": [
+        {
+            "ac_ray_offset_mm": 0,
+            "angle_offset_deg": 0,
+            "code": 1
+        },
+        {
+            "ac_ray_offset_mm": 0,
+            "angle_offset_deg": 0,
+            "code": 2
+        },
+        {
+            "ac_ray_offset_mm": 0,
+            "angle_offset_deg": 0,
+            "code": 3
+        },
+        {
+            "ac_ray_offset_mm": 0,
+            "angle_offset_deg": 0,
+            "code": 4
+        }
+    ],
+    "model_thresholds": {
+        "obb_conf_threshold": 0.5,
+        "obb_nms_threshold": 0.3,
+        "seg_conf_threshold": 0.3,
+        "seg_nms_threshold": 0.4
+    },
+    "models": {
+        "obb": "models/DG_8_weights/best_obb.xml",
+        "seg": "models/DG_8_weights/best_seg.xml"
+    },
+    "name": "DG_8",
+    "obb_postprocess": {
+        "center_ray_offset_px": 10,
+        "debug_logging_enabled": true,
+        "show_head_ray_debug": true,
+        "show_plc_center_debug": false
+    },
+    "ui_overlay": {
+        "mechanical_gripper_length": 50,
+        "mechanical_gripper_width": 15,
+        "show_grab_limit_overlay": false
+    },
+    "version": 1
+}

@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/app">
+        <file alias="icon.ico">assets/app_icon.ico</file>
+        <file alias="logo.png">assets/app_logo_cutout.png</file>
+    </qresource>
+</RCC>
