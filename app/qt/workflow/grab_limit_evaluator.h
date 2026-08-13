@@ -53,7 +53,9 @@ std::vector<cv::Point2f> BuildMechanicalGripperCorners(const PoseDetection& dete
                                                        int detection_index);
 void ApplyMechanicalGripperCollisionFilter(FrameInferenceResult& result,
                                            const CoordinateTransformState& coordinate_state,
-                                           const MechanicalGripperCollisionConfig& config);
+                                           const MechanicalGripperCollisionConfig& config,
+                                           const GrabLimitConfig& limits,
+                                           AxisMappingMode axis_mapping_mode);
 bool ApplyMechanicalRoiFilter(FrameInferenceResult& result,
                               const GrabLimitConfig& limits,
                               const CoordinateTransformState& coordinate_state,

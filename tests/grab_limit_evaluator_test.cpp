@@ -39,6 +39,19 @@ GrabLimitConfig MakeLimits()
     return limits;
 }
 
+GrabLimitConfig MakeImageProtectionLimits(double lower = 5.0,
+                                          double upper = 95.0,
+                                          double roi_margin = 0.0)
+{
+    GrabLimitConfig limits;
+    limits.enabled = true;
+    limits.roi_margin = roi_margin;
+    limits.x = { lower, upper };
+    limits.y = { lower, upper };
+    limits.angle = { 0.0, 180.0 };
+    return limits;
+}
+
 CoordinateTransformState ValidCoordinateState()
 {
     CoordinateTransformState state;
@@ -237,7 +250,11 @@ void MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf()
     FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
     const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
 
-    ApplyMechanicalGripperCollisionFilter(result, IdentityCoordinateState(), config);
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          IdentityCoordinateState(),
+                                          config,
+                                          MakeImageProtectionLimits(),
+                                          AxisMappingMode::FrontBackMachineX);
 
     assert(result.detections.size() == 1);
     assert(!result.detections.front().can_grab);
@@ -253,7 +270,11 @@ void MechanicalGripperInvalidSizeRejectsConservatively()
     FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
     const MechanicalGripperCollisionConfig config{ 0.0, 20.0, 10.0, false };
 
-    ApplyMechanicalGripperCollisionFilter(result, IdentityCoordinateState(), config);
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          IdentityCoordinateState(),
+                                          config,
+                                          MakeImageProtectionLimits(),
+                                          AxisMappingMode::FrontBackMachineX);
 
     assert(!result.detections.front().can_grab);
     assert(result.detections.front().mechanical_gripper_corners.empty());
@@ -269,7 +290,11 @@ void MechanicalGripperInvalidCoordinateRejectsConservatively()
     state.valid = false;
     const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
 
-    ApplyMechanicalGripperCollisionFilter(result, state, config);
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          state,
+                                          config,
+                                          MakeImageProtectionLimits(),
+                                          AxisMappingMode::FrontBackMachineX);
 
     assert(!result.detections.front().can_grab);
     assert(result.detections.front().mechanical_gripper_corners.empty());
@@ -283,7 +308,11 @@ void MechanicalGripperFinalizesPoseFromRealFrameBoundary()
     result.segments[1].mask.setTo(cv::Scalar(0));
     const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
 
-    ApplyMechanicalGripperCollisionFilter(result, IdentityCoordinateState(), config);
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          IdentityCoordinateState(),
+                                          config,
+                                          MakeImageProtectionLimits(),
+                                          AxisMappingMode::FrontBackMachineX);
 
     assert(result.detections.front().can_grab);
     assert(NearlyEqual(result.detections.front().arrow_start.x, 50.0f));
@@ -303,6 +332,95 @@ void MechanicalGripperFinalizesPoseFromRealFrameBoundary()
     assert(NearlyEqual(corners[1].y, 70.0f));
     assert(result.primary_index == 0);
     assert(result.pick_status_code == 1);
+}
+
+void MechanicalGripperInsideProtectionPolygonIsAccepted()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    result.segments[1].mask.setTo(cv::Scalar(0));
+    const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          IdentityCoordinateState(),
+                                          config,
+                                          MakeImageProtectionLimits(),
+                                          AxisMappingMode::FrontBackMachineX);
+
+    assert(result.detections.front().can_grab);
+    assert(result.primary_index == 0);
+    assert(result.pick_status_code == 1);
+}
+
+void MechanicalGripperCornerOutsideProtectionPolygonIsRejected()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    result.segments[1].mask.setTo(cv::Scalar(0));
+    const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          IdentityCoordinateState(),
+                                          config,
+                                          MakeImageProtectionLimits(35.0, 95.0),
+                                          AxisMappingMode::FrontBackMachineX);
+
+    assert(!result.detections.front().can_grab);
+    assert(result.detections.front().pick_status_code == 3);
+    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 3);
+}
+
+void MechanicalGripperTouchingProtectionBoundaryIsRejected()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    result.segments[1].mask.setTo(cv::Scalar(0));
+    const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          IdentityCoordinateState(),
+                                          config,
+                                          MakeImageProtectionLimits(30.0, 95.0),
+                                          AxisMappingMode::FrontBackMachineX);
+
+    assert(!result.detections.front().can_grab);
+    assert(result.detections.front().pick_status_code == 3);
+    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 3);
+}
+
+void MechanicalGripperPartlyOutsideProtectionPolygonIsRejected()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    result.segments[1].mask.setTo(cv::Scalar(0));
+    const MechanicalGripperCollisionConfig config{ 80.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          IdentityCoordinateState(),
+                                          config,
+                                          MakeImageProtectionLimits(5.0, 70.0),
+                                          AxisMappingMode::FrontBackMachineX);
+
+    assert(!result.detections.front().can_grab);
+    assert(result.detections.front().pick_status_code == 3);
+    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 3);
+}
+
+void MechanicalGripperInvalidProtectionPolygonRejectsConservatively()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    result.segments[1].mask.setTo(cv::Scalar(0));
+    const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          IdentityCoordinateState(),
+                                          config,
+                                          MakeImageProtectionLimits(5.0, 95.0, 1000.0),
+                                          AxisMappingMode::FrontBackMachineX);
+
+    assert(!result.detections.front().can_grab);
+    assert(result.detections.front().pick_status_code == 3);
+    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 3);
 }
 
 void OverlayPolygonUsesInnerRoiAndDefaultAxisMapping()
@@ -370,6 +488,11 @@ int main()
     MechanicalGripperInvalidSizeRejectsConservatively();
     MechanicalGripperInvalidCoordinateRejectsConservatively();
     MechanicalGripperFinalizesPoseFromRealFrameBoundary();
+    MechanicalGripperInsideProtectionPolygonIsAccepted();
+    MechanicalGripperCornerOutsideProtectionPolygonIsRejected();
+    MechanicalGripperTouchingProtectionBoundaryIsRejected();
+    MechanicalGripperPartlyOutsideProtectionPolygonIsRejected();
+    MechanicalGripperInvalidProtectionPolygonRejectsConservatively();
     OverlayPolygonUsesInnerRoiAndDefaultAxisMapping();
     OverlayPolygonUsesFrontBackMachineXMapping();
     OverlayPolygonRejectsEmptyInnerRoi();

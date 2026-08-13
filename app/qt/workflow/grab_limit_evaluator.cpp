@@ -272,6 +272,54 @@ bool GripperCornersTouchSegmentMask(const std::vector<cv::Point2f>& corners,
     return true;
 }
 
+float Cross(const cv::Point2f& first, const cv::Point2f& second)
+{
+    return first.x * second.y - first.y * second.x;
+}
+
+bool PointStrictlyInsideConvexPolygon(const cv::Point2f& point,
+                                      const std::vector<cv::Point2f>& polygon)
+{
+    if (polygon.size() < 3) {
+        return false;
+    }
+
+    constexpr float kBoundaryEpsilon = 1e-4f;
+    float direction = 0.0f;
+    for (size_t i = 0; i < polygon.size(); ++i) {
+        const cv::Point2f start = polygon[i];
+        const cv::Point2f end = polygon[(i + 1) % polygon.size()];
+        const float edge_cross = Cross(end - start, point - start);
+        if (std::fabs(edge_cross) <= kBoundaryEpsilon) {
+            return false;
+        }
+        if (direction == 0.0f) {
+            direction = edge_cross;
+            continue;
+        }
+        if ((direction > 0.0f && edge_cross < 0.0f) ||
+            (direction < 0.0f && edge_cross > 0.0f)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool MechanicalGripperFullyInsideProtectionPolygon(const std::vector<cv::Point2f>& gripper_corners,
+                                                   const std::vector<cv::Point2f>& protection_polygon)
+{
+    if (gripper_corners.size() != 4 || protection_polygon.size() != 4) {
+        return false;
+    }
+
+    for (const cv::Point2f& corner : gripper_corners) {
+        if (!PointStrictlyInsideConvexPolygon(corner, protection_polygon)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string FormatLimitReason(const char* label, float value, const LimitRange& range)
 {
     std::ostringstream message;
@@ -481,18 +529,25 @@ std::vector<cv::Point2f> BuildMechanicalGripperCorners(const PoseDetection& dete
 
 void ApplyMechanicalGripperCollisionFilter(FrameInferenceResult& result,
                                            const CoordinateTransformState& coordinate_state,
-                                           const MechanicalGripperCollisionConfig& config)
+                                           const MechanicalGripperCollisionConfig& config,
+                                           const GrabLimitConfig& limits,
+                                           AxisMappingMode axis_mapping_mode)
 {
+    const GrabLimitOverlayPolygon protection_polygon =
+        BuildGrabLimitOverlayPolygon(limits, coordinate_state, axis_mapping_mode);
     const bool global_failure = config.length <= 0.0 || config.width <= 0.0 ||
                                 !std::isfinite(config.length) || !std::isfinite(config.width) ||
-                                !coordinate_state.enabled || !coordinate_state.valid;
+                                !coordinate_state.enabled || !coordinate_state.valid ||
+                                !protection_polygon.visible || protection_polygon.image_points.size() != 4;
     if (global_failure && config.debug_logging_enabled) {
         std::cout << "[PostprocessDebug] mechanical_gripper_filter"
                   << " reason=" << ((config.length <= 0.0 || config.width <= 0.0 ||
                                       !std::isfinite(config.length) || !std::isfinite(config.width))
                                          ? "invalid_gripper_size"
                                          : (!coordinate_state.enabled ? "coordinate_transform_disabled"
-                                                                      : "coordinate_transform_invalid"))
+                                                                      : (!coordinate_state.valid
+                                                                             ? "coordinate_transform_invalid"
+                                                                             : "invalid_protection_polygon")))
                   << " length=" << config.length
                   << " width=" << config.width
                   << " coordinate_enabled=" << (coordinate_state.enabled ? 1 : 0)
@@ -511,6 +566,17 @@ void ApplyMechanicalGripperCollisionFilter(FrameInferenceResult& result,
             continue;
         }
         if (!FinalizePoseFromMechanicalGripper(detection, config, i)) {
+            detection.can_grab = false;
+            continue;
+        }
+        if (!MechanicalGripperFullyInsideProtectionPolygon(detection.mechanical_gripper_corners,
+                                                           protection_polygon.image_points)) {
+            if (config.debug_logging_enabled) {
+                std::cout << "[PostprocessDebug] mechanical_gripper_reject"
+                          << " index=" << i
+                          << " reason=mechanical_gripper_outside_protection_polygon"
+                          << std::endl;
+            }
             detection.can_grab = false;
             continue;
         }

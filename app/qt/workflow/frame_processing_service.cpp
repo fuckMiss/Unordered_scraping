@@ -127,7 +127,9 @@ FrameProcessingResult ProcessVisionFrame(GraspWorkflow& workflow,
     ApplyCoordinateTransform(process_result.frame_result, coordinate_state);
     ApplyMechanicalGripperCollisionFilter(process_result.frame_result,
                                           coordinate_state,
-                                          mechanical_gripper);
+                                          mechanical_gripper,
+                                          limits,
+                                          plc_config.axis_mapping_mode);
     ApplyCoordinateTransform(process_result.frame_result, coordinate_state);
     std::string roi_error;
     if (!ApplyMechanicalRoiFilter(process_result.frame_result,

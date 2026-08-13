@@ -44,7 +44,7 @@ QByteArray RequestJson(const AdminHardwareFingerprint& fingerprint)
     return QJsonDocument(request).toJson(QJsonDocument::Compact);
 }
 
-void LicenseAllowsOneFingerprintChange()
+void LicenseRequiresAllNonEmptyFingerprintsToMatch()
 {
     const QString secret = QStringLiteral("unit-test-secret");
     const AdminHardwareFingerprint fingerprint = MakeFingerprint();
@@ -97,6 +97,25 @@ void LicenseAllowsOneFingerprintChange()
     assert(!status.valid);
     assert(status.matched_categories == 3);
     assert(status.message == QStringLiteral("授权文件不符"));
+
+    AdminHardwareFingerprint request_with_empty_bios = fingerprint;
+    request_with_empty_bios.bios_serial.clear();
+    const QByteArray empty_bios_license = BuildAdminLicenseJson(RequestJson(request_with_empty_bios),
+                                                                secret,
+                                                                QStringLiteral("2026-08-12T00:00:00Z"),
+                                                                &error);
+    assert(!empty_bios_license.isEmpty());
+    assert(error.isEmpty());
+
+    status = VerifyAdminLicenseJson(empty_bios_license, request_with_empty_bios, secret);
+    assert(status.valid);
+    assert(status.matched_categories == 4);
+
+    AdminHardwareFingerprint empty_bios_drive_changed = request_with_empty_bios;
+    empty_bios_drive_changed.system_drive_serial = QStringLiteral("drive-b");
+    status = VerifyAdminLicenseJson(empty_bios_license, empty_bios_drive_changed, secret);
+    assert(!status.valid);
+    assert(status.matched_categories == 3);
 
     QJsonDocument tampered_document = QJsonDocument::fromJson(license);
     QJsonObject tampered = tampered_document.object();
@@ -190,7 +209,7 @@ int main()
     AdminAuthSaveRememberedPassword(false, QString());
     assert(AdminAuthRememberedPassword().isEmpty());
 
-    LicenseAllowsOneFingerprintChange();
+    LicenseRequiresAllNonEmptyFingerprintsToMatch();
 
     QDir(temp_root).removeRecursively();
     std::cout << "admin_auth_helpers_test passed" << std::endl;

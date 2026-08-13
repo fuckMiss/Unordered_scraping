@@ -992,3 +992,19 @@
 - 结果：生成 `dist/TankEye-Iris_2.1.3` 和 `dist/TankEye-Iris_2.1.3.zip`；包内包含 Qt 主程序、设备探测程序、Qt 平台插件、DG_8/DG_10 两套模型、CPU/GPU OpenVINO 插件、授权密钥、配置、运行说明和修正后的快捷方式脚本。
 - 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_device_probe tankeye-admin-auth-code tankeye-openvino_admin_auth_helpers_test` 通过，仅有既有 Qt deprecated warning；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.3 -Force` 成功生成目录包和 ZIP，仅有已知 `VCINSTALLDIR is not set` 警告；包内关键文件、DG_8/DG_10 模型、`USAGE_GUIDE.txt`、版本号、exe hash 一致性、无 `docs/`、无 `AGENTS.md`、以及包内快捷方式脚本临时残留清理逻辑检查均通过。
 - 遗留：未启动包内 launcher，避免写入桌面或 Startup 快捷方式；未连接真实 PLC、真实相机或真实机械设备；`tankeye-admin-auth-code.exe` 仍按现有设计保留在工程师/开发构建侧，不随运行包发给现场。
+
+## 2026-08-13 - 夹爪框整框保护区硬约束
+
+- 目标：按用户要求把抓取安全判定从中心点/局部几何收紧为“机械夹爪框必须完全落在上下限保护区域内”，任一角越界或压线均不可抓。
+- 修改：`ApplyMechanicalGripperCollisionFilter()` 增加保护区限位配置和轴映射入参，复用 `BuildGrabLimitOverlayPolygon()` 作为唯一保护区来源；新增严格凸多边形内点判断，要求 `mechanical_gripper_corners` 四角全部严格在保护区内部；`ProcessVisionFrame()` 同步传入当前上下限配置；`grab_limit_evaluator_test` 增加整框在内、一角越界、压线、部分越界和保护区无效的回归用例。
+- 结果：夹爪框缺失、保护区无效、任一角越界或刚好压线时，`can_grab=false`，overlay 使用不可抓颜色，PLC 前最终主目标结果也会被 `ResolveResultAfterFiltering()` 收敛为不可抓。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_grab_limit_evaluator_test tankeye-openvino_frame_overlay_test tankeye-openvino_qt_app` 通过，仅有既有 Qt deprecated warning；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_grab_limit_evaluator_test.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`git diff --check` 无空白错误，仅有既有 CRLF 提示。
+- 遗留：未启动真实 GUI、未连接真实 PLC、真实相机或真实机械设备；仍建议现场用有效九点标定和真实图片人工确认保护区叠层与不可抓颜色符合预期。
+
+## 2026-08-13 - 修复空 BIOS 指纹导致授权不符
+
+- 目标：修复当前机器授权申请中 `bios_serial` 为空时，单机全匹配规则导致 `admin_license.json` 永远显示 `授权文件不符` 的问题，同时保持每台机器单独授权的收紧口径。
+- 修改：`VerifyAdminLicenseJson()` 从固定 5 类全部匹配，改为“授权文件中记录的非空硬件指纹类必须全部匹配，且至少存在 4 类有效绑定”；MAC 列表仍要求授权列表与当前列表完全一致；`admin_auth_helpers_test` 增加空 BIOS 申请可通过、其它非空指纹变化仍拒绝的回归测试。
+- 结果：当前 `TK-B57A-B3ED-5AA9-3F90` 申请文件因 BIOS 序列号为空，不再天然失败；已重新生成 `config/admin_license.json` 并同步到 `build/Release/config/admin_license.json`，两处文件 SHA256 一致。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_admin_auth_helpers_test tankeye-admin-auth-code tankeye-openvino_qt_app` 通过，仅有既有 Qt deprecated warning；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_admin_auth_helpers_test.exe` 通过；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；重新执行 `scripts/generate_admin_auth_code.ps1` 成功生成授权文件。
+- 遗留：未启动真实 GUI 人工查看授权状态，未连接真实 PLC、真实相机或真实机械设备；若某台机器可采集 BIOS，则 BIOS 仍作为非空绑定项参与全匹配。
