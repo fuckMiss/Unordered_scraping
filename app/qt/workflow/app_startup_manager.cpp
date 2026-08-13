@@ -5,7 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QProcessEnvironment>
-#include <QSaveFile>
+#include <QTemporaryFile>
 #include <QStringList>
 #include <QtGlobal>
 
@@ -55,6 +55,16 @@ void RemoveStartupEntries(const QDir& startup_dir)
     QFile::remove(startup_dir.absoluteFilePath(QStringLiteral("TankEye-Iris.lnk")));
 }
 
+void RemoveStartupTempEntries(const QDir& startup_dir)
+{
+    const QStringList temp_entries = startup_dir.entryList(QDir::Files);
+    for (const QString& entry : temp_entries) {
+        if (entry.startsWith(QStringLiteral("TankEye-Iris.vbs."))) {
+            QFile::remove(startup_dir.absoluteFilePath(entry));
+        }
+    }
+}
+
 QString BuildStartupVbs(const QString& app_dir, const QString& launch_script, int delay_seconds)
 {
     const QString launch_arguments = BuildStartupLaunchArguments(delay_seconds);
@@ -75,6 +85,56 @@ QString BuildStartupVbs(const QString& app_dir, const QString& launch_script, in
         .arg(EscapeVbsString(QDir::toNativeSeparators(app_dir)))
         .arg(EscapeVbsString(QDir::toNativeSeparators(launch_script)))
         .arg(launch_arguments);
+}
+
+bool WriteStartupEntryFile(const QString& startup_entry_path,
+                           const QByteArray& content,
+                           QString* error_message)
+{
+    QTemporaryFile temp_file(QDir::tempPath() + QStringLiteral("/TankEye-Iris-Startup-XXXXXX.vbs"));
+    temp_file.setAutoRemove(false);
+    if (!temp_file.open()) {
+        if (error_message != nullptr) {
+            *error_message = QStringLiteral("无法创建临时启动入口：%1").arg(temp_file.errorString());
+        }
+        return false;
+    }
+    if (temp_file.write(content) != content.size()) {
+        temp_file.close();
+        QFile::remove(temp_file.fileName());
+        if (error_message != nullptr) {
+            *error_message = QStringLiteral("写入临时启动入口失败：%1").arg(temp_file.errorString());
+        }
+        return false;
+    }
+    if (!temp_file.flush()) {
+        const QString error = temp_file.errorString();
+        temp_file.close();
+        QFile::remove(temp_file.fileName());
+        if (error_message != nullptr) {
+            *error_message = QStringLiteral("刷新临时启动入口失败：%1").arg(error);
+        }
+        return false;
+    }
+    temp_file.close();
+
+    QFile::remove(startup_entry_path);
+    if (QFile::rename(temp_file.fileName(), startup_entry_path)) {
+        return true;
+    }
+
+    if (QFile::copy(temp_file.fileName(), startup_entry_path)) {
+        QFile::remove(temp_file.fileName());
+        return true;
+    }
+
+    const QString error = QStringLiteral("无法替换开机启动入口：%1 -> %2")
+                              .arg(temp_file.fileName(), startup_entry_path);
+    QFile::remove(temp_file.fileName());
+    if (error_message != nullptr) {
+        *error_message = error;
+    }
+    return false;
 }
 
 } // namespace
@@ -109,9 +169,11 @@ StartupShortcutSyncResult SyncStartupShortcut(const StartupLaunchSettings& setti
         result.error_message = QStringLiteral("无法创建 Startup 文件夹：%1").arg(startup_dir.absolutePath());
         return result;
     }
+    RemoveStartupTempEntries(startup_dir);
 
     if (!settings.auto_start_enabled) {
         RemoveStartupEntries(startup_dir);
+        RemoveStartupTempEntries(startup_dir);
         result.success = true;
         return result;
     }
@@ -132,27 +194,17 @@ StartupShortcutSyncResult SyncStartupShortcut(const StartupLaunchSettings& setti
         existing_file.close();
         if (unchanged) {
             QFile::remove(startup_dir.absoluteFilePath(QStringLiteral("TankEye-Iris.lnk")));
+            RemoveStartupTempEntries(startup_dir);
             result.success = true;
             return result;
         }
     }
 
     RemoveStartupEntries(startup_dir);
-    QSaveFile file(result.startup_entry_path);
-    if (!file.open(QIODevice::WriteOnly)) {
-        result.error_message = QStringLiteral("无法写入开机启动入口：%1").arg(result.startup_entry_path);
+    if (!WriteStartupEntryFile(result.startup_entry_path, content, &result.error_message)) {
         return result;
     }
-
-    if (file.write(content) != content.size()) {
-        file.cancelWriting();
-        result.error_message = QStringLiteral("写入开机启动入口失败：%1").arg(result.startup_entry_path);
-        return result;
-    }
-    if (!file.commit()) {
-        result.error_message = QStringLiteral("保存开机启动入口失败：%1").arg(result.startup_entry_path);
-        return result;
-    }
+    RemoveStartupTempEntries(startup_dir);
 
     result.success = true;
     return result;

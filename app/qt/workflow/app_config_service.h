@@ -35,7 +35,7 @@ struct PlcConnectionConfig
 struct AppDisplayConfig
 {
     QString name = QStringLiteral("TankEye-Iris");
-    QString version = QStringLiteral("2.1.1");
+    QString version = QStringLiteral("2.1.3");
     QString title = QStringLiteral("截止阀抓取上料系统");
 };
 

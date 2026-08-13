@@ -42,7 +42,7 @@ constexpr const char* kSettingsOrganization = "TankEye";
 constexpr const char* kSettingsApplication = "TankEye-Iris";
 constexpr const char* kAdminAuthGroup = "admin_auth";
 constexpr const char* kLicenseVersion = "1";
-constexpr int kRequiredLicenseMatches = 4;
+constexpr int kRequiredLicenseMatches = 5;
 
 QString NormalizeCode(QString code)
 {
@@ -464,12 +464,9 @@ AdminLicenseStatus VerifyAdminLicenseJson(const QByteArray& license_json,
 
     const QStringList licensed_macs = StringListFromJsonArray(licensed.value(QStringLiteral("mac_addresses")).toArray());
     const QStringList current_macs = StringListFromJsonArray(current.value(QStringLiteral("mac_addresses")).toArray());
-    bool mac_matches = false;
-    for (const QString& mac : current_macs) {
-        if (licensed_macs.contains(mac)) {
-            mac_matches = true;
-            break;
-        }
+    bool mac_matches = !licensed_macs.isEmpty() && licensed_macs.size() == current_macs.size();
+    for (int i = 0; mac_matches && i < licensed_macs.size(); ++i) {
+        mac_matches = licensed_macs.at(i) == current_macs.at(i);
     }
     matches += mac_matches ? 1 : 0;
 

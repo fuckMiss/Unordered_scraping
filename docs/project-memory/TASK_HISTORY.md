@@ -968,3 +968,27 @@
 - 结果：本地分支为 `Unordered_scraping_v6`，准备提交并推送当前源码、配置、脚本、测试和文档快照。
 - 验证：执行 `git status --short --branch` 确认原目录不是 Git 仓库后完成初始化；执行 `git ls-remote --heads` 确认远端仓库存在且尚无 `Unordered_scraping_v6`；执行 `git check-ignore -v` 确认真实密钥、授权文件、授权申请 JSON、构建产物和发布包被忽略。
 - 遗留：推送依赖 GitHub 网络和本机凭据；本轮不连接真实 PLC、真实相机或真实机械设备。
+
+## 2026-08-12 - 打包 TankEye-Iris 2.1.2
+
+- 目标：按用户要求生成 `2.1.2` 运行包。
+- 修改：将 `config/tankeye.json`、`app/qt/workflow/app_config_service.h`、`scripts/package_runtime.ps1`、`runtime/USAGE_GUIDE.txt` 和 `docs/PACKAGING_README.md` 的当前发布版本、默认包名、示例路径和打包说明同步到 `2.1.2`。
+- 结果：生成 `dist/TankEye-Iris_2.1.2` 和 `dist/TankEye-Iris_2.1.2.zip`；包内包含 Qt 主程序、设备探测程序、Qt 平台插件、DG_8/DG_10 两套模型、CPU/GPU OpenVINO 插件、授权密钥、配置和使用说明。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_device_probe` 通过，仅有既有 Qt deprecated warning；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.2 -Force` 成功生成目录包和 ZIP，仅有已知 `VCINSTALLDIR is not set` 警告；包内关键文件、DG_8/DG_10 模型、`USAGE_GUIDE.txt`、版本号、exe hash 一致性、无 `docs/` 和无 `AGENTS.md` 检查均通过。
+- 遗留：未启动包内 launcher，避免写入桌面或 Startup 快捷方式；未连接真实 PLC、真实相机或真实机械设备。
+
+## 2026-08-13 - 收紧管理员授权为单机全匹配
+
+- 目标：按用户要求让每台机器都必须单独申请管理员授权，避免第一台机器生成的 `admin_license.json` 在第二台机器继续可用。
+- 修改：`VerifyAdminLicenseJson()` 的授权匹配阈值从 5 类指纹至少 4 类匹配改为 5 类全部匹配；MAC 类从任一 MAC 命中改为授权 MAC 列表与当前 MAC 列表完全一致；`admin_auth_helpers_test` 同步改为任一类变化、MAC 列表变化或指纹字段缺失均判无效；`MEMORY.md` 同步更新授权口径。
+- 结果：`admin_license.json` 现在绑定完整 Windows MachineGuid、BIOS/主板序列号、系统盘序列号、Qt machineUniqueId 和物理网卡 MAC 列表；任一类不一致都会显示 `授权文件不符`。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_admin_auth_helpers_test tankeye-admin-auth-code tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_admin_auth_helpers_test.exe` 通过。
+- 遗留：未连接真实 PLC、真实相机或真实机械设备；旧授权文件在非原申请机器上应失效，现场需重新按每台机器保存授权申请并生成对应 `admin_license.json`。
+
+## 2026-08-13 - 打包 TankEye-Iris 2.1.3
+
+- 目标：把管理员授权单机全匹配、自启 VBS 临时残留修复和当前版本同步打包为 `2.1.3`。
+- 修改：将 `config/tankeye.json`、`app/qt/workflow/app_config_service.h`、`scripts/package_runtime.ps1`、`runtime/USAGE_GUIDE.txt` 和 `docs/PACKAGING_README.md` 同步到 `2.1.3`；运行包内嵌 `create_desktop_shortcut.ps1` 同步使用临时目录中转写入 Startup VBS，并只清理 `TankEye-Iris.vbs.*` 残留，不删除正式 `TankEye-Iris.vbs`；打包说明同步 5 类硬件指纹全匹配口径。
+- 结果：生成 `dist/TankEye-Iris_2.1.3` 和 `dist/TankEye-Iris_2.1.3.zip`；包内包含 Qt 主程序、设备探测程序、Qt 平台插件、DG_8/DG_10 两套模型、CPU/GPU OpenVINO 插件、授权密钥、配置、运行说明和修正后的快捷方式脚本。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_device_probe tankeye-admin-auth-code tankeye-openvino_admin_auth_helpers_test` 通过，仅有既有 Qt deprecated warning；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.3 -Force` 成功生成目录包和 ZIP，仅有已知 `VCINSTALLDIR is not set` 警告；包内关键文件、DG_8/DG_10 模型、`USAGE_GUIDE.txt`、版本号、exe hash 一致性、无 `docs/`、无 `AGENTS.md`、以及包内快捷方式脚本临时残留清理逻辑检查均通过。
+- 遗留：未启动包内 launcher，避免写入桌面或 Startup 快捷方式；未连接真实 PLC、真实相机或真实机械设备；`tankeye-admin-auth-code.exe` 仍按现有设计保留在工程师/开发构建侧，不随运行包发给现场。

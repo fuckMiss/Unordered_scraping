@@ -58,6 +58,9 @@ $Shortcut.Save()
 if (-not $NoAutoStart) {
     $StartupDelaySeconds = [Math]::Max(0, [Math]::Min($StartupDelaySeconds, 600))
     Remove-Item -LiteralPath $LegacyStartupShortcutPath -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -LiteralPath $StartupDir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name.StartsWith("$ShortcutName.vbs.") } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
     $StartupVbs = @"
 Option Explicit
 
@@ -73,7 +76,18 @@ command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " & _
 shell.CurrentDirectory = appDir
 shell.Run command, 0, False
 "@
-    [System.IO.File]::WriteAllText($StartupVbsPath, $StartupVbs, [System.Text.UTF8Encoding]::new($false))
+    $StartupTempPath = [System.IO.Path]::GetTempFileName()
+    $ResolvedTempPath = $null
+    try {
+        $ResolvedTempPath = [System.IO.Path]::ChangeExtension($StartupTempPath, ".vbs")
+        Move-Item -LiteralPath $StartupTempPath -Destination $ResolvedTempPath -Force
+        [System.IO.File]::WriteAllText($ResolvedTempPath, $StartupVbs, [System.Text.UTF8Encoding]::new($false))
+        Remove-Item -LiteralPath $StartupVbsPath -Force -ErrorAction SilentlyContinue
+        Move-Item -LiteralPath $ResolvedTempPath -Destination $StartupVbsPath -Force
+    } finally {
+        Remove-Item -LiteralPath $StartupTempPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $ResolvedTempPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Host "Desktop shortcut created:"

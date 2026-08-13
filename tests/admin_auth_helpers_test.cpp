@@ -65,7 +65,7 @@ void LicenseAllowsOneFingerprintChange()
     AdminHardwareFingerprint one_changed = fingerprint;
     one_changed.system_drive_serial = QStringLiteral("drive-b");
     status = VerifyAdminLicenseJson(license, one_changed, secret);
-    assert(status.valid);
+    assert(!status.valid);
     assert(status.matched_categories == 4);
 
     AdminHardwareFingerprint mac_changed = fingerprint;
@@ -74,8 +74,8 @@ void LicenseAllowsOneFingerprintChange()
         QStringLiteral("AA:BB:CC:DD:EE:FF"),
     });
     status = VerifyAdminLicenseJson(license, mac_changed, secret);
-    assert(status.valid);
-    assert(status.matched_categories == 5);
+    assert(!status.valid);
+    assert(status.matched_categories == 4);
 
     AdminHardwareFingerprint two_changed = fingerprint;
     two_changed.system_drive_serial = QStringLiteral("drive-b");
@@ -87,7 +87,7 @@ void LicenseAllowsOneFingerprintChange()
     AdminHardwareFingerprint missing_category = fingerprint;
     missing_category.bios_serial.clear();
     status = VerifyAdminLicenseJson(license, missing_category, secret);
-    assert(status.valid);
+    assert(!status.valid);
     assert(status.matched_categories == 4);
 
     AdminHardwareFingerprint missing_two_categories = fingerprint;

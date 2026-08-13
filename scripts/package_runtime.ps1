@@ -1,6 +1,6 @@
 ﻿param(
     [string]$BuildDir = "build",
-    [string]$ReleaseName = "TankEye-Iris_2.1.1",
+    [string]$ReleaseName = "TankEye-Iris_2.1.3",
     [switch]$Force
 )
 
@@ -552,6 +552,9 @@ Write-Host "Desktop shortcut created: $ShortcutPath"
 if (-not $NoAutoStart) {
     $StartupDelaySeconds = [Math]::Max(0, [Math]::Min($StartupDelaySeconds, 600))
     Remove-Item -LiteralPath $LegacyStartupShortcutPath -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -LiteralPath $Startup -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name.StartsWith("TankEye-Iris.vbs.") } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
     $StartupVbs = @"
 Option Explicit
 
@@ -567,7 +570,18 @@ command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " & _
 shell.CurrentDirectory = appDir
 shell.Run command, 0, False
 "@
-    [System.IO.File]::WriteAllText($StartupVbsPath, $StartupVbs, [System.Text.UTF8Encoding]::new($false))
+    $StartupTempPath = [System.IO.Path]::GetTempFileName()
+    $ResolvedTempPath = $null
+    try {
+        $ResolvedTempPath = [System.IO.Path]::ChangeExtension($StartupTempPath, ".vbs")
+        Move-Item -LiteralPath $StartupTempPath -Destination $ResolvedTempPath -Force
+        [System.IO.File]::WriteAllText($ResolvedTempPath, $StartupVbs, [System.Text.UTF8Encoding]::new($false))
+        Remove-Item -LiteralPath $StartupVbsPath -Force -ErrorAction SilentlyContinue
+        Move-Item -LiteralPath $ResolvedTempPath -Destination $StartupVbsPath -Force
+    } finally {
+        Remove-Item -LiteralPath $StartupTempPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $ResolvedTempPath -Force -ErrorAction SilentlyContinue
+    }
     Write-Host "Startup shortcut created: $StartupVbsPath"
 }
 '@

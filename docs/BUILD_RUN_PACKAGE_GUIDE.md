@@ -58,6 +58,7 @@ TankEye_admin_license_request_TK-B57A-B3ED-5AA9-3F90.json
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -RequestFile .\TankEye_admin_license_request_TK-B57A-B3ED-5AA9-3F90.json -Output .\config\admin_license.json
 ```
 
+
 将生成的 `admin_license.json` 发回现场，放到运行包 `config` 目录。开发环境下也可以放在项目根目录 `config`，程序会在 `build\Release\config` 找不到时自动读取项目根目录 `config`。再次打开管理员或工程设置入口时，会进入创建管理员账号阶段，表单里的授权状态应显示 `已授权`。
 
 创建管理员账号时必须同时设置：
