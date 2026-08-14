@@ -44,7 +44,7 @@ QByteArray RequestJson(const AdminHardwareFingerprint& fingerprint)
     return QJsonDocument(request).toJson(QJsonDocument::Compact);
 }
 
-void LicenseRequiresAllNonEmptyFingerprintsToMatch()
+void LicenseUsesStableMachineIdentityForLongTermLogin()
 {
     const QString secret = QStringLiteral("unit-test-secret");
     const AdminHardwareFingerprint fingerprint = MakeFingerprint();
@@ -74,7 +74,7 @@ void LicenseRequiresAllNonEmptyFingerprintsToMatch()
         QStringLiteral("AA:BB:CC:DD:EE:FF"),
     });
     status = VerifyAdminLicenseJson(license, mac_changed, secret);
-    assert(!status.valid);
+    assert(status.valid);
     assert(status.matched_categories == 4);
 
     AdminHardwareFingerprint two_changed = fingerprint;
@@ -110,6 +110,14 @@ void LicenseRequiresAllNonEmptyFingerprintsToMatch()
     status = VerifyAdminLicenseJson(empty_bios_license, request_with_empty_bios, secret);
     assert(status.valid);
     assert(status.matched_categories == 4);
+
+    AdminHardwareFingerprint empty_bios_mac_changed = request_with_empty_bios;
+    empty_bios_mac_changed.mac_addresses = QStringList({
+        QStringLiteral("AA:BB:CC:DD:EE:FF"),
+    });
+    status = VerifyAdminLicenseJson(empty_bios_license, empty_bios_mac_changed, secret);
+    assert(status.valid);
+    assert(status.matched_categories == 3);
 
     AdminHardwareFingerprint empty_bios_drive_changed = request_with_empty_bios;
     empty_bios_drive_changed.system_drive_serial = QStringLiteral("drive-b");
@@ -209,7 +217,7 @@ int main()
     AdminAuthSaveRememberedPassword(false, QString());
     assert(AdminAuthRememberedPassword().isEmpty());
 
-    LicenseRequiresAllNonEmptyFingerprintsToMatch();
+    LicenseUsesStableMachineIdentityForLongTermLogin();
 
     QDir(temp_root).removeRecursively();
     std::cout << "admin_auth_helpers_test passed" << std::endl;

@@ -1,6 +1,6 @@
 ﻿param(
     [string]$BuildDir = "build",
-    [string]$ReleaseName = "TankEye-Iris_2.1.3",
+    [string]$ReleaseName = "TankEye-Iris_2.1.4",
     [switch]$Force
 )
 

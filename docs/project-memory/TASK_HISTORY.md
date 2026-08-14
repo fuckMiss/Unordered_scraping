@@ -1008,3 +1008,19 @@
 - 结果：当前 `TK-B57A-B3ED-5AA9-3F90` 申请文件因 BIOS 序列号为空，不再天然失败；已重新生成 `config/admin_license.json` 并同步到 `build/Release/config/admin_license.json`，两处文件 SHA256 一致。
 - 验证：`cmake --build build --config Release --target tankeye-openvino_admin_auth_helpers_test tankeye-admin-auth-code tankeye-openvino_qt_app` 通过，仅有既有 Qt deprecated warning；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_admin_auth_helpers_test.exe` 通过；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；重新执行 `scripts/generate_admin_auth_code.ps1` 成功生成授权文件。
 - 遗留：未启动真实 GUI 人工查看授权状态，未连接真实 PLC、真实相机或真实机械设备；若某台机器可采集 BIOS，则 BIOS 仍作为非空绑定项参与全匹配。
+
+## 2026-08-13 - 打包 TankEye-Iris 2.1.4
+
+- 目标：按用户要求生成包含夹爪框整框保护区硬约束、管理员授权空 BIOS 修复和当前源码状态的 `2.1.4` 运行包。
+- 修改：将 `config/tankeye.json`、`app/qt/workflow/app_config_service.h`、`scripts/package_runtime.ps1`、`runtime/USAGE_GUIDE.txt` 和 `docs/PACKAGING_README.md` 的发布版本、默认包名、示例路径和打包说明同步到 `2.1.4`。
+- 结果：生成 `dist/TankEye-Iris_2.1.4` 和 `dist/TankEye-Iris_2.1.4.zip`；包内包含 Qt 主程序、设备探测程序、Qt 平台插件、DG_8/DG_10 两套模型、CPU/GPU OpenVINO 插件、授权密钥、配置和使用说明；通用包不携带单机 `admin_license.json`。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_device_probe tankeye-admin-auth-code tankeye-openvino_admin_auth_helpers_test tankeye-openvino_grab_limit_evaluator_test tankeye-openvino_frame_overlay_test` 通过，仅有既有 Qt deprecated warning；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.4 -Force` 成功生成目录包和 ZIP，仅有已知 `VCINSTALLDIR is not set` 警告；包内关键文件、DG_8/DG_10 模型、CPU/GPU 插件、`admin_auth.key`、无 `admin_license.json`、版本号、exe hash 一致性、无 `docs/` 和无 `AGENTS.md` 检查均通过。
+- 遗留：未启动包内 launcher，避免写入桌面或 Startup 快捷方式；未连接真实 PLC、真实相机或真实机械设备；`tankeye-admin-auth-code.exe` 仍按现有设计保留在工程师/开发构建侧，不随运行包发给现场。
+
+## 2026-08-14 - 管理员授权改为稳定机器身份长期登录
+
+- 目标：按用户确认的第一性原理口径，管理员授权应是一台机器一次授权，后续重新打开软件直接进入管理员账号/密码登录，不应因网卡状态变化反复显示 `授权文件不符`。
+- 修改：`VerifyAdminLicenseJson()` 改为稳定机器身份校验：Windows MachineGuid、系统盘序列号和 Qt machineUniqueId 三项必须匹配；BIOS 序列号如果授权申请中非空也必须匹配；MAC 列表只计入辅助匹配数，不再作为硬拒绝条件；`admin_auth_helpers_test` 增加 MAC 列表变化仍可登录、稳定身份变化仍拒绝的回归测试；`runtime/USAGE_GUIDE.txt` 和 `docs/PACKAGING_README.md` 同步一次授权长期登录口径。
+- 结果：同一台电脑放入 `config/admin_license.json` 后，后续重启软件仍应允许进入管理员账号/密码阶段；换机器、换系统盘或稳定机器身份变化仍会拒绝。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_admin_auth_helpers_test tankeye-admin-auth-code tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_admin_auth_helpers_test.exe` 通过；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；重新打包 `TankEye-Iris_2.1.4` 并完成包内关键文件、版本、hash、无 docs/AGENTS/admin_license 检查。
+- 遗留：未启动真实 GUI 人工查看授权状态；未连接真实 PLC、真实相机或真实机械设备。

@@ -42,7 +42,7 @@ constexpr const char* kSettingsOrganization = "TankEye";
 constexpr const char* kSettingsApplication = "TankEye-Iris";
 constexpr const char* kAdminAuthGroup = "admin_auth";
 constexpr const char* kLicenseVersion = "1";
-constexpr int kMinimumLicensedCategories = 4;
+constexpr int kRequiredStableMachineMatches = 3;
 
 QString NormalizeCode(QString code)
 {
@@ -176,20 +176,16 @@ bool HashFieldMatches(const QJsonObject& licensed, const QJsonObject& current, c
     return !licensed_value.isEmpty() && !current_value.isEmpty() && licensed_value == current_value;
 }
 
-bool LicensedHashFieldMatches(const QJsonObject& licensed,
-                              const QJsonObject& current,
-                              const QString& name,
-                              int* required_categories,
-                              int* matched_categories)
+bool OptionalLicensedHashFieldMatches(const QJsonObject& licensed,
+                                      const QJsonObject& current,
+                                      const QString& name,
+                                      int* matched_categories)
 {
     const QString licensed_value = licensed.value(name).toString().trimmed();
     if (licensed_value.isEmpty()) {
         return true;
     }
 
-    if (required_categories != nullptr) {
-        ++(*required_categories);
-    }
     const bool matches = HashFieldMatches(licensed, current, name);
     if (matches && matched_categories != nullptr) {
         ++(*matched_categories);
@@ -477,34 +473,25 @@ AdminLicenseStatus VerifyAdminLicenseJson(const QByteArray& license_json,
 
     const QJsonObject licensed = license.value(QStringLiteral("fingerprints")).toObject();
     const QJsonObject current = FingerprintHashesToJson(fingerprint);
-    int required_categories = 0;
+    int stable_machine_matches = 0;
     int matches = 0;
-    bool all_licensed_categories_match = true;
-    all_licensed_categories_match &= LicensedHashFieldMatches(licensed,
-                                                              current,
-                                                              QStringLiteral("machine_guid"),
-                                                              &required_categories,
-                                                              &matches);
-    all_licensed_categories_match &= LicensedHashFieldMatches(licensed,
-                                                              current,
-                                                              QStringLiteral("bios_serial"),
-                                                              &required_categories,
-                                                              &matches);
-    all_licensed_categories_match &= LicensedHashFieldMatches(licensed,
-                                                              current,
-                                                              QStringLiteral("system_drive_serial"),
-                                                              &required_categories,
-                                                              &matches);
-    all_licensed_categories_match &= LicensedHashFieldMatches(licensed,
-                                                              current,
-                                                              QStringLiteral("qt_machine_id"),
-                                                              &required_categories,
-                                                              &matches);
+    const auto match_stable_field = [&licensed, &current, &stable_machine_matches, &matches](const QString& name) {
+        if (HashFieldMatches(licensed, current, name)) {
+            ++stable_machine_matches;
+            ++matches;
+        }
+    };
+    match_stable_field(QStringLiteral("machine_guid"));
+    match_stable_field(QStringLiteral("system_drive_serial"));
+    match_stable_field(QStringLiteral("qt_machine_id"));
+    const bool bios_matches = OptionalLicensedHashFieldMatches(licensed,
+                                                               current,
+                                                               QStringLiteral("bios_serial"),
+                                                               &matches);
 
     const QStringList licensed_macs = StringListFromJsonArray(licensed.value(QStringLiteral("mac_addresses")).toArray());
     const QStringList current_macs = StringListFromJsonArray(current.value(QStringLiteral("mac_addresses")).toArray());
     if (!licensed_macs.isEmpty()) {
-        ++required_categories;
         bool mac_matches = licensed_macs.size() == current_macs.size();
         for (int i = 0; mac_matches && i < licensed_macs.size(); ++i) {
             mac_matches = licensed_macs.at(i) == current_macs.at(i);
@@ -512,11 +499,10 @@ AdminLicenseStatus VerifyAdminLicenseJson(const QByteArray& license_json,
         if (mac_matches) {
             ++matches;
         }
-        all_licensed_categories_match &= mac_matches;
     }
 
     status.matched_categories = matches;
-    status.valid = required_categories >= kMinimumLicensedCategories && all_licensed_categories_match;
+    status.valid = stable_machine_matches >= kRequiredStableMachineMatches && bios_matches;
     status.message = status.valid
         ? QStringLiteral("已授权")
         : QStringLiteral("授权文件不符");

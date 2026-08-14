@@ -2,7 +2,7 @@
   "version": 1,
   "app": {
     "name": "TankEye-Iris",
-    "version": "2.1.3",
+    "version": "2.1.4",
     "title": "截止阀抓取上料系统"
   },
   "plc": {
