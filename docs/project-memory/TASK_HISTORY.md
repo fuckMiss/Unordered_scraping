@@ -1080,3 +1080,11 @@
 - 结果：准备创建 `Unordered_scraping_v7` 分支并推送当前维护快照；不回滚或覆盖已有工作区改动。
 - 验证：提交前重新执行 Release 构建、完整默认测试脚本和 `git diff --check`；未连接真实 PLC、真实相机或真实设备。
 - 遗留：现场 UI 操作、真实 PLC/相机和保存图片产物仍需在允许的现场环境中人工验收。
+
+## 2026-08-27 - 同步 README 并补推 Unordered_scraping_v7
+
+- 目标：按用户要求将 `README.md` 和 `README_zh.md` 同步到当前 v7 源码事实后再次上传。
+- 修改：更新 README 中的当前版本、模型路径、管理员授权、三档显示、PLC 检测帧保存、工程方案生命周期、主窗口模块拆分、打包命令、目录地图和排障说明。
+- 结果：README 不再保留旧 `TankEye-Iris_1.2`、`models/weights`、`INIT/RESET` 授权码和 `TANKEYE_ADMIN_AUTH_SECRET` 口径。
+- 验证：静态搜索 README 旧口径；执行 `git diff --check`；执行默认测试脚本确认源码状态仍通过。
+- 遗留：README 仍是说明文档，后续项目事实继续以源码、CMake、配置、脚本、测试和 `docs/project-memory` 为准。

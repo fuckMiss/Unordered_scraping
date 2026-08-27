@@ -10,23 +10,25 @@ TankEye-Iris 是一套 Windows 工业视觉抓取上位机。它负责把现场�
 
 ## 当前版本
 
-- 当前发布包名称：`TankEye-Iris_1.2`。
+- 当前发布包名称：`TankEye-Iris_2.1.4`。
 - 主界面采用左图像区约 75%、右控制栏约 25% 的布局。
 - 右侧栏为双列卡片/按钮布局，窗口缩放时会自适应压缩。
 - 图像显示采用完整显示模式，允许边缘留白，不裁剪图像。
+- 显示模式为下拉选择：`隐藏`、`全显`、`无显示`。`无显示` 只展示原始图，不绘制算法叠加层。
+- `开始保存/停止保存` 用于保存 PLC 触发后的检测帧，图片写入运行目录 `images/`，并按开始保存时选定的显示模式固定本批保存口径。
 - “加载图片”使用后台线程读取，减少 UI 阻塞。
 - 程序启动后会自动加载 OBB/SEG 模型；OpenVINO 首次 GPU/CPU 编译可能较慢，运行包默认保留 `openvino_cache`，第二次通常会更快。
 - 运行日志默认写入 `logs/tankeye_*.log`，所有 `cout/cerr` 日志都会带时间戳。
 - 界面内“运行日志”支持查看最新日志、自动刷新、搜索、级别过滤、时间过滤和分页。
-- 程序默认进入普通模式；管理员模式需要机器授权码，登录后才显示工程设置、运行日志等调试入口。
+- 程序默认进入普通模式；管理员和工程设置需要本机有效的 `config/admin_license.json`，普通检测不依赖管理员授权。
+- `GraspMainWindow` 已从单个大文件收敛为 `shell/runtime/settings/common/scale` 几个职责文件，减少主窗口维护点。
 
 ## 系统边界
 
 输入：
 
 - 海康 Hikrobot 工业相机图像；调试时可使用 OpenCV camera 0 回退。
-- OBB 模型：`models/weights/best_obb.xml` 和 `best_obb.bin`。
-- SEG 模型：`models/weights/best_seg.xml` 和 `best_seg.bin`。
+- OBB/SEG 模型来自当前工程方案。默认 `DG_8` 方案使用 `models/DG_8_weights/best_obb.xml` 和 `models/DG_8_weights/best_seg.xml`；运行包也可携带 `DG_10_weights`。
 - 现场配置：`config/tankeye.json`、工程设置窗口保存的 `QSettings`、九点标定配置。
 - PLC 拍照触发寄存器。
 
@@ -94,33 +96,36 @@ config/tankeye.json
 | `TANKEYE_LOG_FILE` | 指定日志文件。 |
 | `TANKEYE_CAMERA_FALLBACK` | `1` 允许相机回退到 OpenCV camera 0。 |
 | `TANKEYE_ADMIN_AUTH_KEY_FILE` | 覆盖管理员授权密钥文件路径。 |
-| `TANKEYE_ADMIN_AUTH_SECRET` | 临时直接指定管理员授权密钥，仅用于测试。 |
 
 `tankeye.json` 是默认层；工程设置窗口保存的 `QSettings` 会覆盖相机、限位、轴向映射、补偿和角度等现场可调项；环境变量适合临时启动和排障。
 
 ## 管理员模式
 
-- 普通模式保留生产操作按钮，右侧“功能入口”只显示“目标列表”。
-- 管理员模式显示调试入口：隐藏/全显、目标列表、工程设置、运行日志。
-- 新机器首次创建管理员账号时，需要把界面里的机器码发给维护人员，再用 `INIT` 生成授权码：
+- 普通模式保留生产操作按钮，并提供显示模式、PLC 检测帧保存和目标列表。
+- 管理员模式显示工程设置、运行日志等调试入口。
+- 新机器首次创建管理员账号时，需要本机有效的 `config/admin_license.json`。现场在管理员授权弹窗点击 `保存授权申请`，得到类似下面的申请文件：
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -MachineCode "TK-...." -Purpose INIT
+```text
+TankEye_admin_license_request_TK-B57A-B3ED-5AA9-3F90.json
 ```
 
-- 忘记管理员密码时，用同一机器码和 `RESET` 生成重置码：
+- 工程师拿到申请 JSON 后，在项目根目录使用私钥生成授权文件：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -MachineCode "TK-...." -Purpose RESET
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin_auth_code.ps1 -RequestFile .\TankEye_admin_license_request_TK-B57A-B3ED-5AA9-3F90.json -Output .\config\admin_license.json
 ```
 
-- 正式授权密钥文件是 `config/admin_auth.key`。它会被 git 忽略，但打包时会自动复制进运行包。请保管好这个文件，并用同一密钥打包和生成授权码。
+- 将生成的 `admin_license.json` 放回现场运行包 `config` 目录。同一台电脑正常只需要申请一次授权，后续重新打开软件直接进入管理员账号/密码登录阶段。
+- 创建管理员账号时必须设置恢复问题和恢复答案。忘记密码时，仍要求本机授权文件有效，并且必须正确回答恢复问题才能重置账号密码。
+- 正式授权密钥文件是 `config/admin_auth.key`。它会被 git 忽略，但打包时会自动复制进运行包。请保管好这个文件，并用同一密钥打包和生成授权文件。
 
 ## 工程设置
 
 - 相机 IP、曝光值、九点坐标转换、限位、轴向映射、补偿和角度校准会保存，下次打开复用。
+- 工程方案（例如 `DG_8`、`DG_10`）把模型路径和现场可调参数放在同一生命周期里管理；保存、暂存、应用、新建由主窗口明确入口处理，工程设置弹窗不再直接承担运行态切换。
 - `曝光 us` 可手动填写，也可使用 `单次自动曝光`。
 - `上下限保护` 使用机械坐标过滤目标；`ROI 留边` 会把边界向内收缩，避免抓取边界附近物料。
+- `夹爪长度/夹爪宽度` 在坐标转换有效时用于绘制真实机械夹爪框；整框越界、缺少有效夹爪框或真实 mask 碰撞都会保守拒抓。
 - `轴向映射` 可选择 `前后=机械Y，左右=机械X` 或 `前后=机械X，左右=机械Y`，同时影响 PLC `D500/D502`、机械 ROI 和限位检查。
 - `前后补偿`、`左右补偿` 只叠加到最终 PLC 输出和 PLC 测试显示，不影响九点矩阵、机械 ROI 或限位判断。
 - 角度校准公式：
@@ -197,21 +202,21 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_test
 生成独立运行包：
 
 ```powershell
-.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.2 -Force
+.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.4 -Force
 ```
 
 输出目录：
 
 ```text
-dist/TankEye-Iris_1.2
-dist/TankEye-Iris_1.2.zip
+dist/TankEye-Iris_2.1.4
+dist/TankEye-Iris_2.1.4.zip
 ```
 
 运行包包含主程序、模型、配置、标定输出、示例图、运行时 DLL、启动脚本、桌面图标脚本和使用说明。它不应包含源码、CMake 工程、Python 脚本、测试、`.lib`、`.pdb`、`.pt` 等开发产物。
 
-如果存在 `config/admin_auth.key`，打包脚本会把它复制到运行包内。现场机器上的软件会用这个密钥验证管理员授权码；该密钥文件不要提交到 GitHub。
+如果存在 `config/admin_auth.key`，打包脚本会把它复制到运行包内。现场机器上的软件会用这个密钥验证 `admin_license.json`；该密钥文件不要提交到 GitHub。
 
-上传 GitHub 时，不要提交 `dist/`、`_deps/`、`vendor/hik_mvs/`、`samples/Data/` 和 `models/weights/` 中的实际模型文件；模型文件可通过 GitHub Releases、Git LFS 或私有部署渠道分发。
+上传 GitHub 时，不要提交 `dist/`、`_deps/`、`vendor/hik_mvs/`、`samples/Data/` 和 `models/DG_8_weights/`、`models/DG_10_weights/` 中的实际模型文件；模型文件可通过 GitHub Releases、Git LFS 或私有部署渠道分发。
 
 创建桌面图标：
 
@@ -226,14 +231,14 @@ dist/TankEye-Iris_1.2.zip
 | 路径 | 职责 |
 | --- | --- |
 | `app/qt/main.cpp` | Qt 程序入口、日志初始化、窗口启动。 |
-| `app/qt/ui/` | 主界面、工程设置窗口、状态展示和画面叠加。 |
+| `app/qt/ui/` | 主窗口 shell/runtime/settings 模块、工程设置窗口、状态展示和画面叠加。 |
 | `app/qt/hardware/` | Hikrobot 相机封装、PLC Modbus TCP 控制。 |
 | `app/qt/workflow/` | 抓取工作流、配置服务、坐标转换、限位、PLC 输出合约和后处理。 |
 | `app/cli/` | OBB/SEG 命令行推理入口。 |
 | `core/inference/` | YOLOv11 OBB/SEG OpenVINO 推理封装。 |
 | `core/common/` | 模型、部署和通用工具。 |
 | `config/` | 默认现场配置。 |
-| `models/weights/` | OpenVINO 模型权重位置。 |
+| `models/DG_8_weights/`、`models/DG_10_weights/` | 工程方案和运行包使用的 OpenVINO 模型权重位置。 |
 | `scripts/` | 启动、部署、打包、测试、标定和桌面图标脚本。 |
 | `tests/` | C++ 测试。 |
 | `runtime/` | 运行包使用说明素材。 |
@@ -243,11 +248,11 @@ dist/TankEye-Iris_1.2.zip
 ## 排障入口
 
 - 程序打不开：先看 `logs/tankeye_*.log`。
-- 找不到模型：确认 `models/weights/best_obb.xml` 和 `models/weights/best_seg.xml` 是否存在。
+- 找不到模型：确认当前工程方案里的模型路径是否存在，通常为 `models/DG_8_weights/best_obb.xml` 和 `models/DG_8_weights/best_seg.xml`。
 - 首次模型加载慢：检查最新日志里的 `[OpenVINO] Compile model ms`，同一运行包目录第二次启动通常会因 `openvino_cache` 命中而变快。
 - 首次加载图片感觉卡：通常是启动后模型正在后台编译并抢占资源；图片读取已改为后台线程，但首次显示仍需要主线程完成缩放和渲染。
 - 找不到相机：检查 MVS 驱动、相机供电、网段、相机 IP；调试时可设置 `TANKEYE_CAMERA_FALLBACK=1`。
 - GPU 启动失败：先用 `-Device CPU` 验证主链路，再检查 Intel GPU 驱动和 OpenVINO 运行时。
 - PLC 不联机：先用 `-SimulatePlc` 验证视觉链路，再检查 PLC IP、端口、寄存器地址和网线。
 - 目标坐标异常：优先检查九点标定点顺序、机械坐标录入、单应矩阵有效性和 ROI/轴向映射。
-- 管理员授权码无效：从界面复制完整机器码；用同一个 `config/admin_auth.key` 生成；首次创建用 `INIT`，忘记密码重置用 `RESET`。
+- 管理员授权无效：检查 `config/admin_license.json` 是否存在、是否属于本机、是否由同一份 `config/admin_auth.key` 生成；忘记密码还需要正确回答创建管理员时设置的恢复问题。
