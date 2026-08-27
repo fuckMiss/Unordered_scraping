@@ -1024,3 +1024,59 @@
 - 结果：同一台电脑放入 `config/admin_license.json` 后，后续重启软件仍应允许进入管理员账号/密码阶段；换机器、换系统盘或稳定机器身份变化仍会拒绝。
 - 验证：`cmake --build build --config Release --target tankeye-openvino_admin_auth_helpers_test tankeye-admin-auth-code tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_admin_auth_helpers_test.exe` 通过；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；重新打包 `TankEye-Iris_2.1.4` 并完成包内关键文件、版本、hash、无 docs/AGENTS/admin_license 检查。
 - 遗留：未启动真实 GUI 人工查看授权状态；未连接真实 PLC、真实相机或真实机械设备。
+
+## 2026-08-27 - PLC 检测帧手动保存与三档显示
+
+- 目标：在 PLC 正常运行抓取时，支持手动开始/停止图片留档，并可按无显示、隐藏、全显三种绘制口径保存 PLC 检测帧。
+- 修改：主窗口显示模式由二态 bool 改为 `DisplayOverlayMode` 三态枚举；新增 `开始保存/停止保存` 按钮；抽出主画面和保存共用的渲染函数；PLC 检测完成后按保存会话状态把当前帧保存到程序目录 `images/`；状态呈现测试补充三档按钮文案断言。
+- 结果：默认显示仍为 `隐藏`；显示按钮循环 `隐藏 -> 全显 -> 无显示 -> 隐藏`；开始保存时锁定当前显示模式，之后只保存 PLC 触发检测完成的帧，手动图片检测和相机预览帧不自动保存；算法、坐标转换、抓取过滤、PLC 写入寄存器和安全判断保持不变。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过，仅有既有 Qt deprecated warning；`cmake --build build --config Release --target tankeye-openvino_runtime_status_presenter_test tankeye-openvino_frame_overlay_test` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_runtime_status_presenter_test.exe` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；完整 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；CPU + 模拟 PLC GUI 启动生成 `build/Release/logs/tankeye_20260827_142958.log` 并确认无残留 `tankeye` 进程；`git diff --check` 无空白错误，仅有既有 CRLF 提示。
+- 遗留：未连接真实 PLC、真实相机或真实机械设备；未做真实 PLC 触发下的图片文件生成人工验收。
+
+## 2026-08-27 - 显示模式改为下拉选择
+
+- 目标：把显示模式入口从按钮循环改为下拉选择，直接选择 `隐藏 / 全显 / 无显示`。
+- 修改：`display_mode_button_` 替换为 `displayModeSelector` 下拉框；删除按钮循环切换函数；状态呈现改为同步下拉索引；保存会话锁定逻辑保持不变；状态测试改为校验下拉索引。
+- 结果：用户可直接点选三档显示模式，当前保存会话仍按开始保存时锁定的模式输出，避免运行中显示模式切换影响一批图片口径。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_runtime_status_presenter_test` 通过，仅有既有 Qt deprecated warning；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_runtime_status_presenter_test.exe` 通过；完整 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；CPU + 模拟 PLC GUI 启动生成 `build/Release/logs/tankeye_20260827_150043.log` 并确认无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC、真实相机或真实设备；未做真实保存产物人工验收。
+
+## 2026-08-27 - GraspMainWindow 继续瘦身重构
+
+- 目标：继续压缩 `app/qt/ui/grasp_main_window.cpp`，把已迁移到设置文件的管理/授权/工程设置逻辑彻底收口为单一实现，并抽离共用 UI 缩放状态。
+- 修改：新增 `app/qt/ui/grasp_main_window_scale.h` 作为共享缩放状态与 helper；`grasp_main_window.cpp` 删除与 `grasp_main_window_settings.cpp` 重复的设置、管理员和授权实现，改用共享缩放 helper；`grasp_main_window_settings.cpp` 改为直接依赖共享缩放头并补齐自身需要的 Qt 头；`CMakeLists.txt` 无需新增本轮源文件但继续编译该共享头。
+- 结果：主窗体从“既管设置又管运行”进一步收敛，设置相关逻辑不再在两个 cpp 里并存；当前主窗体已比本轮前明显更薄，后续还可继续拆运行/PLC/渲染职责。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过；`git diff --check` 仅有既有 LF/CRLF 提示，无空白错误。
+- 遗留：`app/qt/ui/grasp_main_window.cpp` 仍有运行、PLC、渲染和保存大段逻辑，后续可继续按职责切分。
+
+## 2026-08-27 - 继续拆运行与渲染职责
+
+- 目标：把主窗体里剩余最重的运行、PLC、渲染、保存和目标列表职责再往外拆，继续降低 `grasp_main_window.cpp` 的维护负担。
+- 修改：新增 `app/qt/ui/grasp_main_window_runtime.cpp` 承接图片载入、相机、检测、PLC、渲染、保存和目标列表刷新；新增 `app/qt/ui/grasp_main_window_common.h` 统一显示模式文字、文件后缀和性能计时 helper；`grasp_main_window.cpp` 只保留编排和少量 UI helper；`CMakeLists.txt` 同步注册新源文件与共享头。
+- 结果：`grasp_main_window.cpp` 从约 3731 行降到约 2145 行，`grasp_main_window_runtime.cpp` 约 1643 行；主窗体不再直接承载那段最重的运行/渲染实现，整体更接近薄壳。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；完整 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过；`git diff --check` 仅有既有 LF/CRLF 提示。
+- 遗留：`grasp_main_window.cpp` 里还有部分 UI 构造/事件/布局 helper，若继续瘦身可再拆顶部栏、侧栏和目标卡 helper。
+
+## 2026-08-27 - 删除旧主窗体壳并收口到三模块
+
+- 目标：回应用户对“只有新增没有删除”的担忧，把已经失去实现内容的 `app/qt/ui/grasp_main_window.cpp` 彻底从构建中移除，真正减少一个维护点。
+- 修改：删除 `app/qt/ui/grasp_main_window.cpp`；`CMakeLists.txt` 同步移除该源文件引用；保留 `grasp_main_window_shell.cpp`、`grasp_main_window_runtime.cpp` 和 `grasp_main_window_settings.cpp` 作为唯一实现入口。
+- 结果：旧主窗体壳不再参与构建，`GraspMainWindow` 职责收敛到 shell/runtime/settings 三块；主窗体总代码维护点继续下降，而不是只做文件搬运。
+- 验证：重新构建 `tankeye-openvino_qt_app` 通过；完整 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过；CPU + 模拟 PLC 启动 `launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 成功拉起程序并正常收尾；`git diff --check` 已修正 `CMakeLists.txt` 末尾空行问题，剩余仅为仓内既有换行提示。
+- 遗留：未连接真实 PLC、真实相机或真实设备；后续若继续瘦身，可再审 `grasp_main_window_shell.cpp` 中剩余 UI 构造 helper。
+
+## 2026-08-27 - 工程设置方案生命周期职责收口
+
+- 目标：按用户确认的 v2 计划，把工程方案 Save / Stage / Apply / Pending Activation 职责从 `EngineeringSettingsDialogController::show()` 的 UI lambda 中收口到明确生命周期入口，避免机械拆函数和隐式状态同步。
+- 修改：`GraspMainWindow` 新增 `SaveEngineeringProfile()`、`canSaveEngineeringProfile()`、`StageActiveEngineeringProfile()`、`ApplyEngineeringProfile()`、`CreateEngineeringProfile()` 和 `persistEngineeringProfile()`；删除旧 `applySavedEngineeringSettings()` 入口；工程设置“保存设置”“应用方案”“另存为”“新建”lambda 改为只读取 Draft/名称并调用对应入口，清理保存 lambda 中大量无用捕获。
+- 结果：Save 只负责 Draft->Profile->必要校验->持久化；Stage 只负责 active 方案保存后的 pending 创建；Apply 只负责复用持久化能力后切换 runtime；Pending 消费/完成仍由 start/grab 前的 activation 链路统一处理；Auto Exposure 保持独立设备流程。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过，仅有既有 Qt deprecated warning；完整 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Device CPU -SimulatePlc` 成功拉起 GUI 并进入事件循环，日志为 `build/Release/logs/tankeye_20260827_182255.log`，验证后手动中断该常驻 GUI 会话并确认无残留 `tankeye` 进程。
+- 遗留：未连接真实 PLC、真实相机或真实设备；未人工点击工程设置保存 active/非 active、应用方案和失败回滚流程，后续现场仍需做 UI 操作验收。
+
+## 2026-08-27 - 提交当前维护快照到 Unordered_scraping_v7
+
+- 目标：将当前 TankEye-Iris 工作区已完成的维护改动提交到 GitHub 仓库的 `Unordered_scraping_v7` 分支。
+- 修改：保留当前主窗口瘦身、显示模式下拉框、PLC 检测帧保存、工程方案生命周期收口、运行状态测试和项目记忆文档；排除本地 `output/` 运行产物。
+- 结果：准备创建 `Unordered_scraping_v7` 分支并推送当前维护快照；不回滚或覆盖已有工作区改动。
+- 验证：提交前重新执行 Release 构建、完整默认测试脚本和 `git diff --check`；未连接真实 PLC、真实相机或真实设备。
+- 遗留：现场 UI 操作、真实 PLC/相机和保存图片产物仍需在允许的现场环境中人工验收。

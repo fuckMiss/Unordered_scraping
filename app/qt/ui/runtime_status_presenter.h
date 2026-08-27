@@ -5,6 +5,7 @@
 #include <QString>
 
 class QLabel;
+class QComboBox;
 class QPushButton;
 
 enum class RuntimeInputMode {
@@ -20,6 +21,12 @@ enum class RuntimeWorkflowState {
     PlcWriting
 };
 
+enum class DisplayOverlayMode {
+    NormalHidden,
+    AllDebug,
+    None
+};
+
 struct DeviceStatusView
 {
     QLabel* camera_dot = nullptr;
@@ -31,7 +38,7 @@ struct DeviceStatusView
     QPushButton* plc_link_button = nullptr;
     QPushButton* plc_test_button = nullptr;
     QPushButton* stop_button = nullptr;
-    QPushButton* display_mode_button = nullptr;
+    QComboBox* display_mode_selector = nullptr;
 };
 
 struct RuntimeStripView
@@ -56,7 +63,7 @@ struct RuntimeStatusSnapshot
     bool image_detection_running = false;
     bool plc_link_active = false;
     bool plc_test_running = false;
-    bool show_all_detections = false;
+    DisplayOverlayMode display_overlay_mode = DisplayOverlayMode::NormalHidden;
     bool has_input = false;
     bool has_current_frame = false;
 };

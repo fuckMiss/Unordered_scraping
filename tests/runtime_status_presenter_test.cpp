@@ -1,6 +1,7 @@
 #include "runtime_status_presenter.h"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QPushButton>
 
 #include <cassert>
@@ -65,6 +66,28 @@ void PlcLinkButtonUsesShortLabels()
     assert(button.text() == QStringLiteral("关闭"));
 }
 
+void DisplayModeSelectorUsesThreeOverlayIndices()
+{
+    DeviceStatusView view;
+    QComboBox selector;
+    selector.addItem(QStringLiteral("隐藏"));
+    selector.addItem(QStringLiteral("全显"));
+    selector.addItem(QStringLiteral("无显示"));
+    view.display_mode_selector = &selector;
+
+    RuntimeStatusSnapshot snapshot;
+    RuntimeStatusPresenter::RefreshDeviceStatus(view, snapshot);
+    assert(selector.currentIndex() == 0);
+
+    snapshot.display_overlay_mode = DisplayOverlayMode::AllDebug;
+    RuntimeStatusPresenter::RefreshDeviceStatus(view, snapshot);
+    assert(selector.currentIndex() == 1);
+
+    snapshot.display_overlay_mode = DisplayOverlayMode::None;
+    RuntimeStatusPresenter::RefreshDeviceStatus(view, snapshot);
+    assert(selector.currentIndex() == 2);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -73,6 +96,7 @@ int main(int argc, char** argv)
     PlcStatusTextIsCentralized();
     PlcCompletionTextKeepsResultContractVisible();
     PlcLinkButtonUsesShortLabels();
+    DisplayModeSelectorUsesThreeOverlayIndices();
 
     std::cout << "runtime_status_presenter_test passed" << std::endl;
     return 0;

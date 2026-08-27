@@ -27,6 +27,10 @@ COLOR_AC = (0, 1.0, 0)      # 绿色：最终选定垂线射线AC
 COLOR_MASK_BOX = (0, 0, 1.0)# 蓝色实线：seg掩码倾斜最小外接矩形
 RAY_EXTEND_LENGTH = 80      # 缩短射线长度
 RIGHT_ANGLE_RAD = np.pi / 2 # 90度弧度值，用于筛选最接近直角的∠AOB
+
+# ========== 新增：实例邻近过滤参数 ==========
+NEAR_DIST_PX = 15               # 原图坐标系下，判定为“过近”的像素距离阈值
+NEAR_AREA_RATIO_THRESH = 0.3    # 膨胀后交集面积占原mask面积的比例阈值，超过则判定为大面积邻近，过滤该实例
 # ----------------------------------------------------------------
 
 def get_obb_center(obb_8pts):
@@ -180,6 +184,7 @@ def get_mask_rotated_min_bbox(mask, orig_h, orig_w):
         y = pt[1] / mask_h * orig_h
         return np.array([x, y])
 
+    # ✅修复bug：遍历box_pts_mask，不是box_pts_origin
     box_pts_origin = np.array([map_to_original(p) for p in box_pts_mask])
     center_O = np.mean(box_pts_origin, axis=0)
     return box_pts_origin, center_O
@@ -217,23 +222,114 @@ def calculate_angle_between_vectors(vec1, vec2):
     cos_ang = np.clip(dot / (norm1 * norm2), -1.0, 1.0)
     return np.arccos(cos_ang)
 
-def visualize_group_aligned(img_path):
-    # 加载OBB检测模型 + 分割模型
-    obb_model = YOLO(OBB_MODEL_PATH)
-    seg_model = YOLO(SEG_MODEL_PATH)
+# ==================== 新增：实例邻近过滤核心函数 ====================
+def filter_near_masks(mask_list, dist_thresh=15, ratio_thresh=0.3):
+    """
+    过滤掉距离过近且大面积相邻的分割实例
+    原理：对每个掩码向外膨胀dist_thresh距离，若两掩码膨胀后交集面积占各自原面积比例均超过阈值，
+    说明两者有大面积区域距离小于阈值，判定为堆叠/过近实例，全部过滤
+    :param mask_list: list of np.array (H, W)，二值掩码（浮点0~1）
+    :param dist_thresh: 掩码坐标系下的距离阈值（像素）
+    :param ratio_thresh: 交集面积占原mask面积的比例阈值
+    :return: keep_masks: 保留的掩码列表, filtered_idx: 被过滤的索引集合
+    """
+    n = len(mask_list)
+    if n <= 1:
+        return mask_list, set()
 
-    # 推理图片
-    obb_res = obb_model(img_path)[0]
+    # 构造圆形膨胀核，尺寸适配距离阈值
+    kernel_size = max(3, int(dist_thresh * 2 + 1))
+    # 确保核大小为奇数
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+
+    # 预计算每个mask的膨胀结果、原面积
+    dilated_masks = []
+    mask_areas = []
+    for mask in mask_list:
+        # 浮点掩码转二值uint8
+        mask_bin = (mask > 0.5).astype(np.uint8)
+        dilated = cv2.dilate(mask_bin, kernel)
+        dilated_masks.append(dilated)
+        mask_areas.append(np.sum(mask_bin))
+
+    filtered_idx = set()
+
+    # 两两配对判定
+    for i in range(n):
+        if i in filtered_idx:
+            continue
+        for j in range(i + 1, n):
+            if j in filtered_idx:
+                continue
+            # 计算膨胀后两个掩码的交集
+            intersection = cv2.bitwise_and(dilated_masks[i], dilated_masks[j])
+            inter_area = np.sum(intersection)
+            if inter_area == 0:
+                continue
+
+            # 交集占各自原掩码面积的比例
+            ratio_i = inter_area / mask_areas[i]
+            ratio_j = inter_area / mask_areas[j]
+
+            # 双方占比均超过阈值 → 大面积邻近，双双过滤
+            if ratio_i > ratio_thresh and ratio_j > ratio_thresh:
+                filtered_idx.add(i)
+                filtered_idx.add(j)
+
+    # 生成保留的掩码列表
+    keep_masks = [mask_list[i] for i in range(n) if i not in filtered_idx]
+    return keep_masks, filtered_idx
+# =================================================================
+
+def visualize_group_aligned(img_path):
+    # 先加载分割模型并推理，优先完成实例邻近过滤
+    seg_model = YOLO(SEG_MODEL_PATH)
     seg_res = seg_model(img_path)[0]
 
     fig, ax = plt.subplots(figsize=(12, 9))
-    img_bgr = obb_res.orig_img
-    # OpenCV读取图片默认BGR通道，转换成RGB供matplotlib正确显示
+    # 用分割结果的原图做显示，保证尺寸一致
+    img_bgr = seg_res.orig_img
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     orig_h, orig_w = img_rgb.shape[:2]
     ax.imshow(img_rgb)
 
-    # 1. 解析所有OBB结果
+    # 1. 解析所有分割实例掩码
+    seg_masks = []
+    if seg_res.masks is not None:
+        seg_masks = seg_res.masks.data.cpu().numpy()  # [N, H_mask, W_mask]
+
+    # ========== 执行实例邻近过滤 ==========
+    keep_seg_masks = seg_masks
+    filtered_idx = set()
+    if len(seg_masks) > 1:
+        mask_h, mask_w = seg_masks[0].shape
+        # 将原图距离阈值转换到掩码坐标系（掩码分辨率与原图不同，需等比缩放）
+        scale = mask_w / orig_w
+        mask_dist_thresh = NEAR_DIST_PX * scale
+        # 执行邻近过滤
+        keep_seg_masks, filtered_idx = filter_near_masks(
+            seg_masks,
+            dist_thresh=mask_dist_thresh,
+            ratio_thresh=NEAR_AREA_RATIO_THRESH
+        )
+        print(f"分割实例总数：{len(seg_masks)}，过滤邻近实例数：{len(filtered_idx)}，保留有效实例数：{len(keep_seg_masks)}")
+    # ======================================
+
+    # 无保留实例，直接结束，不执行OBB推理与后续所有逻辑
+    if len(keep_seg_masks) == 0:
+        print("所有实例均因邻近被过滤，终止后续处理")
+        ax.axis("off")
+        plt.tight_layout()
+        plt.show()
+        return
+
+    # 保留实例存在，再执行OBB模型推理
+    obb_model = YOLO(OBB_MODEL_PATH)
+    obb_res = obb_model(img_path)[0]
+
+    # 2. 解析所有OBB结果
     obb_result = obb_res.obb
     if obb_result is None:
         print("未检测到任何OBB目标")
@@ -256,17 +352,12 @@ def visualize_group_aligned(img_path):
         else:
             yellow_list.append([box, cls, conf, ctr])
 
-    # 2. 解析分割所有实例掩码
-    seg_masks = []
-    if seg_res.masks is not None:
-        seg_masks = seg_res.masks.data.cpu().numpy()  # [N, H_mask, W_mask]
-
-    # 3. 按分割实例分组 + 新增B点筛选逻辑
+    # 3. 按保留的分割实例分组 + B点筛选逻辑
     groups = []
     used_yellow_idx = set()
     used_red_idx = set()
 
-    for mask in seg_masks:
+    for mask in keep_seg_masks:
         raw_group_yellow = []
         raw_group_red = []
 
@@ -317,7 +408,7 @@ def visualize_group_aligned(img_path):
         best_yellow_item = candidate_B_info[0][1]
         best_y_cls = best_yellow_item[1]
 
-        # 存入最终有效分组，不再存储黄色框参考角度（无需旋转红框）
+        # 存入最终有效分组
         groups.append({
             "single_red": raw_group_red[0],    # 本组唯一A红色框
             "best_yellow": best_yellow_item,   # 筛选后最优B黄色框
@@ -347,7 +438,7 @@ def visualize_group_aligned(img_path):
                 # 绘制中心点O圆点
                 ax.scatter(center_O[0], center_O[1], color=COLOR_O, s=60, zorder=10)
 
-            # 红色框流程改动：直接使用原始检测坐标，取消以黄框角度旋转对齐步骤
+            # 红色框流程：直接使用原始检测坐标，取消以黄框角度旋转对齐步骤
             r_box_8, r_conf, _ = red_item
             raw_pts4 = np.array(r_box_8).reshape(4, 2)
             raw_center_A = get_obb_center(r_box_8)
@@ -387,8 +478,7 @@ def visualize_group_aligned(img_path):
                 ac_rad = np.arctan2(best_vec_AC[1], best_vec_AC[0])
                 ac_deg = np.rad2deg(ac_rad)
 
-                # ---------------- 新增方位判断逻辑 ----------------
-                # 左右判定：A.x > O.x → 右，否则左
+                # 方位判断逻辑
                 if scaled_center_A[0] > center_O[0]:
                     lr_dir = "右"
                 else:
@@ -399,7 +489,6 @@ def visualize_group_aligned(img_path):
                 else:
                     size_word = "小上"
                 pos_result = size_word + lr_dir
-                # ----------------------------------------------------
 
                 # 打印角度+方位结果
                 print(f"分组{g_idx} AC射线角度：弧度 {ac_rad:.4f} rad，角度 {ac_deg:.2f} °  方位：{pos_result}")
@@ -417,21 +506,25 @@ def visualize_group_aligned(img_path):
                     zorder=9
                 )
 
-    # 情况2：无有效分组，兜底渲染所有框（依旧使用旧长边拉伸逻辑）
+    # 情况2：有保留实例但无有效分组，兜底渲染保留实例内的检测框
     else:
-        print("无满足条件的有效分组，仅渲染所有检测框")
-        # 绘制所有黄色框
-        for box, cls, conf, _ in yellow_list:
-            color = COLOR_MAP[cls]
-            draw_obb_box(ax, box, color, linewidth=2)
+        print("无满足条件的有效分组，仅渲染保留实例内的检测框")
+        # 绘制匹配到保留掩码的黄色框
+        for y_idx, y_item in enumerate(yellow_list):
+            if y_idx in used_yellow_idx:
+                box, cls, conf, _ = y_item
+                color = COLOR_MAP[cls]
+                draw_obb_box(ax, box, color, linewidth=2)
 
-        # 红色框直接长边放大2倍（兜底逻辑不变）
-        for box, conf, _ in red_list:
-            scaled_4pts = scale_obb_long_edge(box, PERP_SCALE)
-            scaled_8 = scaled_4pts.reshape(-1)
-            scaled_center_A = get_obb_center(scaled_8)
-            draw_obb_box(ax, scaled_8, COLOR_MAP[0], linewidth=2)
-            ax.scatter(scaled_center_A[0], scaled_center_A[1], color="red", s=60)
+        # 绘制匹配到保留掩码的红色框，执行长边放大
+        for r_idx, r_item in enumerate(red_list):
+            if r_idx in used_red_idx:
+                box, conf, _ = r_item
+                scaled_4pts = scale_obb_long_edge(box, PERP_SCALE)
+                scaled_8 = scaled_4pts.reshape(-1)
+                scaled_center_A = get_obb_center(scaled_8)
+                draw_obb_box(ax, scaled_8, COLOR_MAP[0], linewidth=2)
+                ax.scatter(scaled_center_A[0], scaled_center_A[1], color="red", s=60)
 
     # 关闭图例、坐标轴
     ax.axis("off")
@@ -440,5 +533,5 @@ def visualize_group_aligned(img_path):
 
 # ==================== 运行入口 ====================
 if __name__ == "__main__":
-    image_file = "1.bmp"
+    image_file = "248.png"
     visualize_group_aligned(image_file)

@@ -1176,34 +1176,8 @@ void EngineeringSettingsDialogController::show()
     });
 
     QObject::connect(save_settings_button, &QPushButton::clicked, dialog, [owner,
-                                                                  camera_ip_edits,
-                                                                  exposure_spin,
-                                                                  angle_offset_spin,
-                                                                  center_ray_offset_spin,
-                                                                  show_plc_center_debug_check,
-                                                                  postprocess_debug_logging_check,
-                                                                  angle_direction_combo,
-                                                                  angle_range_combo,
-                                                                  axis_mapping_combo,
-                                                                  front_back_offset_spin,
-                                                                  left_right_offset_spin,
-                                                                  limit_enabled_check,
-                                                                  x_lower_spin,
-                                                                  x_upper_spin,
-                                                                  y_lower_spin,
-                                                                  y_upper_spin,
-                                                                  angle_lower_spin,
-                                                                  angle_upper_spin,
-                                                                  roi_margin_spin,
-                                                                  coordinate_enabled_check,
-                                                                  image_x_edits,
-                                                                  image_y_edits,
-                                                                  machine_x_edits,
-                                                                  machine_y_edits,
                                                                   settings_controls,
-                                                                  coordinate_status_label,
                                                                   refresh_profile_combo,
-                                                                  project_profile_combo,
                                                                   refresh_project_profile_combo,
                                                                   selected_project_profile_name]() {
         EngineeringSettingsDraft draft;
@@ -1212,25 +1186,16 @@ void EngineeringSettingsDialogController::show()
             QMessageBox::warning(owner, validation_error.title, validation_error.message);
             return;
         }
-        if (owner->models_loading_) {
+        const QString profile_name = selected_project_profile_name->trimmed();
+        ProjectProfileSettings saved_profile;
+        QString save_error;
+        if (!owner->canSaveEngineeringProfile(&save_error)) {
             QMessageBox::warning(owner,
                                  QStringLiteral("模型正在加载"),
-                                 QStringLiteral("模型加载完成后再保存工程方案。"));
+                                 save_error);
             return;
         }
-
-        QString save_error;
-        const QString profile_name = selected_project_profile_name->trimmed();
-        const ProjectProfileSettings profile_to_save =
-            owner->projectProfileSettingsFromDraft(
-                draft,
-                profile_name);
-        const bool is_active_profile =
-            profile_name == owner->active_project_profile_name_.trimmed();
-        if (profile_name.isEmpty() ||
-            (is_active_profile &&
-             !owner->validateProjectProfileModels(profile_to_save, &save_error)) ||
-            !SaveProjectProfile(profile_to_save, nullptr, &save_error)) {
+        if (!owner->SaveEngineeringProfile(draft, profile_name, &saved_profile, &save_error)) {
             QMessageBox::warning(owner,
                                  QStringLiteral("保存失败"),
                                  save_error);
@@ -1246,28 +1211,17 @@ void EngineeringSettingsDialogController::show()
             QMessageBox::warning(owner, QStringLiteral("开机自启设置失败"), startup_error);
             return;
         }
-        QString apply_error;
-        if (is_active_profile &&
-            !owner->applySavedEngineeringSettings(
-                draft,
-                profile_name,
-                &apply_error)) {
-            owner->updateStatusMessage(
-                QStringLiteral("方案已保存，但当前运行方案未改变：%1").arg(apply_error),
-                6000);
+        if (!owner->StageActiveEngineeringProfile(saved_profile, &save_error)) {
             QMessageBox::warning(owner,
-                                 QStringLiteral("保存后应用失败"),
-                                 QStringLiteral("方案文件已保存，但当前运行参数未改变。\n%1")
-                                     .arg(apply_error));
-            refresh_project_profile_combo();
-            refresh_profile_combo();
+                                 QStringLiteral("保存后生效失败"),
+                                 save_error);
             return;
         }
         refresh_project_profile_combo();
         refresh_profile_combo();
-        const QString status_message = is_active_profile
+        const QString status_message = saved_profile.name == owner->active_project_profile_name_.trimmed()
             ? QStringLiteral("方案已保存，下一次开始检测/开始抓取时生效。\n当前运行仍使用旧参数，当前画面和检测结果未改变。")
-            : QStringLiteral("工程方案已保存：%1，当前运行方案未改变。").arg(profile_name);
+            : QStringLiteral("工程方案已保存：%1，当前运行方案未改变。").arg(saved_profile.name);
         owner->updateStatusMessage(status_message, 5000);
         QMessageBox::information(owner,
                                  QStringLiteral("保存成功"),
@@ -1295,17 +1249,8 @@ void EngineeringSettingsDialogController::show()
             return;
         }
         const QString profile_name = project_profile_combo->currentText().trimmed();
-        QString save_error;
-        if (!SaveProjectProfile(owner->projectProfileSettingsFromDraft(
-                                    draft,
-                                    profile_name),
-                                nullptr,
-                                &save_error)) {
-            QMessageBox::warning(owner, QStringLiteral("保存方案失败"), save_error);
-            return;
-        }
         QString error_message;
-        if (!owner->switchProjectProfile(profile_name, true, &error_message)) {
+        if (!owner->ApplyEngineeringProfile(draft, profile_name, &error_message)) {
             QMessageBox::warning(owner, QStringLiteral("应用方案失败"), error_message);
             return;
         }
@@ -1332,20 +1277,17 @@ void EngineeringSettingsDialogController::show()
             return;
         }
         QString error_message;
-        QString saved_name;
-        if (!SaveProjectProfile(owner->projectProfileSettingsFromDraft(
-                                    draft,
-                                    profile_name),
-                                &saved_name,
-                                &error_message)) {
+        ProjectProfileSettings saved_profile;
+        if (!owner->SaveEngineeringProfile(draft, profile_name, &saved_profile, &error_message)) {
             QMessageBox::warning(owner, QStringLiteral("另存为失败"), error_message);
             return;
         }
+        const QString saved_name = saved_profile.name;
         *selected_project_profile_name = saved_name;
         refresh_project_profile_combo();
-        ProjectProfileSettings saved_profile;
-        if (LoadProjectProfile(saved_name, &saved_profile, &error_message)) {
-            populate_project_profile_controls(saved_profile);
+        ProjectProfileSettings loaded_profile;
+        if (LoadProjectProfile(saved_name, &loaded_profile, &error_message)) {
+            populate_project_profile_controls(loaded_profile);
         }
         owner->updateStatusMessage(QStringLiteral("已另存为工程方案：%1").arg(saved_name), 5000);
     });
@@ -1368,7 +1310,7 @@ void EngineeringSettingsDialogController::show()
         }
         QString error_message;
         QString saved_name;
-        if (!SaveProjectProfile(CreateBlankProjectProfile(safe_name), &saved_name, &error_message)) {
+        if (!owner->CreateEngineeringProfile(safe_name, &saved_name, &error_message)) {
             QMessageBox::warning(owner, QStringLiteral("新建失败"), error_message);
             return;
         }

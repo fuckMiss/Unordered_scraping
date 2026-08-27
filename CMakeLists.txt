@@ -4,7 +4,6 @@ project(tankeye-openvino)
 if(NOT WIN32)
     message(FATAL_ERROR "This project is maintained for Windows only.")
 endif()
-
 option(BUILD_QT_APP "Build the Qt application target" ON)
 set(TANKEYE_BUNDLED_HIK_MVS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/vendor/hik_mvs")
 if(EXISTS "${TANKEYE_BUNDLED_HIK_MVS_ROOT}/Development/Includes/MvCameraControl.h")
@@ -420,9 +419,12 @@ if(BUILD_QT_APP)
         app/qt/hardware/hik_camera.h
         app/qt/hardware/robot_controller.cpp
         app/qt/hardware/robot_controller.h
-        app/qt/ui/grasp_main_window.cpp
+        app/qt/ui/grasp_main_window_runtime.cpp
+        app/qt/ui/grasp_main_window_shell.cpp
         app/qt/ui/grasp_main_window_settings.cpp
         app/qt/ui/grasp_main_window.h
+        app/qt/ui/grasp_main_window_common.h
+        app/qt/ui/grasp_main_window_scale.h
         app/qt/ui/admin_auth_dialogs.cpp
         app/qt/ui/admin_auth_dialogs.h
         app/qt/ui/admin_auth_helpers.cpp

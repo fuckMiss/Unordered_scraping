@@ -53,7 +53,7 @@ public:
     ~GraspMainWindow() override;
 
     void setInitialModelPaths(const QString& obb_model_path, const QString& seg_model_path);
-    void setShowAllDetections(bool show_all_detections);
+    void setDisplayOverlayMode(DisplayOverlayMode mode);
     void setAutoStartGraspRequested(bool enabled);
 
 protected:
@@ -120,6 +120,12 @@ private:
     void refreshSidebarCompactMetrics();
     int responsiveSidebarWidth() const;
     void bindActions();
+    void toggleImageSaveSession();
+    void refreshImageSaveButton();
+    bool savePlcFrameImage(const cv::Mat& frame,
+                           const FrameInferenceResult& result,
+                           QString* saved_path,
+                           QString* error_message) const;
     void syncWindowControlButtons();
     void syncSidePanelToggleButton();
     bool isVisuallyMaximized() const;
@@ -205,9 +211,22 @@ private:
     bool switchProjectProfile(const QString& profile_name,
                               bool reload_models,
                               QString* error_message = nullptr);
-    bool applySavedEngineeringSettings(const EngineeringSettingsDraft& draft,
-                                       const QString& profile_name,
+    bool SaveEngineeringProfile(const EngineeringSettingsDraft& draft,
+                                const QString& profile_name,
+                                ProjectProfileSettings* saved_profile = nullptr,
+                                QString* error_message = nullptr);
+    bool canSaveEngineeringProfile(QString* error_message = nullptr) const;
+    bool StageActiveEngineeringProfile(const ProjectProfileSettings& saved_profile,
                                        QString* error_message = nullptr);
+    bool ApplyEngineeringProfile(const EngineeringSettingsDraft& draft,
+                                 const QString& profile_name,
+                                 QString* error_message = nullptr);
+    bool CreateEngineeringProfile(const QString& profile_name,
+                                  QString* saved_name,
+                                  QString* error_message = nullptr);
+    bool persistEngineeringProfile(const ProjectProfileSettings& profile,
+                                   ProjectProfileSettings* saved_profile = nullptr,
+                                   QString* error_message = nullptr);
     PendingActivationResult activatePendingEngineeringSettingsForStart(
         PendingStartAction action,
         QString* error_message = nullptr);
@@ -225,6 +244,10 @@ private:
     PlcOutputConfig plcOutputConfig() const;
 
     void setFrameAndResult(const cv::Mat& frame, const FrameInferenceResult& result);
+    QImage renderFrameImage(const cv::Mat& frame,
+                            const FrameInferenceResult& result,
+                            const QSize& bounds,
+                            DisplayOverlayMode mode) const;
     bool loadImageFromPath(const QString& path, bool notify);
     void renderCurrentFrame();
     void refreshInfoPanel();
@@ -277,7 +300,8 @@ private:
     QPushButton* plc_link_button_ = nullptr;
     QPushButton* plc_test_button_ = nullptr;
     QPushButton* stop_button_ = nullptr;
-    QPushButton* display_mode_button_ = nullptr;
+    QComboBox* display_mode_selector_ = nullptr;
+    QPushButton* image_save_button_ = nullptr;
     QPushButton* engineering_button_ = nullptr;
     QPushButton* target_list_button_ = nullptr;
     QPushButton* runtime_log_button_ = nullptr;
@@ -359,7 +383,9 @@ private:
     GrabLimitConfig grab_limits_;
     CoordinateTransformConfig coordinate_transform_config_;
     CoordinateTransformState coordinate_transform_state_;
-    bool show_all_detections_ = false;
+    DisplayOverlayMode display_overlay_mode_ = DisplayOverlayMode::NormalHidden;
+    bool image_save_active_ = false;
+    DisplayOverlayMode image_save_overlay_mode_ = DisplayOverlayMode::NormalHidden;
     PlcRuntimeState plc_runtime_state_;
     bool plc_test_result_dialog_pending_ = false;
     QString last_plc_reject_reason_;

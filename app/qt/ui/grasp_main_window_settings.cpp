@@ -1,14 +1,37 @@
 #include "grasp_main_window.h"
 
+#include "admin_auth_dialogs.h"
+#include "admin_auth_helpers.h"
 #include "app_startup_manager.h"
 #include "engineering_settings_dialog_helpers.h"
 #include "engineering_settings_service.h"
+#include "engineering_settings_dialog_controller.h"
+#include "grasp_main_window_scale.h"
+#include "runtime_log_dialog.h"
 
+#include <QComboBox>
+#include <QFrame>
+#include <QFileInfo>
+#include <QGridLayout>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QLayoutItem>
+#include <QToolButton>
 #include <QtGlobal>
 
 #include <iostream>
 
 namespace {
+
+double UiScale()
+{
+    return GraspUiScale();
+}
+
+int SC(int value)
+{
+    return GraspSC(value);
+}
 
 const char* HeadTypeName(int head_type_code)
 {
@@ -36,6 +59,359 @@ void LogHeadTypeCompensationSettings(const char* action,
 }
 
 } // namespace
+
+void GraspMainWindow::setInitialModelPaths(const QString& obb_model_path, const QString& seg_model_path)
+{
+    const bool profile_models_missing =
+        !QFileInfo::exists(obb_model_path_) || !QFileInfo::exists(seg_model_path_);
+    if (profile_models_missing && !obb_model_path.trimmed().isEmpty() && !seg_model_path.trimmed().isEmpty()) {
+        obb_model_path_ = obb_model_path;
+        seg_model_path_ = seg_model_path;
+        QString error_message;
+        saveProjectProfileSettings(&error_message);
+    }
+}
+
+void GraspMainWindow::setAutoStartGraspRequested(bool enabled)
+{
+    auto_start_grasp_requested_ = enabled;
+}
+
+void GraspMainWindow::openEngineeringSettings()
+{
+    const AdminLicenseStatus license_status = AdminAuthLicenseStatus();
+    if (!license_status.valid) {
+        ShowAdminLicenseRequestDialog(this, UiScale(), QStringLiteral("工程设置授权"));
+        return;
+    }
+    if (!admin_mode_) {
+        if (hasAdminAccount()) {
+            showAdminLoginDialog();
+        } else {
+            showCreateAdminAccountDialog();
+        }
+        if (!admin_mode_) {
+            return;
+        }
+    }
+    if (engineering_settings_dialog_controller_) {
+        engineering_settings_dialog_controller_->show();
+    }
+}
+
+void GraspMainWindow::showRuntimeLogs()
+{
+    ShowRuntimeLogDialog(this, UiScale());
+}
+
+bool GraspMainWindow::hasAdminAccount() const
+{
+    return AdminAuthHasAccount();
+}
+
+QString GraspMainWindow::adminUsername() const
+{
+    return AdminAuthUsername();
+}
+
+bool GraspMainWindow::setAdminCredentials(const QString& username,
+                                          const QString& password,
+                                          const QString& recovery_question,
+                                          const QString& recovery_answer,
+                                          QString* error_message)
+{
+    return AdminAuthSetCredentials(username, password, recovery_question, recovery_answer, error_message);
+}
+
+bool GraspMainWindow::changeAdminCredentials(const QString& current_password,
+                                             const QString& username,
+                                             const QString& new_password,
+                                             QString* error_message)
+{
+    return AdminAuthChangeCredentials(current_password, username, new_password, error_message);
+}
+
+bool GraspMainWindow::validateAdminCredentials(const QString& username, const QString& password) const
+{
+    return AdminAuthLicenseStatus().valid && AdminAuthValidateCredentials(username, password);
+}
+
+QString GraspMainWindow::rememberedAdminPassword() const
+{
+    return AdminAuthRememberedPassword();
+}
+
+void GraspMainWindow::saveRememberedAdminPassword(bool remember, const QString& password)
+{
+    AdminAuthSaveRememberedPassword(remember, password);
+}
+
+void GraspMainWindow::setAdminMode(bool enabled)
+{
+    if (admin_mode_ == enabled) {
+        refreshAdminModeUi();
+        return;
+    }
+
+    admin_mode_ = enabled;
+    if (!admin_mode_ && engineering_settings_dialog_) {
+        engineering_settings_dialog_->close();
+    }
+    refreshAdminModeUi();
+    updateStatusMessage(admin_mode_ ? QStringLiteral("已进入管理员模式。")
+                                    : QStringLiteral("已退出管理员模式。"),
+                        3000);
+}
+
+void GraspMainWindow::refreshAdminModeUi()
+{
+    if (!function_layout_ || !target_list_button_ || !detect_buttons_layout_) {
+        return;
+    }
+
+    while (QLayoutItem* item = detect_buttons_layout_->takeAt(0)) {
+        delete item;
+    }
+    while (QLayoutItem* item = function_layout_->takeAt(0)) {
+        delete item;
+    }
+
+    if (settings_icon_button_) {
+        settings_icon_button_->setVisible(admin_mode_);
+    }
+    if (user_button_) {
+        user_button_->setToolTip(admin_mode_ ? QStringLiteral("退出管理员模式")
+                                             : QStringLiteral("管理员登录"));
+    }
+
+    if (admin_mode_) {
+        if (input_group_) {
+            input_group_->setVisible(true);
+        }
+        load_image_button_->setVisible(true);
+        open_camera_button_->setVisible(true);
+        start_button_->setVisible(true);
+        plc_test_button_->setVisible(true);
+        stop_button_->setVisible(true);
+        plc_link_button_->setVisible(true);
+        plc_link_button_->setMinimumHeight(SC(36));
+
+        detect_buttons_layout_->addWidget(start_button_, 0, 0);
+        detect_buttons_layout_->addWidget(plc_test_button_, 0, 1);
+        detect_buttons_layout_->addWidget(plc_link_button_, 1, 0);
+        detect_buttons_layout_->addWidget(stop_button_, 1, 1);
+        detect_buttons_layout_->setColumnStretch(0, 1);
+        detect_buttons_layout_->setColumnStretch(1, 1);
+
+        display_mode_selector_->setVisible(true);
+        image_save_button_->setVisible(true);
+        engineering_button_->setVisible(true);
+        runtime_log_button_->setVisible(true);
+        target_list_button_->setVisible(true);
+        target_list_button_->setMinimumHeight(SC(34));
+
+        function_layout_->addWidget(display_mode_selector_, 0, 0);
+        function_layout_->addWidget(image_save_button_, 0, 1);
+        function_layout_->addWidget(target_list_button_, 1, 0);
+        function_layout_->addWidget(runtime_log_button_, 1, 1);
+        function_layout_->addWidget(engineering_button_, 2, 0, 1, 2);
+    } else {
+        if (input_group_) {
+            input_group_->setVisible(false);
+        }
+        load_image_button_->setVisible(false);
+        open_camera_button_->setVisible(false);
+        start_button_->setVisible(false);
+        plc_test_button_->setVisible(false);
+        stop_button_->setVisible(false);
+        plc_link_button_->setVisible(true);
+        plc_link_button_->setMinimumHeight(SC(38));
+        detect_buttons_layout_->addWidget(plc_link_button_, 0, 0);
+        detect_buttons_layout_->setColumnStretch(0, 1);
+        detect_buttons_layout_->setColumnStretch(1, 0);
+
+        display_mode_selector_->setVisible(true);
+        image_save_button_->setVisible(true);
+        engineering_button_->setVisible(false);
+        runtime_log_button_->setVisible(false);
+        target_list_button_->setVisible(true);
+        target_list_button_->setMinimumHeight(SC(34));
+        function_layout_->addWidget(display_mode_selector_, 0, 0);
+        function_layout_->addWidget(image_save_button_, 0, 1);
+        function_layout_->addWidget(target_list_button_, 1, 0, 1, 2);
+    }
+
+    refreshActionButtonMetrics();
+    if (!admin_mode_) {
+        plc_link_button_->setMinimumHeight(SC(38));
+        target_list_button_->setMinimumHeight(SC(34));
+    }
+    refreshImageSaveButton();
+    refreshTopBarMetrics();
+}
+
+void GraspMainWindow::showCreateAdminAccountDialog()
+{
+    const AdminLicenseStatus license_status = AdminAuthLicenseStatus();
+    if (!license_status.valid) {
+        ShowAdminLicenseRequestDialog(this, UiScale(), QStringLiteral("管理员授权"));
+    }
+    const bool accepted = ::ShowCreateAdminAccountDialog(
+        this,
+        UiScale(),
+        [this](const QString& username,
+               const QString& password,
+               const QString& recovery_question,
+               const QString& recovery_answer,
+               QString* error_message) {
+            return setAdminCredentials(username, password, recovery_question, recovery_answer, error_message);
+        },
+        [this](bool remember, const QString& password) {
+            saveRememberedAdminPassword(remember, password);
+        });
+    if (accepted) {
+        setAdminMode(true);
+    }
+}
+
+void GraspMainWindow::showAdminLoginDialog()
+{
+    const AdminLicenseStatus license_status = AdminAuthLicenseStatus();
+    if (!license_status.valid) {
+        ShowAdminLicenseRequestDialog(this, UiScale(), QStringLiteral("管理员授权"));
+        return;
+    }
+    const bool accepted = ::ShowAdminLoginDialog(
+        this,
+        UiScale(),
+        adminUsername(),
+        rememberedAdminPassword(),
+        [this](const QString& username, const QString& password) {
+            return validateAdminCredentials(username, password);
+        },
+        [this](bool remember, const QString& password) {
+            saveRememberedAdminPassword(remember, password);
+        },
+        [this]() {
+            return showAdminResetDialog();
+        });
+    if (accepted) {
+        setAdminMode(true);
+    }
+}
+
+bool GraspMainWindow::showAdminResetDialog()
+{
+    const AdminLicenseStatus license_status = AdminAuthLicenseStatus();
+    if (!license_status.valid) {
+        ShowAdminLicenseRequestDialog(this, UiScale(), QStringLiteral("管理员授权"));
+        return false;
+    }
+    if (!AdminAuthHasRecoveryChallenge()) {
+        QMessageBox::warning(this,
+                             QStringLiteral("重置管理员"),
+                             QStringLiteral("当前管理员账号未设置恢复问题，请联系负责人清除账号后重新初始化。"));
+        return false;
+    }
+    const bool accepted = ::ShowAdminResetDialog(
+        this,
+        UiScale(),
+        adminUsername(),
+        AdminAuthRecoveryQuestion(),
+        [](const QString& answer) {
+            return AdminAuthValidateRecoveryAnswer(answer);
+        },
+        [this](const QString& username,
+               const QString& password,
+               const QString& recovery_question,
+               const QString& recovery_answer,
+               QString* error_message) {
+            return AdminAuthResetCredentials(username,
+                                             password,
+                                             recovery_question,
+                                             recovery_answer,
+                                             error_message);
+        },
+        [this](bool remember, const QString& password) {
+            saveRememberedAdminPassword(remember, password);
+        });
+    if (accepted) {
+        setAdminMode(true);
+        return true;
+    }
+    return false;
+}
+
+void GraspMainWindow::handleUserButtonClicked()
+{
+    if (admin_mode_) {
+        const auto result = QMessageBox::question(this,
+                                                  QStringLiteral("管理员模式"),
+                                                  QStringLiteral("是否退出管理员模式？"),
+                                                  QMessageBox::Yes | QMessageBox::No,
+                                                  QMessageBox::No);
+        if (result == QMessageBox::Yes) {
+            setAdminMode(false);
+        }
+        return;
+    }
+
+    const AdminLicenseStatus license_status = AdminAuthLicenseStatus();
+    if (!license_status.valid) {
+        ShowAdminLicenseRequestDialog(this, UiScale(), QStringLiteral("管理员授权"));
+        return;
+    }
+
+    if (hasAdminAccount()) {
+        showAdminLoginDialog();
+    } else {
+        showCreateAdminAccountDialog();
+    }
+}
+
+void GraspMainWindow::applyEngineeringSettingsDraft(const EngineeringSettingsDraft& draft)
+{
+    grab_limits_ = draft.grab_limits;
+    obb_model_path_ = draft.obb_model_path;
+    seg_model_path_ = draft.seg_model_path;
+    camera_ip_ = draft.camera_ip;
+    camera_exposure_us_ = draft.camera_exposure_us;
+    obb_conf_threshold_ = draft.obb_conf_threshold;
+    obb_nms_threshold_ = draft.obb_nms_threshold;
+    seg_conf_threshold_ = draft.seg_conf_threshold;
+    seg_nms_threshold_ = draft.seg_nms_threshold;
+    angle_offset_deg_ = draft.angle_offset_deg;
+    center_ray_offset_px_ = draft.center_ray_offset_px;
+    show_plc_center_debug_ = draft.show_plc_center_debug;
+    show_head_ray_debug_ = draft.show_head_ray_debug;
+    postprocess_debug_logging_enabled_ = draft.postprocess_debug_logging_enabled;
+    auto_start_enabled_ = draft.auto_start_enabled;
+    startup_delay_seconds_ = draft.startup_delay_seconds;
+    show_grab_limit_overlay_ = draft.show_grab_limit_overlay;
+    mechanical_gripper_length_ = draft.mechanical_gripper_length;
+    mechanical_gripper_width_ = draft.mechanical_gripper_width;
+    head_type_compensation_settings_.types = draft.head_type_compensations;
+    angle_reverse_direction_ = draft.angle_reverse_direction;
+    angle_range_mode_ = draft.angle_range_mode;
+    axis_mapping_mode_ = draft.axis_mapping_mode;
+    front_back_offset_ = draft.front_back_offset;
+    left_right_offset_ = draft.left_right_offset;
+    coordinate_transform_config_ = draft.coordinate_transform_config;
+    rebuildCoordinateTransformState();
+
+    workflow_.setCameraIp(camera_ip_.toStdString());
+    workflow_.setCameraExposureUs(camera_exposure_us_);
+    workflow_.setCenterRayOffsetPx(center_ray_offset_px_);
+    workflow_.setPostprocessDebugLoggingEnabled(postprocess_debug_logging_enabled_);
+    robot_controller_.setAngleCalibration(static_cast<float>(angle_offset_deg_),
+                                          angle_reverse_direction_,
+                                          angle_range_mode_);
+    robot_controller_.setAxisMapping(axis_mapping_mode_);
+    robot_controller_.setAxisCompensation(static_cast<float>(front_back_offset_),
+                                          static_cast<float>(left_right_offset_));
+    robot_controller_.setHeadTypeCompensations(head_type_compensation_settings_.types);
+    robot_controller_.setDebugLoggingEnabled(postprocess_debug_logging_enabled_);
+}
 
 void GraspMainWindow::loadLimitSettings()
 {

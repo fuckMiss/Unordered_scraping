@@ -1,5 +1,6 @@
 #include "runtime_status_presenter.h"
 
+#include <QComboBox>
 #include <QLabel>
 #include <QPushButton>
 
@@ -85,9 +86,14 @@ void SetRuntimeBusy(const RuntimeStripView& view, const QString& state, const QS
 void RuntimeStatusPresenter::RefreshDeviceStatus(const DeviceStatusView& view,
                                                  const RuntimeStatusSnapshot& snapshot)
 {
-    if (view.display_mode_button != nullptr) {
-        view.display_mode_button->setText(snapshot.show_all_detections ? QStringLiteral("全显")
-                                                                       : QStringLiteral("隐藏"));
+    if (view.display_mode_selector != nullptr) {
+        int display_mode_index = 0;
+        if (snapshot.display_overlay_mode == DisplayOverlayMode::AllDebug) {
+            display_mode_index = 1;
+        } else if (snapshot.display_overlay_mode == DisplayOverlayMode::None) {
+            display_mode_index = 2;
+        }
+        view.display_mode_selector->setCurrentIndex(display_mode_index);
     }
 
     if (snapshot.models_loading) {
