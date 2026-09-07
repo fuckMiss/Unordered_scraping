@@ -876,12 +876,19 @@ void GraspMainWindow::finishPlcTriggeredFrame(QFutureWatcher<QString>* watcher,
     cout << "[PLCPerf] ui_update_ms=" << GraspMainWindowMsSince(ui_start, ui_end)
          << " trigger_to_display_ms=" << GraspMainWindowMsSince(plc_start, ui_end)
          << endl;
+    const bool should_save_image =
+        image_save_active_ && plc_start >= image_save_started_at_;
+    const bool skip_save_frame = should_save_image && image_save_skip_next_frame_;
     QString saved_image_path;
     QString save_error;
-    const bool image_saved = image_save_active_ &&
+    const bool image_saved = should_save_image &&
+        !skip_save_frame &&
         savePlcFrameImage(*frame, *result, &saved_image_path, &save_error);
-    if (image_save_active_) {
-        if (image_saved) {
+    if (should_save_image) {
+        if (skip_save_frame) {
+            image_save_skip_next_frame_ = false;
+            cout << "[ImageSave] skipped first PLC frame after save started" << endl;
+        } else if (image_saved) {
             cout << "[ImageSave] saved PLC frame: "
                  << saved_image_path.toStdString()
                  << endl;
@@ -905,7 +912,7 @@ void GraspMainWindow::finishPlcTriggeredFrame(QFutureWatcher<QString>* watcher,
     }
     refreshDeviceStatus();
     refreshRuntimeStrip();
-    if (image_save_active_) {
+    if (should_save_image && !skip_save_frame) {
         updateStatusMessage(image_saved
                                 ? QStringLiteral("PLC图片已保存：%1").arg(saved_image_path)
                                 : QStringLiteral("PLC图片保存失败：%1").arg(save_error),
@@ -1221,15 +1228,24 @@ bool GraspMainWindow::savePlcFrameImage(const Mat& frame,
     const QString file_name = QStringLiteral("tankeye_plc_%1_%2.png")
                                   .arg(stamp, DisplayOverlayModeFileSuffix(image_save_overlay_mode_));
     const QString file_path = image_dir.filePath(file_name);
-    const QImage image = renderFrameImage(frame,
-                                          result,
-                                          QSize(frame.cols, frame.rows),
-                                          image_save_overlay_mode_);
-    if (image.isNull() || !image.save(file_path, "PNG")) {
-        if (error_message) {
-            *error_message = QStringLiteral("图片保存失败。");
+    if (image_save_overlay_mode_ == DisplayOverlayMode::None) {
+        if (!imwrite(file_path.toStdString(), frame)) {
+            if (error_message) {
+                *error_message = QStringLiteral("图片保存失败。");
+            }
+            return false;
         }
-        return false;
+    } else {
+        const QImage image = renderFrameImage(frame,
+                                              result,
+                                              QSize(frame.cols, frame.rows),
+                                              image_save_overlay_mode_);
+        if (image.isNull() || !image.save(file_path, "PNG")) {
+            if (error_message) {
+                *error_message = QStringLiteral("图片保存失败。");
+            }
+            return false;
+        }
     }
 
     if (saved_path) {
@@ -1446,6 +1462,7 @@ void GraspMainWindow::refreshDeviceStatus()
     view.camera_text = camera_status_value_;
     view.model_dot = obb_status_dot_;
     view.model_text = obb_status_value_;
+    view.compact_status_mode = admin_mode_;
     view.open_camera_button = open_camera_button_;
     view.start_button = start_button_;
     view.plc_link_button = plc_link_button_;

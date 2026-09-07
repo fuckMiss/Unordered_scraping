@@ -1,6 +1,6 @@
 # TankEye-Iris 项目配置静态档案
 
-更新时间：2026-08-03
+更新时间：2026-08-28
 
 本文档用于长期理解项目。内容基于当前源码、`CMakeLists.txt`、`config/tankeye.json`、脚本和测试整理；不以 README 作为事实来源。
 
@@ -85,6 +85,6 @@ TankEye-Iris 是一个 Windows 工业视觉抓取上位机项目。核心链路�
 - 构建主程序：`cmake --build build --config Release --target tankeye-openvino_qt_app`
 - 构建授权工具：`cmake --build build --config Release --target tankeye-admin-auth-code`
 - 运行测试：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release`
-- 打包：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.2 -Force`
+- 打包：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.6 -Force`
 
 涉及多功能或多文件改动时，必须运行对应集成链路；涉及真实硬件、PLC 或 UI 的结论不能只用模拟替代。

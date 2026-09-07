@@ -81,16 +81,6 @@ float QuantizeStable(float value, float step)
     return std::round(value / step) * step;
 }
 
-float ComputeRayAngleDeg(const cv::Point2f& start, const cv::Point2f& end)
-{
-    const cv::Point2f ray = end - start;
-    float angle = std::atan2(ray.y, ray.x) * 180.0f / static_cast<float>(CV_PI);
-    if (angle < 0.0f) {
-        angle += 360.0f;
-    }
-    return angle;
-}
-
 cv::Point2f OffsetPointAlongRay(const cv::Point2f& ray_start,
                                 const cv::Point2f& ray_end,
                                 double offset_px)
@@ -105,84 +95,32 @@ cv::Point2f OffsetPointAlongRay(const cv::Point2f& ray_start,
     return ray_start + ray * scale;
 }
 
-cv::Point2f ClosestPointOnSegment(const cv::Point2f& point,
-                                  const cv::Point2f& start,
-                                  const cv::Point2f& end)
-{
-    const cv::Point2f edge = end - start;
-    const float length_squared = edge.dot(edge);
-    if (length_squared < 1e-6f) {
-        return start;
-    }
-
-    const float t = std::max(0.0f, std::min(1.0f, (point - start).dot(edge) / length_squared));
-    return start + edge * t;
-}
-
 bool FinalizePoseFromMechanicalGripper(PoseDetection& detection,
-                                       const MechanicalGripperCollisionConfig& config,
-                                       int detection_index)
+                                        const MechanicalGripperCollisionConfig& config,
+                                        int detection_index)
 {
     if (detection.mechanical_gripper_corners.size() != 4) {
         return false;
     }
 
-    const cv::Point2f ray_basis = detection.obb_center - detection.seg_center;
-    const float ray_basis_length = PointLength(ray_basis);
-    if (ray_basis_length < 1e-6f) {
+    const cv::Point2f ac_ray = detection.arrow_end - detection.arrow_start;
+    if (PointLength(ac_ray) < 1e-6f) {
         if (config.debug_logging_enabled) {
             std::cout << "[PostprocessDebug] mechanical_gripper_reject"
                       << " index=" << detection_index
-                      << " reason=invalid_oa_geometry"
-                      << " O=" << PointText(detection.seg_center)
-                      << " A=" << PointText(detection.obb_center)
-                      << std::endl;
-        }
-        return false;
-    }
-
-    const cv::Point2f ray_unit = ray_basis * (1.0f / ray_basis_length);
-    float best_dot = -std::numeric_limits<float>::infinity();
-    cv::Point2f best_foot = detection.obb_center;
-    for (size_t i = 0; i < detection.mechanical_gripper_corners.size(); ++i) {
-        const cv::Point2f& start = detection.mechanical_gripper_corners[i];
-        const cv::Point2f& end = detection.mechanical_gripper_corners[(i + 1) % detection.mechanical_gripper_corners.size()];
-        const cv::Point2f foot = ClosestPointOnSegment(detection.obb_center, start, end);
-        const cv::Point2f ac = foot - detection.obb_center;
-        const float ac_length = PointLength(ac);
-        if (ac_length < 1e-6f) {
-            continue;
-        }
-
-        const float dot = ray_unit.dot(ac * (1.0f / ac_length));
-        if (dot > best_dot) {
-            best_dot = dot;
-            best_foot = foot;
-        }
-    }
-
-    if (!std::isfinite(best_dot) || PointLength(best_foot - detection.obb_center) < 1e-6f) {
-        if (config.debug_logging_enabled) {
-            std::cout << "[PostprocessDebug] mechanical_gripper_reject"
-                      << " index=" << detection_index
-                      << " reason=invalid_mechanical_ac_geometry"
-                      << " O=" << PointText(detection.seg_center)
-                      << " A=" << PointText(detection.obb_center)
+                      << " reason=invalid_ac_geometry"
+                      << " A=" << PointText(detection.arrow_start)
+                      << " C=" << PointText(detection.arrow_end)
                       << std::endl;
         }
         return false;
     }
 
     constexpr float kCoordinateStepPx = 0.01f;
-    constexpr float kAngleStepDeg = 0.01f;
     const cv::Point2f shifted_center =
-        OffsetPointAlongRay(detection.obb_center, best_foot, config.center_ray_offset_px);
-    detection.arrow_start = detection.obb_center;
-    detection.arrow_end = best_foot;
+        OffsetPointAlongRay(detection.arrow_start, detection.arrow_end, config.center_ray_offset_px);
     detection.center_x = QuantizeStable(shifted_center.x, kCoordinateStepPx);
     detection.center_y = QuantizeStable(shifted_center.y, kCoordinateStepPx);
-    detection.angle_deg = QuantizeStable(ComputeRayAngleDeg(detection.arrow_start, detection.arrow_end),
-                                         kAngleStepDeg);
     if (config.debug_logging_enabled) {
         std::cout << "[PostprocessDebug] mechanical_gripper_pose"
                   << " index=" << detection_index

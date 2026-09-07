@@ -14,6 +14,22 @@
 - 遗留：未完成事项、风险、后续建议。
 ```
 
+## 2026-09-04 - 补充协作提示词入口
+
+- 目标：把用户补充的准确性、独立判断、事实区分和先核查再执行要求，放到仓内合适的文档入口。
+- 修改：更新 `docs/USE_prompt.md`，新增“先核查再执行”段落；同步 `docs/project-memory/MEMORY.md` 记录本次协作约定。
+- 结果：后续会话可以直接从 `docs/USE_prompt.md` 读取这套提示，不必依赖聊天记录。
+- 验证：`git diff --check` 通过，只有既有工作区文件的 LF/CRLF 提示；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过。
+- 遗留：未调整其他项目文档的正文内容。
+
+## 2026-09-04 - 上游算法按脚本迁回 C++
+
+- 目标：把 `output/推理v1.0.21.py` 的上游算法逻辑整体迁回 C++，但保留机械外框、PLC、ROI、坐标变换和后续工程接口。
+- 修改：`app/qt/workflow/frame_postprocess.cpp/.h` 改为按 SEG 分组、`∠AOB` 选 B、垂足/固定 `45px` 回推/Canny 微调/延展 OBB 重建，并用延展 OBB 与其他 SEG mask 的 IOU 做碰撞过滤；`app/qt/workflow/grasp_workflow.cpp` 改为把原图传给后处理；`tests/frame_postprocess_smoke.cpp` 按新脚本语义更新断言；`docs/project-memory/MEMORY.md` 记录新的算法边界。
+- 结果：上游几何现在更接近脚本实现，而下游机械红框仍然由 `detection.grip_long_angle_deg` 和坐标变换生成，PLC/ROI/对外契约未改。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_postprocess_smoke.exe` 通过；`cmake --build build --config Release --target tankeye-openvino_frame_overlay_test` 通过；`cmake --build build --config Release --target tankeye-openvino_grab_limit_evaluator_test` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_frame_overlay_test.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_grab_limit_evaluator_test.exe` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter tankeye-openvino_qt_app.exe` 在 GUI 冒烟处挂起，后已手动终止测试进程。
+- 遗留：`tankeye-openvino_qt_app.exe` 的测试脚本没有像前两个单测一样自动收尾，后续如需再验 GUI 冒烟，建议单独跑启动命令并人工观察日志，不要把它和单测混在一起。
+
 ## 2026-08-03 - 建立项目协作档案与记忆体系
 
 - 目标：根据当前源码、CMake、配置、脚本和测试建立长期项目档案、任务历史、动态记忆和操作限制。
@@ -1088,3 +1104,155 @@
 - 结果：README 不再保留旧 `TankEye-Iris_1.2`、`models/weights`、`INIT/RESET` 授权码和 `TANKEYE_ADMIN_AUTH_SECRET` 口径。
 - 验证：静态搜索 README 旧口径；执行 `git diff --check`；执行默认测试脚本确认源码状态仍通过。
 - 遗留：README 仍是说明文档，后续项目事实继续以源码、CMake、配置、脚本、测试和 `docs/project-memory` 为准。
+
+## 2026-08-28 - 去掉真实夹爪阶段二次找 C
+
+- 目标：修复部署版偶发 AC 射线方向相对推理脚本错 90 度的问题，让第一次 AC 后处理结果成为唯一 PLC 角度来源。
+- 修改：`grab_limit_evaluator` 删除真实夹爪框四边二次求 C、二次计算 `angle_deg` 和覆盖 `arrow_start/arrow_end` 的逻辑；真实夹爪阶段只校验已有 AC 射线有效，并沿已有 AC 方向应用 `center_ray_offset_px`。`grab_limit_evaluator_test` 更新对应用例，并新增向下 AC 不被真实夹爪侧边替换的回归测试。
+- 结果：真实夹爪框继续负责机械长宽换算、保护区整框约束、真实 SEG mask 碰撞和显示；PLC `D504` 使用第一次 AC 角度再叠加正反向、全局偏移、类型角度补偿和范围归一化。
+- 验证：执行抓取限位定向 Release 构建/测试、Qt 主程序 Release 构建、完整默认测试脚本和 `git diff --check`。
+- 遗留：未连接真实 PLC、真实相机或真实设备；需用现场图片确认错 90 度目标的 C 点、overlay 射线和 D504 是否与推理脚本一致。
+
+## 2026-08-28 - 修复显示模式下拉无响应
+
+- 目标：让功能入口的显示模式控件恢复正常下拉选择，解决“点了没有任何反应”的问题。
+- 修改：`app/qt/ui/grasp_main_window_shell.cpp` 中的 `DisplayModeSelector` 去掉可编辑下拉和 `QLineEdit` 相关处理，仅保留左键点击后 `showPopup()`；同时恢复普通 `QComboBox` 的下拉区域绘制，避免控件看起来像静态文本。
+- 结果：显示模式控件现在可以正常展开并选择 `隐藏 / 全显 / 无显示`，不再是无响应状态；箭头样式仍按用户要求不额外显示。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 GUI 截图或人工点击录屏，现场仍建议打开主界面实际点一下该下拉框确认交互手感。
+
+## 2026-08-28 - 显示模式下拉恢复箭头与居中文字
+
+- 目标：按用户进一步要求，让显示模式下拉保留箭头且框内文字居中，同时让“隐藏”框格式与其他框一致。
+- 修改：`DisplayModeSelector` 改回普通非编辑 `QComboBox`，通过 `paintEvent()` 只居中绘制当前文字，外框和箭头继续沿用原生 combo 视觉；样式保留 `drop-down` / `down-arrow`，不再依赖 `QLineEdit`。
+- 结果：显示模式控件现在应与其他 combo 保持统一外观，箭头可见、文字居中、下拉可正常展开。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过。
+- 遗留：未做真实 GUI 截图或人工点击录屏，仍建议现场实际点开确认视觉效果。
+
+## 2026-08-28 - 显示模式框改成按钮同款外观
+
+- 目标：把显示模式框撤回到与“开始保存”同款的按钮视觉体系，取消箭头，只保留下拉选择能力。
+- 修改：`DisplayModeSelector` 去掉自绘文字层，恢复为可编辑只读下拉框；`QLineEdit` 只读、居中、鼠标穿透；`displayModeSelector` 采用与按钮一致的背景、边框、圆角、字号和内边距，并隐藏下拉箭头。
+- 结果：显示模式框应与旁边“开始保存”在外观上保持一致，同时不再出现双重文字或独立样式。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 GUI 截图或人工点击录屏，现场仍建议打开主界面确认视觉是否完全贴合按钮。
+
+## 2026-08-28 - 恢复显示模式下拉点击
+
+- 目标：修复显示模式框外观保持按钮同款后无法点击展开的问题。
+- 修改：在 `DisplayModeSelector` 中补回左键点击直接 `showPopup()` 的处理，保留当前只读输入框与按钮同款外观不变。
+- 结果：显示模式框可再次正常展开下拉菜单，同时外观仍与“开始保存”一致。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 GUI 截图或人工点击录屏，仍建议现场实际点开确认交互手感。
+
+## 2026-08-28 - 打包 TankEye-Iris 2.1.5
+
+- 目标：按 `docs/PACKAGING_README.md` 的当前流程，把项目文档、默认版本和运行包同步到 `2.1.5`。
+- 修改：更新 README、中文 README、运行说明、打包说明、构建打包指南、项目配置档案、默认配置版本、应用默认版本和打包脚本默认发布名到 `2.1.5`；同时把运行包说明里的旧夹爪 C 点表述改成沿首次 AC 射线输出。
+- 结果：生成 `dist/TankEye-Iris_2.1.5` 和 `dist/TankEye-Iris_2.1.5.zip`；包内包含 Qt 主程序、设备探测程序、Qt 平台插件、OBB/SEG 模型、CPU/GPU OpenVINO 插件、授权密钥、配置和使用说明。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_device_probe tankeye-admin-auth-code tankeye-openvino_grab_limit_evaluator_test tankeye-openvino_frame_overlay_test tankeye-openvino_frame_postprocess_smoke` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 全部通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.5 -Force` 成功生成目录包和 ZIP；包内关键文件、hash、一致性、无 `docs/` 和无 `AGENTS.md` 检查均通过。
+- 遗留：本次未连接真实 PLC、真实相机或真实设备；历史任务中的旧版本记录保留不改。
+
+## 2026-09-04 - 无显示保存改为原图直存
+
+- 目标：修正用户选择“无显示”保存时导出图片仍带框的问题，确保该模式输出原始图像。
+- 修改：`app/qt/ui/grasp_main_window_runtime.cpp` 的 `savePlcFrameImage()` 增加 `DisplayOverlayMode::None` 分支，直接用 `cv::imwrite()` 保存传入的原始 `cv::Mat`；其余显示模式仍沿用 `renderFrameImage()`。
+- 结果：无显示保存不再经过 overlay 渲染路径，保存结果应回到纯原图。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 PLC 触发下的现场保存图片人工验收。
+
+## 2026-09-04 - 非管理员系统状态横排放大
+
+- 目标：把主界面非管理员态的“系统状态”中相机/模型两项改成同一行显示，并放大指示灯和字体；管理员界面保持原样。
+- 修改：`GraspMainWindow` 的状态区改为可切换方向的 `QBoxLayout`，普通模式横向排列两项，管理员模式保持纵向；状态项字体和圆点尺寸按模式刷新；`RuntimeStatusPresenter` 增加状态布局模式标记，按普通/管理员使用不同圆点尺寸；管理员模式切换时同步刷新状态区布局和显示尺寸。
+- 结果：普通界面系统状态现在应为一行展示，视觉层级更大；管理员界面仍维持原有布局和尺寸。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过；`git diff --check` 无新增格式错误。
+- 遗留：未做真实 GUI 截图或人工点检，现场仍建议实际切换管理员/普通界面确认视觉效果。
+
+## 2026-09-04 - 开始保存首帧空白修正
+
+- 目标：修复现场反馈“每次开始保存图片时第一张总是空白”的问题。
+- 修改：在保存会话开始时记录 `image_save_started_at_` 并启用首帧跳过标记；`finishPlcTriggeredFrame()` 仅保存 `开始保存` 之后启动的 PLC 触发帧，首次命中的过渡帧直接跳过，不落盘也不计为成功或失败。
+- 结果：保存会话不再把刚开启时的过渡帧写入磁盘，首张空白图应被消除。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：这是基于代码时序的修正，未做现场相机+PLC 联动验证，仍建议实际触发一次保存确认首张是否恢复正常。
+
+## 2026-09-04 - 非管理员系统状态框体放大
+
+- 目标：在主界面非管理员态保持“相机 / 模型”一行展示的前提下，把系统状态外框也放大，避免内容显得挤。
+- 修改：普通模式下把系统状态卡的最小/最大高度、内边距、条目高度和间距一起上调；管理员模式保留原高度和原布局方向不变。
+- 结果：普通界面的系统状态现在应既横排又更宽松，不再只放大文字和圆点。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 GUI 截图或人工点检，现场仍建议实际打开主界面确认视觉余量。
+
+## 2026-09-04 - 非管理员方案切换独立栏
+
+- 目标：把非管理员界面的方案切换从“当前目标参数”标题行中拆出来，改成独立一栏，同时把普通模式控件尺寸整体放大。
+- 修改：结果区保留主目标信息，方案选择在非管理员模式下进入独立 `方案切换` 卡片；管理员模式仍沿用原标题行位置。普通模式下方案下拉、保存按钮、显示模式下拉和目标列表按钮同步放大一档，但保持现有自适应缩放基线。
+- 结果：现场工人查看时，方案切换更独立、更容易识别，普通界面整体更适合大字操作。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 GUI 截图或人工点检，现场仍建议实际切换管理员/非管理员界面确认方案栏位置与按钮尺寸。
+
+## 2026-09-04 - 非管理员系统状态框再加高
+
+- 目标：回应现场反馈，继续缓解非管理员态“系统状态”卡片上下偏窄的问题。
+- 修改：仅调整 `app/qt/ui/grasp_main_window_shell.cpp` 中普通模式的 `refreshStatusSectionMode()`，把状态卡最小/最大高度、条目高度、布局间距和上下内边距再提高一档；管理员模式保持原值。
+- 结果：普通界面的“相机 / 模型”状态行应比上一版更松，外框上下留白更多。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过；`git diff --check` 仅有仓内既有 LF/CRLF 警告。
+- 遗留：未做真实 GUI 截图或现场点检，仍建议实际打开非管理员界面确认视觉宽度。
+
+## 2026-09-04 - 非管理员系统状态极简化
+
+- 目标：把普通界面的系统状态收敛成现场更容易一眼识别的“名称 + 指示灯”形式。
+- 修改：`app/qt/ui/grasp_main_window_shell.cpp` 中普通模式的状态行重建为纯文本名称加圆点，不再显示 `已加载/加载失败` 值文案，也不再保留状态项内层小框；同时放大名称字号和圆点尺寸，并把名字和圆点的间距压近。
+- 结果：普通界面系统状态现在应只剩“相机  灯”“模型  灯”两项，视觉层级更干净。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 GUI 截图或现场点检，仍建议现场实际确认字体和圆点间距是否合适。
+
+## 2026-09-04 - 非管理员系统状态组距修正
+
+- 目标：修正普通界面系统状态两组之间间隔过大、组内圆点和后续组名字贴得过近的问题。
+- 修改：`app/qt/ui/grasp_main_window_shell.cpp` 中普通模式的状态行改为每组只占自身宽度，组内名字与圆点保持紧凑，组间使用固定间距分隔；管理员模式保持原样。
+- 结果：普通界面的“相机”组和“模型”组现在应各自成团，组与组之间不会再互相挤压。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 GUI 截图或现场点检，仍建议现场实际确认两组视觉间距是否舒服。
+
+## 2026-09-05 - 按参考图重排非管理员系统状态
+
+- 目标：按用户提供的参考图实现普通界面系统状态栏的左右双组布局。
+- 修改：`app/qt/ui/grasp_main_window.h` 新增普通态中央分隔线控件；`app/qt/ui/grasp_main_window_shell.cpp` 将普通态改为左侧“相机 + 指示灯”、中央竖分隔线、右侧“模型 + 指示灯”，两组各占一半并居中；普通态隐藏状态值且不把隐藏控件加入布局，管理员态保持原纵向布局和值文案。
+- 结果：普通态布局关系与参考图一致，组内距离由各自内部布局控制，组间距离由左右等分区域和中央分隔线控制。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 GUI 截图或人工点检，仍需在普通/管理员模式和不同窗口尺寸下确认最终视觉效果。
+
+## 2026-09-05 - 放大参考图状态文字和指示灯
+
+- 目标：按参考图继续提高普通界面“相机/模型”文字和对应指示灯的可读性。
+- 修改：`app/qt/ui/grasp_main_window_shell.cpp` 中普通模式的名称字号和指示灯尺寸由 `24` 提升到 `28`；左右两组继续按各自半区居中，管理员模式保持原尺寸。
+- 结果：普通态“相机 + 指示灯”“模型 + 指示灯”视觉权重更接近参考图，布局位置不变。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过。
+- 遗留：未做真实 GUI 截图或人工点检。
+
+## 2026-09-05 - 修正普通态状态放大未生效
+
+- 目标：解决普通界面状态文字和指示灯代码数值变大、实际视觉效果却不明显的问题。
+- 修改：确认 `SC()` 会叠加侧栏紧凑系数，导致普通态实际字号被压缩；将普通态名称字号和指示灯尺寸改为使用 `S(34)`，保留窗口自适应；同时将普通态状态卡高度、状态项高度和中央分隔线高度同步提高，管理员态保持不变。
+- 结果：普通态文字和指示灯不再受侧栏紧凑系数二次缩小，放大效果应能真实体现。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过；`git diff --check` 仅有既有 LF/CRLF 警告。
+- 遗留：未做真实 GUI 截图或人工点检，需现场确认最终显示尺寸。
+
+## 2026-09-05 - 打包 TankEye-Iris 2.1.6
+
+- 目标：按照 `docs/PACKAGING_README.md` 生成 `2.1.6` 正式运行包。
+- 修改：修正 `docs/PACKAGING_README.md` 中残留的 `2.1.5` 打包命令；未回滚工作区已有源码或文档改动。
+- 结果：生成 `dist/TankEye-Iris_2.1.6` 和 `dist/TankEye-Iris_2.1.6.zip`。包内包含主程序、设备探测程序、Qt 平台插件、DG_8/DG_10 OBB/SEG 模型、CPU/GPU OpenVINO 插件、授权密钥和使用说明；不包含 `docs/` 和 `AGENTS.md`。包内配置版本为 `2.1.6`，主程序和设备探测程序与 `build\Release` 对应文件哈希一致。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_device_probe tankeye-admin-auth-code tankeye-openvino_frame_postprocess_smoke tankeye-openvino_frame_overlay_test tankeye-openvino_grab_limit_evaluator_test` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.6 -Force` 通过；包内文件、版本、哈希和禁入路径检查通过。
+- 遗留：`windeployqt` 输出 `VCINSTALLDIR is not set` 警告但未影响打包完成；未启动包内 launcher，未连接真实 PLC、真实相机或真实设备。
+
+## 2026-09-07 - 上传当前维护快照到 GitHub
+
+- 目标：将当前 `Unordered_scraping_v7` 工作区的已跟踪维护改动上传到 `origin`。
+- 修改：提交 UI 状态展示、PLC 帧保存、后处理和夹爪安全逻辑、测试、配置、打包/运行说明、README 及 project-memory 的既有改动；明确排除未跟踪 `output/` 中的本机授权文件、授权申请、参考图片和参考推理脚本。
+- 结果：待 Git 提交和推送完成后，以提交哈希和 `origin/Unordered_scraping_v7` 同步状态确认上传结果。
+- 验证：已真实执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release`，14 个默认测试全部通过；`git diff --check` 无空白错误，仅有既有 LF/CRLF 转换提示。
+- 遗留：未连接真实 PLC、真实相机或真实设备；仍需完成 Git 元数据写入权限授权后的提交和推送。

@@ -6,11 +6,18 @@
 
 namespace {
 
-void SetIndicator(QLabel* dot, QLabel* text, bool active, const QString& active_text, const QString& inactive_text)
+void SetIndicator(QLabel* dot,
+                  QLabel* text,
+                  bool active,
+                  const QString& active_text,
+                  const QString& inactive_text,
+                  bool compact_mode)
 {
     if (dot != nullptr) {
-        dot->setFixedSize(16, 16);
-        dot->setStyleSheet(QStringLiteral("border-radius: 8px; background:%1;")
+        const int dot_size = compact_mode ? 16 : 22;
+        dot->setFixedSize(dot_size, dot_size);
+        dot->setStyleSheet(QStringLiteral("border-radius: %1px; background:%2;")
+                               .arg(dot_size / 2)
                                .arg(active ? QStringLiteral("#86d779") : QStringLiteral("#d46a6a")));
     }
     if (text != nullptr) {
@@ -98,9 +105,9 @@ void RuntimeStatusPresenter::RefreshDeviceStatus(const DeviceStatusView& view,
 
     if (snapshot.models_loading) {
         SetIndicator(view.camera_dot, view.camera_text, snapshot.camera_running,
-                     QStringLiteral("在线"), QStringLiteral("待机"));
+                     QStringLiteral("在线"), QStringLiteral("待机"), view.compact_status_mode);
         SetIndicator(view.model_dot, view.model_text, false,
-                     QStringLiteral("加载中"), QStringLiteral("加载中"));
+                     QStringLiteral("加载中"), QStringLiteral("加载中"), view.compact_status_mode);
         if (view.start_button != nullptr) {
             view.start_button->setEnabled(false);
         }
@@ -120,9 +127,9 @@ void RuntimeStatusPresenter::RefreshDeviceStatus(const DeviceStatusView& view,
 
     if (snapshot.image_detection_running) {
         SetIndicator(view.camera_dot, view.camera_text, snapshot.camera_running,
-                     QStringLiteral("在线"), QStringLiteral("待机"));
+                     QStringLiteral("在线"), QStringLiteral("待机"), view.compact_status_mode);
         SetIndicator(view.model_dot, view.model_text, true,
-                     QStringLiteral("检测中"), QStringLiteral("检测中"));
+                     QStringLiteral("检测中"), QStringLiteral("检测中"), view.compact_status_mode);
         if (view.start_button != nullptr) {
             view.start_button->setEnabled(false);
         }
@@ -141,9 +148,9 @@ void RuntimeStatusPresenter::RefreshDeviceStatus(const DeviceStatusView& view,
     }
 
     SetIndicator(view.camera_dot, view.camera_text, snapshot.camera_running,
-                 QStringLiteral("在线"), QStringLiteral("待机"));
+                 QStringLiteral("在线"), QStringLiteral("待机"), view.compact_status_mode);
     SetIndicator(view.model_dot, view.model_text, snapshot.models_loaded,
-                 QStringLiteral("已加载"), QStringLiteral("加载失败"));
+                 QStringLiteral("已加载"), QStringLiteral("加载失败"), view.compact_status_mode);
     if (view.open_camera_button != nullptr) {
         view.open_camera_button->setEnabled(!snapshot.plc_link_active);
     }

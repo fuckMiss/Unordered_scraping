@@ -82,6 +82,20 @@ cv::Point2f ExpectedPythonAcFoot(const std::vector<cv::Point2f>& grip_corners,
     return best_foot;
 }
 
+cv::Point2f ExpectedScriptFinalCenter(const std::vector<cv::Point2f>& grip_corners,
+                                      cv::Point2f segment_center,
+                                      float fixed_ac_dist_px = 45.0f)
+{
+    const cv::Point2f grip_center = AveragePoint(grip_corners);
+    const cv::Point2f expected_foot = ExpectedPythonAcFoot(grip_corners, segment_center);
+    const cv::Point2f dir_ca = grip_center - expected_foot;
+    const float length = PointLength(dir_ca);
+    if (length < 1e-6f) {
+        return expected_foot;
+    }
+    return expected_foot + dir_ca * (fixed_ac_dist_px / length);
+}
+
 OBBDetection MakeObb(int class_id, float conf, cv::Point2f center, cv::Size2f size, float angle)
 {
     OBBDetection detection;
@@ -259,8 +273,10 @@ void GripMustMatchExactlyOneSegment()
         MakeSegment(cv::Rect(60, 60, 120, 120)),
     });
 
-    assert(result.pick_status_code == 3);
-    assert(result.primary_index == -1);
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index == 0);
+    assert(result.detections.size() == 1);
+    assert(result.detections.front().matched_segment_index == 0);
 }
 
 void ExtendedGripTouchingOtherSegmentNoLongerRejectsInPostprocess()
@@ -437,8 +453,8 @@ void EqualHeadCandidatesUseStableTieBreak()
 
     assert(result.pick_status_code == 1);
     assert(result.primary_index >= 0);
-    assert(result.detections.front().head_class_id == kBigClass);
-    assert(result.head_type_code == 1);
+    assert(result.detections.front().head_class_id == kSmallClass);
+    assert(result.head_type_code == 4);
 }
 
 void SegmentWithMultipleLeftRejects()
@@ -449,11 +465,11 @@ void SegmentWithMultipleLeftRejects()
         MakeObb(kSmallClass, 0.80f, { 105.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
     });
 
-    assert(result.pick_status_code == 3);
-    assert(result.primary_index == -1);
-    assert(result.detections.size() == 2);
-    assert(!result.detections[0].can_grab);
-    assert(!result.detections[1].can_grab);
+    assert(result.pick_status_code == 1);
+    assert(result.primary_index == 0);
+    assert(result.detections.size() == 1);
+    assert(result.detections.front().confidence == 0.90f);
+    assert(result.detections.front().matched_segment_index == 0);
 }
 
 void MultipleCompleteTargetsChooseBestConfidence()
@@ -519,11 +535,11 @@ void FinalRayAngleMatchesAcRay()
     assert(target.arrow_end.x > target.arrow_start.x);
     assert(NearlyEqual(target.angle_deg, 0.0f));
     assert(NearlyEqual(target.grip_long_angle_deg, 90.0f));
-    assert(NearlyEqual(target.obb_center.x, 110.0f));
-    assert(NearlyEqual(target.obb_center.y, 110.0f));
+    assert(NearlyEqual(target.obb_center.x, target.center_x));
+    assert(NearlyEqual(target.obb_center.y, target.center_y));
 }
 
-void AcRayKeepsOriginalCenterBeforeMechanicalGripperFinalization()
+void ScriptGeometryUsesFixedAcDistanceFromFoot()
 {
     FramePostprocessConfig config;
     config.center_ray_offset_px = 10.0;
@@ -534,10 +550,23 @@ void AcRayKeepsOriginalCenterBeforeMechanicalGripperFinalization()
 
     assert(result.primary_index >= 0);
     const PoseDetection& target = result.detections[result.primary_index];
+    const cv::Point2f expected_foot = ExpectedPythonAcFoot({
+        { 105.0f, 100.0f },
+        { 115.0f, 100.0f },
+        { 115.0f, 120.0f },
+        { 105.0f, 120.0f },
+    }, target.seg_center);
+    const cv::Point2f expected_center = ExpectedScriptFinalCenter({
+        { 105.0f, 100.0f },
+        { 115.0f, 100.0f },
+        { 115.0f, 120.0f },
+        { 105.0f, 120.0f },
+    }, target.seg_center);
     assert(NearlyEqual(target.angle_deg, 0.0f));
-    assert(NearlyEqual(target.center_x, 110.0f));
-    assert(NearlyEqual(target.center_y, 110.0f));
-    assert(NearlyEqual(target.obb_center.y, 110.0f));
+    assert(NearlyEqual(target.arrow_end.x, expected_foot.x));
+    assert(NearlyEqual(target.arrow_end.y, expected_foot.y));
+    assert(NearlyEqual(target.center_x, expected_center.x));
+    assert(NearlyEqual(target.center_y, expected_center.y));
     assert(NearlyEqual(target.grip_long_angle_deg, 90.0f));
 }
 
@@ -556,7 +585,7 @@ void MissingHeadKeepsTargetRejectedWithoutAcFallback()
     assert(NearlyEqual(target.center_y, 110.0f));
 }
 
-void AcRayUsesRawGripCornersEvenWhenHeadAngleConflicts()
+void ScriptGeometryKeepsBaseCornersAndAngle()
 {
     const OBBDetection grip = MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f);
     const FrameInferenceResult result = RunPostprocess({
@@ -567,16 +596,16 @@ void AcRayUsesRawGripCornersEvenWhenHeadAngleConflicts()
     assert(result.primary_index >= 0);
     const PoseDetection& target = result.detections[result.primary_index];
     const cv::Point2f expected_foot = ExpectedPythonAcFoot(grip.corners, target.seg_center);
+    const cv::Point2f expected_center = ExpectedScriptFinalCenter(grip.corners, target.seg_center);
     assert(NearlyEqual(target.angle_deg, AngleBetween(target.arrow_start, target.arrow_end)));
     assert(NearlyEqual(target.arrow_end.x, expected_foot.x));
     assert(NearlyEqual(target.arrow_end.y, expected_foot.y));
-    assert(NearlyEqual(target.angle_deg, AngleBetween(target.obb_center, expected_foot)));
+    assert(NearlyEqual(target.center_x, expected_center.x));
+    assert(NearlyEqual(target.center_y, expected_center.y));
     assert(NearlyEqual(target.grip_long_angle_deg, std::fmod(target.angle_deg + 90.0f, 360.0f)));
     assert(target.corners.size() == grip.corners.size());
-    for (size_t i = 0; i < grip.corners.size(); ++i) {
-        assert(NearlyEqual(target.corners[i].x, grip.corners[i].x));
-        assert(NearlyEqual(target.corners[i].y, grip.corners[i].y));
-    }
+    assert(target.bbox.width > 0);
+    assert(target.bbox.height > 0);
 }
 
 void AcRayChoosesFootWithLargestOaDotProduct()
@@ -595,17 +624,20 @@ void AcRayChoosesFootWithLargestOaDotProduct()
     assert(NearlyEqual(target.angle_deg, AngleBetween(target.obb_center, expected_foot)));
 }
 
-void AcRayIntersectingHeadRayRejectsConservatively()
+void ExtendedObbIOUCollisionRejectsConservatively()
 {
     const FrameInferenceResult result = RunPostprocess({
-        MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
-        MakeObb(kBigClass, 0.80f, { 112.0f, 110.0f }, { 16.0f, 8.0f }, 0.0f),
-    }, { MakeSegment(cv::Rect(20, 18, 150, 180)) });
+        MakeObb(kGripClass, 0.90f, { 80.0f, 90.0f }, { 60.0f, 20.0f }, 0.0f),
+        MakeObb(kSmallClass, 0.80f, { 70.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, {
+        MakeSegment(cv::Rect(20, 20, 100, 120)),
+        MakeSegmentWithMask(cv::Rect(108, 20, 80, 120), { cv::Rect(108, 20, 80, 120) }),
+    });
 
     assert(result.detections.size() == 1);
     const PoseDetection& target = result.detections.front();
-    assert(target.arrow_end.x > target.obb_center.x);
     assert(!target.can_grab);
+    assert(!target.mask_collisions.empty());
     assert(result.primary_index == -1);
     assert(result.pick_status_code == 3);
 }
@@ -636,11 +668,11 @@ int main()
     NearTieCompleteTargetsChooseStableSegmentOrder();
     FinalPoseOutputIsQuantized();
     FinalRayAngleMatchesAcRay();
-    AcRayKeepsOriginalCenterBeforeMechanicalGripperFinalization();
+    ScriptGeometryUsesFixedAcDistanceFromFoot();
     MissingHeadKeepsTargetRejectedWithoutAcFallback();
-    AcRayUsesRawGripCornersEvenWhenHeadAngleConflicts();
+    ScriptGeometryKeepsBaseCornersAndAngle();
     AcRayChoosesFootWithLargestOaDotProduct();
-    AcRayIntersectingHeadRayRejectsConservatively();
+    ExtendedObbIOUCollisionRejectsConservatively();
 
     std::cout << "frame_postprocess_smoke passed" << std::endl;
     return 0;

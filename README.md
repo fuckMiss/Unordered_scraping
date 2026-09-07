@@ -36,7 +36,7 @@ Outputs:
 9. Machine ROI, axis limits, and angle rules reject unsafe or invalid targets.
 10. In PLC grasp mode, after the PLC capture trigger is received, the program writes the result registers and clears the trigger.
 
-## Current 2.1.4 Notes
+## Current 2.1.5 Notes
 
 - The main UI uses an approximately 75% image area and 25% right-side control panel.
 - The right-side panel uses a compact two-column layout and scales with the window.
@@ -210,14 +210,14 @@ cmake --build build --config Release --target tankeye-openvino_qt_app
 Create a self-contained runtime package:
 
 ```powershell
-.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.4 -Force
+.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.5 -Force
 ```
 
 Output:
 
 ```text
-dist/TankEye-Iris_2.1.4
-dist/TankEye-Iris_2.1.4.zip
+dist/TankEye-Iris_2.1.5
+dist/TankEye-Iris_2.1.5.zip
 ```
 
 The runtime package includes the main executable, models, config, calibration output, sample image, runtime DLLs, launcher scripts, desktop shortcut helper, and usage guide. It should not include source code, CMake projects, Python scripts, tests, `.lib`, `.pdb`, `.pt`, or other development artifacts.

@@ -18,6 +18,7 @@
 #include <QFileInfo>
 #include <QFontMetrics>
 #include <QFrame>
+#include <QBoxLayout>
 #include <QGridLayout>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -112,6 +113,7 @@ public:
             lineEdit()->setReadOnly(true);
             lineEdit()->setAlignment(Qt::AlignCenter);
             lineEdit()->setFrame(false);
+            lineEdit()->setAttribute(Qt::WA_TransparentForMouseEvents, true);
         }
     }
 
@@ -126,6 +128,17 @@ protected:
         QComboBox::mousePressEvent(event);
     }
 };
+
+void ClearLayout(QLayout* layout)
+{
+    if (layout == nullptr) {
+        return;
+    }
+    while (QLayoutItem* item = layout->takeAt(0)) {
+        delete item;
+    }
+}
+
 constexpr int kSidebarDefaultWidth = 136;
 constexpr int kSidebarMaxWidth = 10000;
 constexpr double kSidebarWidthRatio = 0.25;
@@ -639,6 +652,8 @@ void GraspMainWindow::toggleImageSaveSession()
     image_save_active_ = !image_save_active_;
     if (image_save_active_) {
         image_save_overlay_mode_ = display_overlay_mode_;
+        image_save_started_at_ = std::chrono::steady_clock::now();
+        image_save_skip_next_frame_ = true;
         updateStatusMessage(QStringLiteral("PLC图片保存已开始：%1模式。")
                                 .arg(DisplayOverlayModeText(image_save_overlay_mode_)),
                             5000);
@@ -1078,22 +1093,21 @@ void GraspMainWindow::buildSidePanel(QSplitter* splitter)
 void GraspMainWindow::buildResultSection(QVBoxLayout* side_layout)
 {
     const PlcRegisterMap registers = robot_controller_.plcRegisterMap();
-    auto* result_title_row = new QHBoxLayout();
-    result_title_row->setContentsMargins(0, 0, 0, 0);
-    result_title_row->setSpacing(SC(6));
-    result_title_row->addWidget(CreateSectionTitle(QStringLiteral("当前目标参数")), 1);
-    auto* project_profile_label = new QLabel(QStringLiteral("方案选择："), this);
-    project_profile_label->setObjectName("operatorProjectProfileLabel");
-    project_profile_label->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-    result_title_row->addWidget(project_profile_label, 0, Qt::AlignVCenter);
+    result_section_title_ = CreateSectionTitle(QStringLiteral("当前目标参数"));
+    result_title_row_ = new QHBoxLayout();
+    result_title_row_->setContentsMargins(0, 0, 0, 0);
+    result_title_row_->setSpacing(SC(6));
+    result_title_row_->addWidget(result_section_title_, 1);
+    project_profile_label_ = new QLabel(QStringLiteral("方案选择："), this);
+    project_profile_label_->setObjectName("operatorProjectProfileLabel");
+    project_profile_label_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     project_profile_selector_ = new ProjectProfileSelector(this);
     project_profile_selector_->setObjectName("operatorProjectProfileSelector");
     project_profile_selector_->setMinimumWidth(SC(96));
     project_profile_selector_->setMinimumHeight(SC(30));
     project_profile_selector_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     project_profile_selector_->setToolTip(QStringLiteral("选择物料方案；参数只能由管理员在工程设置中维护。"));
-    result_title_row->addWidget(project_profile_selector_, 0, Qt::AlignVCenter);
-    side_layout->addLayout(result_title_row);
+    side_layout->addLayout(result_title_row_);
 
     auto* overview_card = new QFrame(this);
     overview_card->setObjectName("heroInfoCard");
@@ -1136,18 +1150,29 @@ void GraspMainWindow::buildResultSection(QVBoxLayout* side_layout)
     overview_layout->addLayout(metrics_layout);
 
     side_layout->addWidget(overview_card);
+
+    project_profile_card_ = new QFrame(this);
+    project_profile_card_->setObjectName("controlGroupCard");
+    project_profile_card_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    project_profile_card_layout_ = new QVBoxLayout(project_profile_card_);
+    project_profile_card_layout_->setContentsMargins(SCM(6, 6, 6, 6));
+    project_profile_card_layout_->setSpacing(SC(6));
+    project_profile_section_title_ = CreateSectionTitle(QStringLiteral("方案切换"));
+    project_profile_card_layout_->addWidget(project_profile_section_title_);
+    side_layout->addWidget(project_profile_card_);
+    refreshProjectProfilePlacement();
 }
 
 void GraspMainWindow::buildStatusSection(QVBoxLayout* side_layout)
 {
     side_layout->addWidget(CreateSectionTitle(QStringLiteral("系统状态")));
 
-    auto* status_card = new QFrame(this);
-    status_card->setObjectName("infoCard");
-    status_card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    auto* status_layout = new QVBoxLayout(status_card);
-    status_layout->setContentsMargins(SCM(6, 6, 6, 6));
-    status_layout->setSpacing(SC(4));
+    status_card_ = new QFrame(this);
+    status_card_->setObjectName("infoCard");
+    status_card_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    status_layout_ = new QBoxLayout(QBoxLayout::TopToBottom, status_card_);
+    status_layout_->setContentsMargins(SCM(6, 6, 6, 6));
+    status_layout_->setSpacing(SC(4));
 
     camera_status_dot_ = new QLabel(this);
     camera_status_value_ = new QLabel(this);
@@ -1155,26 +1180,39 @@ void GraspMainWindow::buildStatusSection(QVBoxLayout* side_layout)
     obb_status_value_ = new QLabel(this);
     seg_status_dot_ = new QLabel(this);
     seg_status_value_ = new QLabel(this);
+    status_divider_ = new QFrame(this);
+    status_divider_->setFrameShape(QFrame::VLine);
+    status_divider_->setFrameShadow(QFrame::Plain);
+    status_divider_->setObjectName("statusDivider");
+    status_divider_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
-    const auto add_status_item = [this, status_layout](const QString& name, QLabel* dot, QLabel* value) {
+    const auto add_status_item = [this](const QString& name, QLabel* dot, QLabel* value) {
         auto* container = new QFrame(this);
-        container->setObjectName("statusStackItem");
+        container->setFrameShape(QFrame::NoFrame);
+        container->setFrameShadow(QFrame::Plain);
+        container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         auto* layout = new QHBoxLayout(container);
         layout->setContentsMargins(SCM(5, 3, 5, 3));
         layout->setSpacing(SC(4));
         auto* label = new QLabel(name, container);
         label->setObjectName("statusStackName");
         label->setMinimumWidth(0);
+        label->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+        status_name_labels_.push_back(label);
         layout->addWidget(label);
         layout->addWidget(dot);
-        value->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        layout->addWidget(value, 1);
-        status_layout->addWidget(container);
+        status_dot_labels_.push_back(dot);
+        value->setObjectName("statusStackValue");
+        status_value_labels_.push_back(value);
+        value->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+        status_item_frames_.push_back(container);
+        status_layout_->addWidget(container);
     };
 
     add_status_item(QStringLiteral("相机"), camera_status_dot_, camera_status_value_);
     add_status_item(QStringLiteral("模型"), obb_status_dot_, obb_status_value_);
-    side_layout->addWidget(status_card);
+    refreshStatusSectionMode();
+    side_layout->addWidget(status_card_);
 }
 
 void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
@@ -1325,6 +1363,129 @@ void GraspMainWindow::buildTargetListSection(QVBoxLayout* side_layout)
     side_layout->addWidget(target_list_scroll_area_, 1);
 }
 
+void GraspMainWindow::refreshProjectProfilePlacement()
+{
+    if (!result_title_row_ || !project_profile_card_ || !project_profile_card_layout_ ||
+        !project_profile_selector_ || !project_profile_label_ || !result_section_title_ ||
+        !project_profile_section_title_) {
+        return;
+    }
+
+    ClearLayout(result_title_row_);
+    ClearLayout(project_profile_card_layout_);
+    result_title_row_->addWidget(result_section_title_, 1);
+
+    if (admin_mode_) {
+        project_profile_card_->setVisible(false);
+        project_profile_label_->setVisible(true);
+        result_title_row_->addWidget(project_profile_label_, 0, Qt::AlignVCenter);
+        result_title_row_->addWidget(project_profile_selector_, 0, Qt::AlignVCenter);
+    } else {
+        project_profile_label_->setVisible(false);
+        project_profile_card_->setVisible(true);
+        project_profile_card_layout_->addWidget(project_profile_section_title_);
+        project_profile_card_layout_->addWidget(project_profile_selector_);
+    }
+}
+
+void GraspMainWindow::refreshStatusSectionMode()
+{
+    if (!status_card_ || !status_layout_) {
+        return;
+    }
+
+    while (QLayoutItem* item = status_layout_->takeAt(0)) {
+        delete item;
+    }
+
+    const bool compact_mode = admin_mode_;
+    status_layout_->setDirection(compact_mode ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+    status_layout_->setSpacing(compact_mode ? SC(10) : SC(0));
+    status_layout_->setContentsMargins(compact_mode ? SCM(6, 6, 6, 6) : SCM(12, 12, 12, 12));
+    status_card_->setMaximumHeight(compact_mode ? QWIDGETSIZE_MAX : SC(168));
+    status_card_->setMinimumHeight(compact_mode ? 0 : SC(168));
+    if (status_divider_ != nullptr) {
+        status_divider_->setVisible(!compact_mode);
+        status_divider_->setFixedSize(SC(1), SC(76));
+        status_divider_->setStyleSheet(QStringLiteral("background: #4b6478;"));
+    }
+
+    for (int i = 0; i < status_item_frames_.size(); ++i) {
+        QFrame* container = status_item_frames_.at(i);
+        if (container != nullptr) {
+            container->setObjectName(compact_mode ? QStringLiteral("statusStackItem") : QString());
+            container->setSizePolicy(compact_mode ? QSizePolicy::Minimum : QSizePolicy::Expanding,
+                                     QSizePolicy::Preferred);
+            container->setMinimumHeight(compact_mode ? SC(28) : SC(72));
+            container->setMaximumHeight(compact_mode ? QWIDGETSIZE_MAX : SC(72));
+            if (container->style() != nullptr) {
+                container->style()->unpolish(container);
+                container->style()->polish(container);
+            }
+            if (QBoxLayout* item_layout = qobject_cast<QBoxLayout*>(container->layout())) {
+                ClearLayout(item_layout);
+                item_layout->setContentsMargins(compact_mode ? SCM(5, 3, 5, 3) : SCM(0, 0, 0, 0));
+                item_layout->setSpacing(compact_mode ? SC(4) : SC(6));
+                item_layout->setAlignment(compact_mode ? Qt::AlignLeft : Qt::AlignCenter);
+
+                QLabel* name_label = i < status_name_labels_.size() ? status_name_labels_.at(i) : nullptr;
+                QLabel* dot_label = i < status_dot_labels_.size() ? status_dot_labels_.at(i) : nullptr;
+                QLabel* value_label = i < status_value_labels_.size() ? status_value_labels_.at(i) : nullptr;
+                if (name_label != nullptr) {
+                    item_layout->addWidget(name_label);
+                }
+                if (dot_label != nullptr) {
+                    item_layout->addWidget(dot_label);
+                }
+                if (compact_mode && value_label != nullptr) {
+                    item_layout->addWidget(value_label, 1);
+                }
+            }
+        }
+    }
+    if (compact_mode) {
+        for (QFrame* container : status_item_frames_) {
+            if (container != nullptr) {
+                status_layout_->addWidget(container);
+            }
+        }
+    } else if (status_item_frames_.size() >= 2) {
+        status_layout_->addWidget(status_item_frames_.at(0), 1);
+        if (status_divider_ != nullptr) {
+            status_layout_->addWidget(status_divider_, 0, Qt::AlignVCenter);
+        }
+        status_layout_->addWidget(status_item_frames_.at(1), 1);
+    }
+
+    const int dot_size = compact_mode ? SC(16) : S(34);
+    const int dot_radius = dot_size / 2;
+    const int name_font_size = compact_mode ? SC(15) : S(34);
+    const int value_font_size = compact_mode ? SC(15) : SC(20);
+    for (QLabel* label : status_dot_labels_) {
+        if (label != nullptr) {
+            label->setFixedSize(dot_size, dot_size);
+            label->setStyleSheet(QStringLiteral("border-radius: %1px; background:%2;")
+                                     .arg(dot_radius)
+                                     .arg(label == camera_status_dot_ || label == obb_status_dot_
+                                              ? QStringLiteral("#86d779")
+                                              : QStringLiteral("#d46a6a")));
+        }
+    }
+    for (QLabel* label : status_name_labels_) {
+        if (label != nullptr) {
+            label->setStyleSheet(QStringLiteral("color: #dbe7f1; font-size: %1px; font-weight: 600;")
+                                     .arg(name_font_size));
+        }
+    }
+    for (QLabel* label : status_value_labels_) {
+        if (label != nullptr) {
+            label->setVisible(compact_mode);
+            label->setStyleSheet(QStringLiteral("color: #f4f8fc; font-size: %1px; font-weight: 700;")
+                                     .arg(value_font_size));
+        }
+    }
+}
+
 void GraspMainWindow::applyStyles()
 {
     const QString style = QString(
@@ -1365,6 +1526,7 @@ void GraspMainWindow::applyStyles()
         "#statusPill { background: rgba(255,255,255,0.03); border: 1px solid #2d4458; border-radius: %32px; }"
         "#statusStackItem { background: rgba(255,255,255,0.025); border: 1px solid #30495f; border-radius: %33px; }"
         "#statusStackName { color: #dbe7f1; font-size: %34px; font-weight: 600; }"
+        "#statusStackValue { color: #f4f8fc; }"
         "#controlGroupCard { background: rgba(255,255,255,0.035); border: 1px solid #30495f; border-radius: %35px; }"
         "#pathHintLabel { color: #9eb2c3; background: rgba(255,255,255,0.025); border: 1px solid #2b4256; border-radius: %36px; padding: %37px %38px; font-size: %39px; }"
         "#targetListScrollArea, #targetListScrollContent { background: transparent; border: none; }"
@@ -1386,7 +1548,7 @@ void GraspMainWindow::applyStyles()
         "QComboBox#displayModeSelector:hover { background: rgba(255,255,255,0.12); }"
         "QComboBox#displayModeSelector::drop-down { width: 0px; border: none; }"
         "QComboBox#displayModeSelector::down-arrow { width: 0px; height: 0px; image: none; }"
-        "QComboBox#displayModeSelector QLineEdit { background: transparent; border: none; padding: 0px; color: #ecf4fa; }"
+        "QComboBox#displayModeSelector QLineEdit { background: transparent; border: none; padding: 0px; color: #ecf4fa; selection-background-color: transparent; selection-color: #ecf4fa; }"
         "QComboBox#displayModeSelector QAbstractItemView { background: #182735; color: #f4f8fc; border: 1px solid #4e718a; selection-background-color: #236c9f; selection-color: #ffffff; }"
         "QToolButton { color: #d6e6f3; background: rgba(255,255,255,0.03); border: 1px solid #2d4458; border-radius: %46px; padding: %47px %48px; text-align: left; }"
         "QToolButton:checked { background: rgba(34,115,178,0.18); border-color: #4b8fc5; }"
@@ -1640,8 +1802,11 @@ void GraspMainWindow::refreshSidebarCompactMetrics()
                                            width_basis / static_cast<double>(S(kSidebarCompactBaseWidth)),
                                            1.0);
     if (project_profile_selector_) {
-        project_profile_selector_->setMinimumWidth(SC(96));
-        project_profile_selector_->setMinimumHeight(SC(30));
+        const int selector_min_width = admin_mode_ ? SC(96) : SC(120);
+        const int selector_min_height = admin_mode_ ? SC(30) : SC(38);
+        const int selector_font_size = admin_mode_ ? SC(14) : SC(16);
+        project_profile_selector_->setMinimumWidth(selector_min_width);
+        project_profile_selector_->setMinimumHeight(selector_min_height);
         project_profile_selector_->setStyleSheet(QString(
             "QComboBox {"
             " background: rgba(8,16,25,0.72);"
@@ -1674,9 +1839,9 @@ void GraspMainWindow::refreshSidebarCompactMetrics()
             "}")
             .arg(SC(8))
             .arg(SC(8))
-            .arg(SC(14))
-            .arg(SC(30))
-            .arg(SC(28))
+            .arg(selector_font_size)
+            .arg(selector_min_height)
+            .arg(admin_mode_ ? SC(28) : SC(30))
             .arg(SC(12))
             .arg(SC(4)));
     }

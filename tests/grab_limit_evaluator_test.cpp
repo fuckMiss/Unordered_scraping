@@ -116,6 +116,9 @@ FrameInferenceResult MakeMechanicalGripperCollisionResult()
     target.center_y = 50.0f;
     target.obb_center = { 50.0f, 50.0f };
     target.seg_center = { 0.0f, 50.0f };
+    target.arrow_start = { 50.0f, 50.0f };
+    target.arrow_end = { 60.0f, 50.0f };
+    target.angle_deg = 0.0f;
     target.grip_long_angle_deg = 90.0f;
     result.detections.push_back(target);
     result.primary_index = 0;
@@ -302,7 +305,7 @@ void MechanicalGripperInvalidCoordinateRejectsConservatively()
     assert(result.pick_status_code == 3);
 }
 
-void MechanicalGripperFinalizesPoseFromRealFrameBoundary()
+void MechanicalGripperPreservesAcPoseAndOffsetsCenter()
 {
     FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
     result.segments[1].mask.setTo(cv::Scalar(0));
@@ -330,6 +333,35 @@ void MechanicalGripperFinalizesPoseFromRealFrameBoundary()
     assert(NearlyEqual(corners[1].x, 60.0f));
     assert(NearlyEqual(corners[0].y, 30.0f));
     assert(NearlyEqual(corners[1].y, 70.0f));
+    assert(result.primary_index == 0);
+    assert(result.pick_status_code == 1);
+}
+
+void MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary()
+{
+    FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+    result.segments[1].mask.setTo(cv::Scalar(0));
+    PoseDetection& target = result.detections.front();
+    target.arrow_start = { 50.0f, 50.0f };
+    target.arrow_end = { 50.0f, 60.0f };
+    target.angle_deg = 90.0f;
+    target.grip_long_angle_deg = 90.0f;
+    const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
+
+    ApplyMechanicalGripperCollisionFilter(result,
+                                          IdentityCoordinateState(),
+                                          config,
+                                          MakeImageProtectionLimits(),
+                                          AxisMappingMode::FrontBackMachineX);
+
+    assert(result.detections.front().can_grab);
+    assert(NearlyEqual(result.detections.front().arrow_start.x, 50.0f));
+    assert(NearlyEqual(result.detections.front().arrow_start.y, 50.0f));
+    assert(NearlyEqual(result.detections.front().arrow_end.x, 50.0f));
+    assert(NearlyEqual(result.detections.front().arrow_end.y, 60.0f));
+    assert(NearlyEqual(result.detections.front().angle_deg, 90.0f));
+    assert(NearlyEqual(result.detections.front().center_x, 50.0f));
+    assert(NearlyEqual(result.detections.front().center_y, 60.0f));
     assert(result.primary_index == 0);
     assert(result.pick_status_code == 1);
 }
@@ -487,7 +519,8 @@ int main()
     MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf();
     MechanicalGripperInvalidSizeRejectsConservatively();
     MechanicalGripperInvalidCoordinateRejectsConservatively();
-    MechanicalGripperFinalizesPoseFromRealFrameBoundary();
+    MechanicalGripperPreservesAcPoseAndOffsetsCenter();
+    MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary();
     MechanicalGripperInsideProtectionPolygonIsAccepted();
     MechanicalGripperCornerOutsideProtectionPolygonIsRejected();
     MechanicalGripperTouchingProtectionBoundaryIsRejected();

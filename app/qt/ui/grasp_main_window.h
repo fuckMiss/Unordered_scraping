@@ -24,6 +24,7 @@
 
 class QFrame;
 class QDialog;
+class QBoxLayout;
 class QLabel;
 class QComboBox;
 class QPushButton;
@@ -110,6 +111,8 @@ private:
     void buildActionSection(QVBoxLayout* side_layout);
     void buildFunctionSection(QVBoxLayout* side_layout);
     void buildTargetListSection(QVBoxLayout* side_layout);
+    void refreshProjectProfilePlacement();
+    void refreshStatusSectionMode();
     void refreshProjectProfileSelector();
     void handleOperatorProjectProfileSelection(const QString& profile_name);
     void applyStyles();
@@ -324,12 +327,25 @@ private:
     QVBoxLayout* target_list_content_layout_ = nullptr;
     QLabel* target_empty_label_ = nullptr;
     QList<TargetCard> target_cards_;
+    QLabel* result_section_title_ = nullptr;
+    QHBoxLayout* result_title_row_ = nullptr;
+    QFrame* project_profile_card_ = nullptr;
+    QVBoxLayout* project_profile_card_layout_ = nullptr;
+    QLabel* project_profile_section_title_ = nullptr;
+    QLabel* project_profile_label_ = nullptr;
+    QFrame* status_card_ = nullptr;
+    QFrame* status_divider_ = nullptr;
+    QBoxLayout* status_layout_ = nullptr;
+    QList<QFrame*> status_item_frames_;
     QLabel* camera_status_dot_ = nullptr;
     QLabel* camera_status_value_ = nullptr;
     QLabel* obb_status_dot_ = nullptr;
     QLabel* obb_status_value_ = nullptr;
     QLabel* seg_status_dot_ = nullptr;
     QLabel* seg_status_value_ = nullptr;
+    QList<QLabel*> status_name_labels_;
+    QList<QLabel*> status_value_labels_;
+    QList<QLabel*> status_dot_labels_;
     QLabel* image_x_value_label_ = nullptr;
     QLabel* image_y_value_label_ = nullptr;
     QLabel* machine_x_value_label_ = nullptr;
@@ -385,6 +401,8 @@ private:
     CoordinateTransformState coordinate_transform_state_;
     DisplayOverlayMode display_overlay_mode_ = DisplayOverlayMode::NormalHidden;
     bool image_save_active_ = false;
+    std::chrono::steady_clock::time_point image_save_started_at_;
+    bool image_save_skip_next_frame_ = false;
     DisplayOverlayMode image_save_overlay_mode_ = DisplayOverlayMode::NormalHidden;
     PlcRuntimeState plc_runtime_state_;
     bool plc_test_result_dialog_pending_ = false;

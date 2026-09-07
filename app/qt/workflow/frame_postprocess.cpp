@@ -34,45 +34,12 @@ struct SegmentMaskAnalysis
     vector<Point2f> min_rect_corners;
 };
 
-struct AcRayGeometry
-{
-    bool valid = false;
-    string invalid_reason;
-    Point2f segment_center;
-    Point2f grip_center;
-    Point2f head_center;
-    Point2f arrow_start;
-    Point2f arrow_end;
-    vector<Point2f> aligned_corners;
-    float ac_dot = -numeric_limits<float>::infinity();
-};
-
 float QuantizeStable(float value, float step)
 {
     if (!isfinite(value) || step <= 0.0f) {
         return value;
     }
     return round(value / step) * step;
-}
-
-bool ObbStableLess(const OBBDetection& left, const OBBDetection& right)
-{
-    if (left.class_id != right.class_id) {
-        return left.class_id < right.class_id;
-    }
-    if (fabs(left.rotated_rect.center.y - right.rotated_rect.center.y) > kStableTieEpsilon) {
-        return left.rotated_rect.center.y < right.rotated_rect.center.y;
-    }
-    if (fabs(left.rotated_rect.center.x - right.rotated_rect.center.x) > kStableTieEpsilon) {
-        return left.rotated_rect.center.x < right.rotated_rect.center.x;
-    }
-    if (fabs(left.rotated_rect.size.width - right.rotated_rect.size.width) > kStableTieEpsilon) {
-        return left.rotated_rect.size.width > right.rotated_rect.size.width;
-    }
-    if (fabs(left.rotated_rect.size.height - right.rotated_rect.size.height) > kStableTieEpsilon) {
-        return left.rotated_rect.size.height > right.rotated_rect.size.height;
-    }
-    return left.rotated_rect.angle < right.rotated_rect.angle;
 }
 
 bool PoseStableLess(const PoseDetection& left, const PoseDetection& right)
@@ -192,21 +159,6 @@ bool MaskContainsPoint(const Mat& mask, const Point2f& point)
     return mask.at<uchar>(y, x) > 0;
 }
 
-float ComputeObbRayAngle(const Point2f& center, const Point2f& keep_point)
-{
-    const Point2f ray = keep_point - center;
-    float ray_angle_deg = std::atan2(ray.y, ray.x) * 180.0f / static_cast<float>(CV_PI);
-    if (ray_angle_deg < 0.0f) {
-        ray_angle_deg += 360.0f;
-    }
-    return ray_angle_deg;
-}
-
-float ComputeFinalRayAngle(const Point2f& obb_center, const Point2f& keep_point)
-{
-    return ComputeObbRayAngle(obb_center, keep_point);
-}
-
 float NormalizeAngleDeg(float angle_deg)
 {
     if (!isfinite(angle_deg)) {
@@ -236,20 +188,6 @@ float AngleBetweenVectors(const Point2f& first, const Point2f& second)
     return std::acos(std::max(-1.0f, std::min(1.0f, dot)));
 }
 
-Point2f OffsetPointAlongRay(const Point2f& ray_start,
-                            const Point2f& ray_end,
-                            double offset_px)
-{
-    const Point2f ray = ray_end - ray_start;
-    const float length = std::hypot(ray.x, ray.y);
-    if (length < 1e-6f || std::fabs(offset_px) < 1e-6) {
-        return ray_start;
-    }
-
-    const float scale = static_cast<float>(offset_px) / length;
-    return ray_start + Point2f(ray.x * scale, ray.y * scale);
-}
-
 Point2f AveragePoint(const vector<Point2f>& points)
 {
     Point2f sum(0.0f, 0.0f);
@@ -272,52 +210,6 @@ Point2f ClosestPointOnSegment(const Point2f& point, const Point2f& start, const 
 
     const float t = std::max(0.0f, std::min(1.0f, (point - start).dot(edge) / length_squared));
     return start + edge * t;
-}
-
-float CrossProduct(const Point2f& first, const Point2f& second)
-{
-    return first.x * second.y - first.y * second.x;
-}
-
-bool PointOnSegment(const Point2f& point, const Point2f& start, const Point2f& end)
-{
-    constexpr float kEpsilon = 1e-4f;
-    return point.x >= std::min(start.x, end.x) - kEpsilon &&
-           point.x <= std::max(start.x, end.x) + kEpsilon &&
-           point.y >= std::min(start.y, end.y) - kEpsilon &&
-           point.y <= std::max(start.y, end.y) + kEpsilon &&
-           std::fabs(CrossProduct(point - start, end - start)) <= kEpsilon;
-}
-
-bool LineSegmentsIntersect(const Point2f& first_start,
-                           const Point2f& first_end,
-                           const Point2f& second_start,
-                           const Point2f& second_end)
-{
-    constexpr float kEpsilon = 1e-4f;
-    const Point2f first_direction = first_end - first_start;
-    const Point2f second_direction = second_end - second_start;
-    if (std::hypot(first_direction.x, first_direction.y) < kEpsilon ||
-        std::hypot(second_direction.x, second_direction.y) < kEpsilon) {
-        return false;
-    }
-
-    const float first_cross_second_start = CrossProduct(first_direction, second_start - first_start);
-    const float first_cross_second_end = CrossProduct(first_direction, second_end - first_start);
-    const float second_cross_first_start = CrossProduct(second_direction, first_start - second_start);
-    const float second_cross_first_end = CrossProduct(second_direction, first_end - second_start);
-
-    if (((first_cross_second_start > kEpsilon && first_cross_second_end < -kEpsilon) ||
-         (first_cross_second_start < -kEpsilon && first_cross_second_end > kEpsilon)) &&
-        ((second_cross_first_start > kEpsilon && second_cross_first_end < -kEpsilon) ||
-         (second_cross_first_start < -kEpsilon && second_cross_first_end > kEpsilon))) {
-        return true;
-    }
-
-    return PointOnSegment(second_start, first_start, first_end) ||
-           PointOnSegment(second_end, first_start, first_end) ||
-           PointOnSegment(first_start, second_start, second_end) ||
-           PointOnSegment(first_end, second_start, second_end);
 }
 
 int ResolveHeadTypeCode(int head_class_id, int side)
@@ -349,76 +241,6 @@ int ResolveHeadSideFromGripLocalAc(const Point2f& grip_center,
 bool IsFinitePoint(const Point2f& point)
 {
     return std::isfinite(point.x) && std::isfinite(point.y);
-}
-
-AcRayGeometry BuildAcRayGeometry(const OBBDetection& grip_detection,
-                                 const OBBDetection* head_detection,
-                                 const SegRegion& segment)
-{
-    AcRayGeometry fallback;
-    fallback.segment_center = segment.center;
-    fallback.grip_center = grip_detection.rotated_rect.center;
-    fallback.head_center = head_detection != nullptr ? head_detection->rotated_rect.center
-                                                     : Point2f();
-    fallback.arrow_start = grip_detection.rotated_rect.center;
-    fallback.arrow_end = grip_detection.rotated_rect.center;
-    if (head_detection == nullptr) {
-        fallback.invalid_reason = "missing_head_candidate";
-        return fallback;
-    }
-    if (grip_detection.corners.size() != 4 || head_detection->corners.size() != 4) {
-        fallback.invalid_reason = "invalid_obb_corners";
-        return fallback;
-    }
-    if (segment.min_rect_corners.size() != 4 || !IsFinitePoint(segment.center)) {
-        fallback.invalid_reason = "invalid_segment_min_rect";
-        return fallback;
-    }
-
-    const Point2f grip_center = AveragePoint(grip_detection.corners);
-    const Point2f oa = grip_center - segment.center;
-    if (PointLength(oa) < 1e-6f) {
-        fallback.invalid_reason = "invalid_oa_geometry";
-        return fallback;
-    }
-    const Point2f oa_unit = oa * (1.0f / PointLength(oa));
-    AcRayGeometry geometry;
-    geometry.segment_center = segment.center;
-    geometry.grip_center = grip_center;
-    geometry.head_center = head_detection->rotated_rect.center;
-    geometry.arrow_start = grip_center;
-    geometry.arrow_end = grip_center;
-    geometry.aligned_corners = grip_detection.corners;
-    geometry.invalid_reason = "invalid_ac_geometry";
-
-    float best_dot = -numeric_limits<float>::infinity();
-    Point2f best_foot = grip_center;
-    for (size_t i = 0; i < grip_detection.corners.size(); ++i) {
-        const Point2f foot = ClosestPointOnSegment(grip_center,
-                                                   grip_detection.corners[i],
-                                                   grip_detection.corners[(i + 1) % grip_detection.corners.size()]);
-        const Point2f ac = foot - grip_center;
-        const float ac_length = PointLength(ac);
-        if (ac_length < 1e-6f) {
-            continue;
-        }
-
-        const float dot = oa_unit.dot(ac * (1.0f / ac_length));
-        if (dot > best_dot) {
-            best_dot = dot;
-            best_foot = foot;
-        }
-    }
-
-    if (!std::isfinite(best_dot) || PointLength(best_foot - grip_center) < 1e-6f) {
-        return geometry;
-    }
-
-    geometry.arrow_end = best_foot;
-    geometry.ac_dot = best_dot;
-    geometry.valid = true;
-    geometry.invalid_reason.clear();
-    return geometry;
 }
 
 string ResolveHeadTypeText(int head_type_code)
@@ -477,102 +299,303 @@ vector<ObbRegion> BuildRawObbRegions(const vector<OBBDetection>& obb_output,
     return regions;
 }
 
-PoseDetection BuildPoseDetection(const OBBDetection& detection,
-                                 const vector<string>& obb_class_names,
-                                 int image_width,
-                                 int image_height,
-                                 int matched_segment_index,
-                                 const string& segment_class_name,
-                                 const SegRegion& segment,
-                                 const Point2f& segment_center,
-                                 const Point2f& x_point,
-                                 const Point2f& small_point,
-                                 const Point2f& small_arrow_start,
-                                 const Point2f& small_arrow_end,
-                                 bool has_small_ray,
-                                 int small_ray_quadrant,
-                                 int head_type_code,
-                                 int head_class_id,
-                                 vector<pair<Rect, Mat>> mask_collisions,
-                                 bool can_grab,
-                                 const AcRayGeometry& ac_geometry)
+struct EdgeFootCandidate
 {
-    const auto& rect = detection.rotated_rect;
-    const Point2f original_center = rect.center;
-    const Point2f arrow_start = ac_geometry.valid ? ac_geometry.arrow_start : original_center;
-    const Point2f arrow_end = ac_geometry.valid ? ac_geometry.arrow_end : original_center;
-    const float ray_angle_deg = ComputeFinalRayAngle(arrow_start, arrow_end);
-    const float grip_long_angle_deg = ac_geometry.valid
-        ? NormalizeAngleDeg(ray_angle_deg + 90.0f)
-        : detection.rotated_rect.angle;
+    Point2f foot;
+    Point2f edge_start;
+    Point2f edge_end;
+};
 
-    PoseDetection pose;
-    pose.class_id = detection.class_id;
-    pose.class_name = GetClassName(obb_class_names, detection.class_id);
-    pose.segment_class_name = segment_class_name;
-    pose.matched_segment_index = matched_segment_index;
-    pose.confidence = detection.conf;
-    pose.center_x = QuantizeStable(original_center.x, kPoseCoordinateStepPx);
-    pose.center_y = QuantizeStable(original_center.y, kPoseCoordinateStepPx);
-    pose.angle_deg = QuantizeStable(ray_angle_deg, kPoseAngleStepDeg);
-    pose.pick_status_code = can_grab ? kPickStatusCanGrab : kPickStatusCannotGrab;
-    pose.head_type_code = can_grab ? head_type_code : 0;
-    pose.head_class_id = can_grab ? head_class_id : -1;
-    pose.head_type_text = ResolveHeadTypeText(pose.head_type_code);
-    pose.obb_center = original_center;
-    pose.seg_center = segment_center;
-    pose.x_point = x_point;
-    pose.small_point = small_point;
-    pose.has_small_point = has_small_ray;
-    pose.small_arrow_start = small_arrow_start;
-    pose.small_arrow_end = small_arrow_end;
-    pose.has_small_ray = has_small_ray;
-    pose.small_ray_quadrant = small_ray_quadrant;
-    pose.arrow_start = arrow_start;
-    pose.arrow_end = arrow_end;
-    pose.grip_long_angle_deg = QuantizeStable(grip_long_angle_deg, kPoseAngleStepDeg);
-    pose.corners = ac_geometry.valid ? ac_geometry.aligned_corners : detection.corners;
-    pose.bbox = BuildPoseBoundingRect(pose.corners, image_width, image_height);
-    pose.mask_collisions = std::move(mask_collisions);
-    pose.can_grab = can_grab;
-    return pose;
+struct ScriptGeometryResult
+{
+    bool valid = false;
+    string invalid_reason;
+    Point2f segment_center;
+    Point2f grip_center;
+    Point2f head_center;
+    Point2f arrow_start;
+    Point2f arrow_end;
+    vector<Point2f> base_corners;
+    vector<Point2f> scaled_corners;
+    vector<pair<Rect, Mat>> mask_collisions;
+    float ac_dot = -numeric_limits<float>::infinity();
+    float selected_aob_angle_deg = numeric_limits<float>::quiet_NaN();
+    float selected_aob_diff_deg = numeric_limits<float>::quiet_NaN();
+    float final_ac_deg = numeric_limits<float>::quiet_NaN();
+    float grip_long_angle_deg = numeric_limits<float>::quiet_NaN();
+    float max_seg_iou = 0.0f;
+    int head_side = 0;
+    int head_type_code = 0;
+    int head_class_id = -1;
+    bool collision_with_other_seg = false;
+};
+
+bool SegmentMaskValid(const SegRegion& segment, int image_width, int image_height)
+{
+    return !segment.mask.empty() &&
+           segment.mask.type() == CV_8U &&
+           segment.mask.cols == image_width &&
+           segment.mask.rows == image_height;
 }
 
-vector<const OBBDetection*> FindClassDetectionsInsideSegment(const vector<OBBDetection>& obb_output,
-                                                            int class_id,
-                                                            const SegRegion& segment,
-                                                            const OBBDetection* excluded_detection)
+vector<EdgeFootCandidate> GetPerpendicularFootPoints(const vector<Point2f>& obb_4pts,
+                                                     const Point2f& center_A)
 {
-    vector<const OBBDetection*> detections;
-    for (const auto& detection : obb_output) {
-        if (&detection == excluded_detection) {
-            continue;
-        }
-        if (detection.class_id != class_id) {
-            continue;
-        }
-        const Point2f center = detection.rotated_rect.center;
-        if (MaskContainsPoint(segment.mask, center)) {
-            detections.push_back(&detection);
-        }
+    vector<EdgeFootCandidate> foot_list;
+    foot_list.reserve(obb_4pts.size());
+    for (size_t i = 0; i < obb_4pts.size(); ++i) {
+        const Point2f& p_start = obb_4pts[i];
+        const Point2f& p_end = obb_4pts[(i + 1) % obb_4pts.size()];
+        const Point2f foot = ClosestPointOnSegment(center_A, p_start, p_end);
+        foot_list.push_back({ foot, p_start, p_end });
     }
-    return detections;
+    return foot_list;
 }
 
-int CountClassDetectionsInsideSegment(const vector<OBBDetection>& obb_output,
-                                      int class_id,
-                                      const SegRegion& segment)
+void ShiftEdgeSegment(const Point2f& p1,
+                      const Point2f& p2,
+                      const Point2f& shift_normal,
+                      float shift_dist,
+                      Point2f* out_p1,
+                      Point2f* out_p2)
 {
-    int count = 0;
-    for (const auto& detection : obb_output) {
-        if (detection.class_id != class_id) {
-            continue;
+    if (out_p1 != nullptr) {
+        *out_p1 = p1 + shift_normal * shift_dist;
+    }
+    if (out_p2 != nullptr) {
+        *out_p2 = p2 + shift_normal * shift_dist;
+    }
+}
+
+vector<Point2f> SampleLinePoints(const Point2f& p1, const Point2f& p2, int num_sample)
+{
+    vector<Point2f> points;
+    points.reserve(std::max(num_sample, 1));
+    if (num_sample <= 1) {
+        points.push_back(p1);
+        return points;
+    }
+    for (int i = 0; i < num_sample; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(num_sample - 1);
+        points.push_back(p1 * (1.0f - t) + p2 * t);
+    }
+    return points;
+}
+
+bool BuildCannyEdgeMap(const Mat* original_image, Mat* canny_edges)
+{
+    if (canny_edges == nullptr || original_image == nullptr || original_image->empty()) {
+        return false;
+    }
+
+    Mat gray;
+    if (original_image->channels() == 1) {
+        gray = *original_image;
+    } else if (original_image->channels() == 3) {
+        cvtColor(*original_image, gray, COLOR_BGR2GRAY);
+    } else if (original_image->channels() == 4) {
+        cvtColor(*original_image, gray, COLOR_BGRA2GRAY);
+    } else {
+        return false;
+    }
+
+    Canny(gray, *canny_edges, 40, 120);
+    return !canny_edges->empty();
+}
+
+float RayAngleDeg(const Point2f& start, const Point2f& end)
+{
+    const Point2f ray = end - start;
+    float angle = std::atan2(ray.y, ray.x) * 180.0f / static_cast<float>(CV_PI);
+    if (angle < 0.0f) {
+        angle += 360.0f;
+    }
+    return angle;
+}
+
+bool SameEdge(const Point2f& first_start,
+              const Point2f& first_end,
+              const Point2f& second_start,
+              const Point2f& second_end)
+{
+    constexpr float kEpsilon = 0.1f;
+    const auto same_point = [&](const Point2f& a, const Point2f& b) {
+        return std::fabs(a.x - b.x) <= kEpsilon && std::fabs(a.y - b.y) <= kEpsilon;
+    };
+    return (same_point(first_start, second_start) && same_point(first_end, second_end)) ||
+           (same_point(first_start, second_end) && same_point(first_end, second_start));
+}
+
+bool FindBestShiftForEdge(const Point2f& edge_p1,
+                          const Point2f& edge_p2,
+                          const Mat& canny_binary,
+                          float max_shift_px,
+                          float step,
+                          Point2f* best_p1,
+                          Point2f* best_p2,
+                          float* best_shift)
+{
+    const Point2f vec_seg = edge_p2 - edge_p1;
+    const float seg_len = PointLength(vec_seg);
+    if (seg_len < 1e-3f) {
+        if (best_p1 != nullptr) {
+            *best_p1 = edge_p1;
         }
-        if (MaskContainsPoint(segment.mask, detection.rotated_rect.center)) {
-            ++count;
+        if (best_p2 != nullptr) {
+            *best_p2 = edge_p2;
+        }
+        if (best_shift != nullptr) {
+            *best_shift = 0.0f;
+        }
+        return false;
+    }
+
+    const Point2f seg_unit = vec_seg * (1.0f / seg_len);
+    const Point2f normal_unit(-seg_unit.y, seg_unit.x);
+    int best_score = -1;
+    float best_shift_value = 0.0f;
+    Point2f candidate_best_p1 = edge_p1;
+    Point2f candidate_best_p2 = edge_p2;
+
+    for (float shift = -max_shift_px; shift <= max_shift_px + 1e-3f; shift += step) {
+        Point2f shifted_p1;
+        Point2f shifted_p2;
+        ShiftEdgeSegment(edge_p1, edge_p2, normal_unit, shift, &shifted_p1, &shifted_p2);
+        const vector<Point2f> sample_pts = SampleLinePoints(shifted_p1, shifted_p2, 60);
+        int score = 0;
+        for (const Point2f& point : sample_pts) {
+            const int x = std::clamp(cvRound(point.x), 0, canny_binary.cols - 1);
+            const int y = std::clamp(cvRound(point.y), 0, canny_binary.rows - 1);
+            if (canny_binary.at<uchar>(y, x) > 0) {
+                ++score;
+            }
+        }
+        if (score > best_score) {
+            best_score = score;
+            best_shift_value = shift;
+            candidate_best_p1 = shifted_p1;
+            candidate_best_p2 = shifted_p2;
         }
     }
-    return count;
+
+    if (best_p1 != nullptr) {
+        *best_p1 = candidate_best_p1;
+    }
+    if (best_p2 != nullptr) {
+        *best_p2 = candidate_best_p2;
+    }
+    if (best_shift != nullptr) {
+        *best_shift = best_shift_value;
+    }
+    return best_score >= 0;
+}
+
+bool LineIntersection(const Point2f& p1,
+                      const Point2f& v1,
+                      const Point2f& p2,
+                      const Point2f& v2,
+                      Point2f* out)
+{
+    const float denom = v1.x * v2.y - v1.y * v2.x;
+    if (std::fabs(denom) < 1e-6f) {
+        return false;
+    }
+    const float t = ((p2.x - p1.x) * v2.y - (p2.y - p1.y) * v2.x) / denom;
+    if (out != nullptr) {
+        *out = Point2f(p1.x + t * v1.x, p1.y + t * v1.y);
+    }
+    return true;
+}
+
+vector<Point2f> ReconstructObbCenterFoot(const Point2f& center_A,
+                                         const Point2f& foot_C,
+                                         const Point2f& dir_ca,
+                                         float half_perp)
+{
+    const Point2f dir_perp(-dir_ca.y, dir_ca.x);
+    const float dist_AC = PointLength(foot_C - center_A);
+    const float half_ca = dist_AC;
+
+    return {
+        center_A - dir_ca * half_ca - dir_perp * half_perp,
+        center_A + dir_ca * half_ca - dir_perp * half_perp,
+        center_A + dir_ca * half_ca + dir_perp * half_perp,
+        center_A - dir_ca * half_ca + dir_perp * half_perp,
+    };
+}
+
+vector<Point2f> ScaleObbAlongPerpAC(const vector<Point2f>& obb_4pts,
+                                    const Point2f& center_A,
+                                    const Point2f& vec_AC,
+                                    float scale_factor)
+{
+    const float ac_norm = PointLength(vec_AC);
+    if (ac_norm < 1e-6f) {
+        return obb_4pts;
+    }
+    const Point2f ac_unit = vec_AC * (1.0f / ac_norm);
+    const Point2f perp_unit(-ac_unit.y, ac_unit.x);
+
+    vector<Point2f> scaled;
+    scaled.reserve(obb_4pts.size());
+    for (const Point2f& pt : obb_4pts) {
+        const Point2f shifted = pt - center_A;
+        const Point2f para_comp = ac_unit * shifted.dot(ac_unit);
+        const Point2f perp_comp = perp_unit * shifted.dot(perp_unit) * scale_factor;
+        scaled.push_back(center_A + para_comp + perp_comp);
+    }
+    return scaled;
+}
+
+double PolygonMaskIou(const vector<Point2f>& poly,
+                      const Mat& mask_np,
+                      int image_width,
+                      int image_height,
+                      Rect* overlap_roi,
+                      Mat* overlap_mask)
+{
+    if (poly.size() < 3 || mask_np.empty() || mask_np.type() != CV_8U ||
+        mask_np.cols != image_width || mask_np.rows != image_height) {
+        return 0.0;
+    }
+
+    Mat polygon_mask(image_height, image_width, CV_8U, Scalar(0));
+    vector<Point> polygon;
+    polygon.reserve(poly.size());
+    for (const Point2f& point : poly) {
+        polygon.emplace_back(cvRound(point.x), cvRound(point.y));
+    }
+    fillConvexPoly(polygon_mask, polygon, Scalar(255), LINE_8);
+
+    Mat overlap;
+    bitwise_and(polygon_mask, mask_np, overlap);
+    const int overlap_pixels = countNonZero(overlap);
+    if (overlap_pixels <= 0) {
+        return 0.0;
+    }
+
+    Mat union_mask;
+    bitwise_or(polygon_mask, mask_np, union_mask);
+    const int union_pixels = countNonZero(union_mask);
+    if (union_pixels <= 0) {
+        return 0.0;
+    }
+
+    if (overlap_roi != nullptr || overlap_mask != nullptr) {
+        vector<Point> nz;
+        findNonZero(overlap, nz);
+        if (!nz.empty()) {
+            const Rect roi = boundingRect(nz);
+            if (overlap_roi != nullptr) {
+                *overlap_roi = roi;
+            }
+            if (overlap_mask != nullptr) {
+                *overlap_mask = overlap(roi).clone();
+            }
+        }
+    }
+
+    return static_cast<double>(overlap_pixels) / static_cast<double>(union_pixels);
 }
 
 const OBBDetection* ResolveBestHeadDetection(const vector<const OBBDetection*>& head_candidates,
@@ -583,7 +606,6 @@ const OBBDetection* ResolveBestHeadDetection(const vector<const OBBDetection*>& 
 {
     const OBBDetection* best_detection = nullptr;
     float best_angle_diff = numeric_limits<float>::infinity();
-    float best_confidence = -numeric_limits<float>::infinity();
     float best_angle = numeric_limits<float>::quiet_NaN();
     const Point2f oa = grip_center - segment_center;
     if (PointLength(oa) < 1e-6f) {
@@ -601,14 +623,9 @@ const OBBDetection* ResolveBestHeadDetection(const vector<const OBBDetection*>& 
 
         const float angle_diff = std::fabs(angle - static_cast<float>(CV_PI) * 0.5f);
         constexpr float kTieEpsilon = 1e-4f;
-        if (angle_diff + kTieEpsilon < best_angle_diff ||
-            (std::fabs(angle_diff - best_angle_diff) <= kTieEpsilon &&
-             (candidate->conf > best_confidence + kStableTieEpsilon ||
-              (std::fabs(candidate->conf - best_confidence) <= kStableTieEpsilon &&
-               (best_detection == nullptr || ObbStableLess(*candidate, *best_detection)))))) {
+        if (angle_diff + kTieEpsilon < best_angle_diff) {
             best_angle = angle;
             best_angle_diff = angle_diff;
-            best_confidence = candidate->conf;
             best_detection = candidate;
         }
     }
@@ -621,191 +638,453 @@ const OBBDetection* ResolveBestHeadDetection(const vector<const OBBDetection*>& 
     return best_detection;
 }
 
+ScriptGeometryResult BuildScriptGeometry(const OBBDetection& grip_detection,
+                                         const OBBDetection& head_detection,
+                                         const SegRegion& segment,
+                                         const Mat* original_image,
+                                         int image_width,
+                                         int image_height,
+                                         float selected_aob_angle_deg,
+                                         float selected_aob_diff_deg)
+{
+    (void)image_width;
+    (void)image_height;
+    ScriptGeometryResult geometry;
+    geometry.segment_center = segment.center;
+    geometry.head_center = head_detection.rotated_rect.center;
+    geometry.head_class_id = head_detection.class_id;
+    geometry.selected_aob_angle_deg = selected_aob_angle_deg;
+    geometry.selected_aob_diff_deg = selected_aob_diff_deg;
+
+    if (grip_detection.corners.size() != 4) {
+        geometry.invalid_reason = "invalid_obb_corners";
+        return geometry;
+    }
+    if (!IsFinitePoint(segment.center)) {
+        geometry.invalid_reason = "invalid_segment_center";
+        return geometry;
+    }
+
+    const vector<Point2f>& raw_pts4 = grip_detection.corners;
+    const Point2f raw_center_A = AveragePoint(raw_pts4);
+    geometry.grip_center = raw_center_A;
+
+    const Point2f oa = raw_center_A - segment.center;
+    const float oa_length = PointLength(oa);
+    if (oa_length < 1e-6f) {
+        geometry.invalid_reason = "invalid_oa_geometry";
+        return geometry;
+    }
+    const Point2f oa_unit = oa * (1.0f / oa_length);
+
+    const vector<EdgeFootCandidate> foot_points = GetPerpendicularFootPoints(raw_pts4, raw_center_A);
+    float best_dot = -numeric_limits<float>::infinity();
+    EdgeFootCandidate best_foot;
+    bool found_foot = false;
+    for (const EdgeFootCandidate& foot_candidate : foot_points) {
+        const Point2f vec_ac = foot_candidate.foot - raw_center_A;
+        const float ac_length = PointLength(vec_ac);
+        if (ac_length < 1e-6f) {
+            continue;
+        }
+        const float dot = oa_unit.dot(vec_ac * (1.0f / ac_length));
+        if (dot > best_dot) {
+            best_dot = dot;
+            best_foot = foot_candidate;
+            found_foot = true;
+        }
+    }
+    if (!found_foot) {
+        geometry.invalid_reason = "invalid_ac_geometry";
+        return geometry;
+    }
+    geometry.ac_dot = best_dot;
+
+    const Point2f best_vec_AC = best_foot.foot - raw_center_A;
+    vector<pair<Point2f, Point2f>> selected_edges;
+    selected_edges.reserve(3);
+    selected_edges.push_back({ best_foot.edge_start, best_foot.edge_end });
+
+    for (size_t i = 0; i < raw_pts4.size(); ++i) {
+        const Point2f& p1 = raw_pts4[i];
+        const Point2f& p2 = raw_pts4[(i + 1) % raw_pts4.size()];
+        const Point2f e_vec = p2 - p1;
+        const float angle = AngleBetweenVectors(e_vec, best_vec_AC);
+        const bool is_parallel = (angle < 0.15f) || (std::fabs(angle - static_cast<float>(CV_PI)) < 0.15f);
+        if (is_parallel) {
+            selected_edges.push_back({ p1, p2 });
+        }
+    }
+
+    vector<pair<Point2f, Point2f>> unique_edges;
+    for (const auto& edge : selected_edges) {
+        bool duplicate = false;
+        for (const auto& existing : unique_edges) {
+            if (SameEdge(edge.first, edge.second, existing.first, existing.second)) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate) {
+            unique_edges.push_back(edge);
+        }
+    }
+
+    vector<pair<Point2f, Point2f>> original_edges;
+    original_edges.reserve(raw_pts4.size());
+    for (size_t i = 0; i < raw_pts4.size(); ++i) {
+        original_edges.push_back({ raw_pts4[i], raw_pts4[(i + 1) % raw_pts4.size()] });
+    }
+
+    pair<Point2f, Point2f> remain_edge = original_edges.front();
+    bool remain_edge_found = false;
+    for (const auto& original_edge : original_edges) {
+        bool is_selected = false;
+        for (const auto& edge : unique_edges) {
+            if (SameEdge(original_edge.first, original_edge.second, edge.first, edge.second)) {
+                is_selected = true;
+                break;
+            }
+        }
+        if (!is_selected) {
+            remain_edge = original_edge;
+            remain_edge_found = true;
+            break;
+        }
+    }
+
+    vector<pair<Point2f, Point2f>> tuned_edges = unique_edges;
+    if (original_image != nullptr && !original_image->empty()) {
+        Mat canny_edges;
+        if (BuildCannyEdgeMap(original_image, &canny_edges)) {
+            tuned_edges.clear();
+            tuned_edges.reserve(unique_edges.size());
+            for (const auto& edge : unique_edges) {
+                Point2f tuned_p1;
+                Point2f tuned_p2;
+                float best_shift = 0.0f;
+                FindBestShiftForEdge(edge.first,
+                                     edge.second,
+                                     canny_edges,
+                                     12.0f,
+                                     0.5f,
+                                     &tuned_p1,
+                                     &tuned_p2,
+                                     &best_shift);
+                tuned_edges.push_back({ tuned_p1, tuned_p2 });
+            }
+        }
+    }
+
+    vector<pair<Point2f, Point2f>> all_new_edges = tuned_edges;
+    if (remain_edge_found) {
+        all_new_edges.push_back(remain_edge);
+    }
+
+    const Point2f ac_unit = best_vec_AC * (1.0f / PointLength(best_vec_AC));
+    vector<pair<Point2f, Point2f>> para_edges;
+    vector<pair<Point2f, Point2f>> perp_edges;
+    for (const auto& edge : all_new_edges) {
+        const Point2f e_vec = edge.second - edge.first;
+        const float e_len = PointLength(e_vec);
+        if (e_len < 1e-6f) {
+            continue;
+        }
+        const Point2f e_unit = e_vec * (1.0f / e_len);
+        if (std::fabs(e_unit.dot(ac_unit)) > 0.9f) {
+            para_edges.push_back(edge);
+        } else {
+            perp_edges.push_back(edge);
+        }
+    }
+
+    vector<Point2f> new_rect_4pts = raw_pts4;
+    if (para_edges.size() == 2 && perp_edges.size() == 2) {
+        Point2f p1;
+        Point2f p2;
+        Point2f p3;
+        Point2f p4;
+        const bool ok1 = LineIntersection(perp_edges[0].first,
+                                          perp_edges[0].second - perp_edges[0].first,
+                                          para_edges[0].first,
+                                          para_edges[0].second - para_edges[0].first,
+                                          &p1);
+        const bool ok2 = LineIntersection(perp_edges[1].first,
+                                          perp_edges[1].second - perp_edges[1].first,
+                                          para_edges[0].first,
+                                          para_edges[0].second - para_edges[0].first,
+                                          &p2);
+        const bool ok3 = LineIntersection(perp_edges[1].first,
+                                          perp_edges[1].second - perp_edges[1].first,
+                                          para_edges[1].first,
+                                          para_edges[1].second - para_edges[1].first,
+                                          &p3);
+        const bool ok4 = LineIntersection(perp_edges[0].first,
+                                          perp_edges[0].second - perp_edges[0].first,
+                                          para_edges[1].first,
+                                          para_edges[1].second - para_edges[1].first,
+                                          &p4);
+        if (ok1 && ok2 && ok3 && ok4) {
+            new_rect_4pts = { p1, p2, p3, p4 };
+            const Point2f rect_center = AveragePoint(new_rect_4pts);
+            sort(new_rect_4pts.begin(),
+                 new_rect_4pts.end(),
+                 [&](const Point2f& left, const Point2f& right) {
+                     return std::atan2(left.y - rect_center.y, left.x - rect_center.x) <
+                            std::atan2(right.y - rect_center.y, right.x - rect_center.x);
+                 });
+        }
+    }
+
+    const Point2f temp_new_A = AveragePoint(new_rect_4pts);
+    const vector<EdgeFootCandidate> foot_points_new = GetPerpendicularFootPoints(new_rect_4pts, temp_new_A);
+    const Point2f vec_OA_new = temp_new_A - segment.center;
+    const float vec_OA_new_length = PointLength(vec_OA_new);
+    if (vec_OA_new_length < 1e-6f) {
+        geometry.invalid_reason = "invalid_new_oa_geometry";
+        return geometry;
+    }
+    const Point2f vec_OA_new_unit = vec_OA_new * (1.0f / vec_OA_new_length);
+
+    float best_new_dot = -numeric_limits<float>::infinity();
+    Point2f final_C = best_foot.foot;
+    Point2f final_vec_AC = best_vec_AC;
+    bool found_new_candidate = false;
+    for (const EdgeFootCandidate& foot_candidate : foot_points_new) {
+        const Point2f vec_ac_new = foot_candidate.foot - temp_new_A;
+        const float vec_ac_length = PointLength(vec_ac_new);
+        if (vec_ac_length < 1e-6f) {
+            continue;
+        }
+        const float dot = vec_OA_new_unit.dot(vec_ac_new * (1.0f / vec_ac_length));
+        if (dot > best_new_dot) {
+            best_new_dot = dot;
+            final_C = foot_candidate.foot;
+            final_vec_AC = vec_ac_new;
+            found_new_candidate = true;
+        }
+    }
+    if (!found_new_candidate) {
+        final_C = best_foot.foot;
+        final_vec_AC = best_vec_AC;
+    }
+
+    const float final_vec_AC_length = PointLength(final_vec_AC);
+    if (final_vec_AC_length < 1e-6f) {
+        geometry.invalid_reason = "invalid_final_ac_geometry";
+        return geometry;
+    }
+
+    const Point2f dir_ca = -final_vec_AC * (1.0f / final_vec_AC_length);
+    const Point2f final_A = final_C + dir_ca * 45.0f;
+    if (!IsFinitePoint(final_A) || !IsFinitePoint(final_C)) {
+        geometry.invalid_reason = "non_finite_final_geometry";
+        return geometry;
+    }
+
+    const Point2f perp_unit(-dir_ca.y, dir_ca.x);
+    float half_perp = 0.0f;
+    for (const Point2f& pt : new_rect_4pts) {
+        const Point2f shifted = pt - temp_new_A;
+        half_perp = std::max(half_perp, std::fabs(shifted.dot(perp_unit)));
+    }
+
+    geometry.valid = true;
+    geometry.invalid_reason.clear();
+    geometry.arrow_start = final_A;
+    geometry.arrow_end = final_C;
+    geometry.base_corners = ReconstructObbCenterFoot(final_A, final_C, dir_ca, half_perp);
+    geometry.scaled_corners = ScaleObbAlongPerpAC(geometry.base_corners, final_A, final_vec_AC, 2.0f);
+    geometry.final_ac_deg = RayAngleDeg(final_A, final_C);
+    geometry.grip_long_angle_deg = NormalizeAngleDeg(geometry.final_ac_deg + 90.0f);
+    geometry.head_side = ResolveHeadSideFromGripLocalAc(final_A, final_C, head_detection.rotated_rect.center);
+    geometry.head_type_code = ResolveHeadTypeCode(head_detection.class_id, geometry.head_side);
+    geometry.head_class_id = head_detection.class_id;
+    geometry.collision_with_other_seg = false;
+    geometry.max_seg_iou = 0.0f;
+
+    return geometry;
+}
+
+PoseDetection BuildPoseDetection(const OBBDetection& detection,
+                                 const vector<string>& obb_class_names,
+                                 int image_width,
+                                 int image_height,
+                                 int matched_segment_index,
+                                 const string& segment_class_name,
+                                 const SegRegion& segment,
+                                 const ScriptGeometryResult& geometry,
+                                 const Point2f& head_point)
+{
+    PoseDetection pose;
+    pose.class_id = detection.class_id;
+    pose.class_name = GetClassName(obb_class_names, detection.class_id);
+    pose.segment_class_name = segment_class_name;
+    pose.matched_segment_index = matched_segment_index;
+    pose.confidence = detection.conf;
+    pose.center_x = QuantizeStable(geometry.arrow_start.x, kPoseCoordinateStepPx);
+    pose.center_y = QuantizeStable(geometry.arrow_start.y, kPoseCoordinateStepPx);
+    pose.angle_deg = QuantizeStable(geometry.final_ac_deg, kPoseAngleStepDeg);
+    pose.pick_status_code = geometry.collision_with_other_seg ? kPickStatusCannotGrab : kPickStatusCanGrab;
+    pose.head_type_code = geometry.head_type_code;
+    pose.head_class_id = geometry.head_class_id;
+    pose.head_type_text = ResolveHeadTypeText(pose.head_type_code);
+    pose.obb_center = geometry.arrow_start;
+    pose.seg_center = segment.center;
+    pose.x_point = geometry.arrow_start;
+    pose.small_point = head_point;
+    pose.has_small_point = true;
+    pose.small_arrow_start = segment.center;
+    pose.small_arrow_end = head_point;
+    pose.has_small_ray = true;
+    pose.small_ray_quadrant = geometry.head_side;
+    pose.arrow_start = geometry.arrow_start;
+    pose.arrow_end = geometry.arrow_end;
+    pose.grip_long_angle_deg = QuantizeStable(geometry.grip_long_angle_deg, kPoseAngleStepDeg);
+    pose.corners = geometry.base_corners;
+    pose.bbox = BuildPoseBoundingRect(pose.corners, image_width, image_height);
+    pose.mask_collisions = geometry.mask_collisions;
+    pose.can_grab = !geometry.collision_with_other_seg;
+    return pose;
+}
+
 vector<PoseDetection> BuildFilteredPoseDetections(const vector<OBBDetection>& obb_output,
                                                   const vector<string>& obb_class_names,
                                                   const vector<SegRegion>& segments,
                                                   int image_width,
                                                   int image_height,
                                                   const FramePostprocessConfig& config,
-                                                  bool debug_enabled)
+                                                  bool debug_enabled,
+                                                  const Mat* original_image)
 {
+    (void)config;
     vector<PoseDetection> detections;
-    detections.reserve(obb_output.size());
+    detections.reserve(segments.size());
 
-    for (int detection_index = 0; detection_index < static_cast<int>(obb_output.size()); ++detection_index) {
-        const auto& detection = obb_output[detection_index];
-        if (debug_enabled) {
-            cout << "[PostprocessDebug] obb index=" << detection_index
-                 << " class_id=" << detection.class_id
-                 << " class_name=" << GetClassName(obb_class_names, detection.class_id)
-                 << " conf=" << detection.conf
-                 << " center=" << PointText(detection.rotated_rect.center)
-                 << " angle=" << detection.rotated_rect.angle
-                 << endl;
-        }
+    vector<bool> used_detections(obb_output.size(), false);
 
-        if (detection.class_id != kClassLeft) {
-            if (debug_enabled) {
-                cout << "[PostprocessDebug] obb_filter index=" << detection_index
-                     << " reason=not_left_grip"
-                     << endl;
-            }
+    for (int segment_index = 0; segment_index < static_cast<int>(segments.size()); ++segment_index) {
+        const SegRegion& segment = segments[segment_index];
+        if (!SegmentMaskValid(segment, image_width, image_height)) {
             continue;
         }
 
-        const Point2f center = detection.rotated_rect.center;
-        int matched_segment_index = -1;
-        int match_count = 0;
-
-        for (int i = 0; i < static_cast<int>(segments.size()); ++i) {
-            if (MaskContainsPoint(segments[i].mask, center)) {
-                matched_segment_index = i;
-                ++match_count;
+        vector<int> left_indices;
+        vector<int> head_indices;
+        for (int detection_index = 0; detection_index < static_cast<int>(obb_output.size()); ++detection_index) {
+            if (used_detections[detection_index]) {
+                continue;
+            }
+            const auto& detection = obb_output[detection_index];
+            if (!MaskContainsPoint(segment.mask, detection.rotated_rect.center)) {
+                continue;
+            }
+            if (detection.class_id == kClassLeft) {
+                left_indices.push_back(detection_index);
+                used_detections[detection_index] = true;
+            } else if (detection.class_id == kClassBig || detection.class_id == kClassSmall) {
+                head_indices.push_back(detection_index);
+                used_detections[detection_index] = true;
             }
         }
 
-        if (debug_enabled) {
-            cout << "[PostprocessDebug] grip_obb index=" << detection_index
-                 << " segment_match_count=" << match_count
-                 << " matched_segment_index=" << matched_segment_index
-                 << endl;
-        }
-
-        if (match_count != 1) {
-            if (debug_enabled) {
-                cout << "[PostprocessDebug] obb_filter index=" << detection_index
-                     << " reason=segment_match_count!=1"
-                     << endl;
-            }
+        if (left_indices.empty() || head_indices.empty()) {
             continue;
         }
 
-        const SegRegion& matched_segment = segments[matched_segment_index];
-        const int left_count_in_segment =
-            CountClassDetectionsInsideSegment(obb_output, kClassLeft, matched_segment);
-        const int big_count_in_segment =
-            CountClassDetectionsInsideSegment(obb_output, kClassBig, matched_segment);
-        const int small_count_in_segment =
-            CountClassDetectionsInsideSegment(obb_output, kClassSmall, matched_segment);
-        const int head_count_in_segment = big_count_in_segment + small_count_in_segment;
-        const bool segment_structure_valid = left_count_in_segment == 1 && head_count_in_segment > 0;
-        vector<const OBBDetection*> head_candidates =
-            FindClassDetectionsInsideSegment(obb_output, kClassBig, matched_segment, &detection);
-        const vector<const OBBDetection*> small_candidates =
-            FindClassDetectionsInsideSegment(obb_output, kClassSmall, matched_segment, &detection);
-        head_candidates.insert(head_candidates.end(), small_candidates.begin(), small_candidates.end());
+        const int left_index = left_indices.front();
+        const OBBDetection& grip_detection = obb_output[left_index];
+        vector<const OBBDetection*> head_candidates;
+        head_candidates.reserve(head_indices.size());
+        for (int head_index : head_indices) {
+            head_candidates.push_back(&obb_output[head_index]);
+        }
 
-        Point2f x_point = center;
-        Point2f head_point;
-        Point2f head_arrow_start;
-        Point2f head_arrow_end;
-        bool has_head_ray = false;
-        int head_side = 0;
-        int head_type_code = 0;
-        bool can_grab = false;
-        bool ray_intersects_head_ray = false;
-        vector<pair<Rect, Mat>> mask_collisions;
         float selected_aob_angle_deg = numeric_limits<float>::quiet_NaN();
         float selected_aob_diff_deg = numeric_limits<float>::quiet_NaN();
         const OBBDetection* head_detection =
             ResolveBestHeadDetection(head_candidates,
-                                     matched_segment.center,
-                                     detection.rotated_rect.center,
+                                     segment.center,
+                                     grip_detection.rotated_rect.center,
                                      &selected_aob_angle_deg,
                                      &selected_aob_diff_deg);
-        const AcRayGeometry ac_geometry = BuildAcRayGeometry(detection, head_detection, matched_segment);
+        if (head_detection == nullptr) {
+            continue;
+        }
 
-        if (head_detection != nullptr) {
-            const RotatedRect& head_rect = head_detection->rotated_rect;
-            head_point = head_rect.center;
-            head_arrow_start = matched_segment.center;
-            head_arrow_end = head_point;
-            head_side = ac_geometry.valid
-                ? ResolveHeadSideFromGripLocalAc(ac_geometry.arrow_start,
-                                                 ac_geometry.arrow_end,
-                                                 head_rect.center)
-                : 0;
-            head_type_code = ResolveHeadTypeCode(head_detection->class_id, head_side);
-            has_head_ray = head_type_code > 0;
+        const ScriptGeometryResult geometry = BuildScriptGeometry(grip_detection,
+                                                                  *head_detection,
+                                                                  segment,
+                                                                  original_image,
+                                                                  image_width,
+                                                                  image_height,
+                                                                  selected_aob_angle_deg,
+                                                                  selected_aob_diff_deg);
+        if (!geometry.valid) {
+            if (debug_enabled) {
+                cout << "[PostprocessDebug] target"
+                     << " segment_index=" << segment_index
+                     << " left_index=" << left_index
+                     << " head_index=" << (head_detection != nullptr ? static_cast<int>(head_detection - &obb_output[0]) : -1)
+                     << " reason=" << geometry.invalid_reason
+                     << endl;
+            }
+            continue;
+        }
 
-            ray_intersects_head_ray = has_head_ray &&
-                                      ac_geometry.valid &&
-                                      LineSegmentsIntersect(ac_geometry.arrow_start,
-                                                            ac_geometry.arrow_end,
-                                                            head_arrow_start,
-                                                            head_arrow_end);
-            can_grab = has_head_ray &&
-                       ac_geometry.valid &&
-                       !ray_intersects_head_ray &&
-                       segment_structure_valid;
+        ScriptGeometryResult final_geometry = geometry;
+        for (int other_index = 0; other_index < static_cast<int>(segments.size()); ++other_index) {
+            if (other_index == segment_index) {
+                continue;
+            }
+            const SegRegion& other_segment = segments[other_index];
+            if (!SegmentMaskValid(other_segment, image_width, image_height)) {
+                continue;
+            }
+            Rect overlap_roi;
+            Mat overlap_mask;
+            const double iou = PolygonMaskIou(final_geometry.scaled_corners,
+                                              other_segment.mask,
+                                              image_width,
+                                              image_height,
+                                              &overlap_roi,
+                                              &overlap_mask);
+            final_geometry.max_seg_iou = std::max(final_geometry.max_seg_iou, static_cast<float>(iou));
+            if (iou > 0.10) {
+                final_geometry.collision_with_other_seg = true;
+                final_geometry.mask_collisions.push_back({ overlap_roi, overlap_mask });
+            }
         }
 
         if (debug_enabled) {
-            cout << "[PostprocessDebug] target index=" << detection_index
-                 << " matched_segment_index=" << matched_segment_index
-                 << " head_candidate_count=" << head_candidates.size()
-                 << " has_head=" << BoolText(head_detection != nullptr)
-                 << " head_class_id=" << (head_detection != nullptr ? head_detection->class_id : -1)
-                 << " selected_head_conf=" << (head_detection != nullptr ? head_detection->conf : 0.0f)
+            cout << "[PostprocessDebug] target"
+                 << " segment_index=" << segment_index
+                 << " left_index=" << left_index
+                 << " head_index=" << (head_detection != nullptr ? static_cast<int>(head_detection - &obb_output[0]) : -1)
+                 << " head_class_id=" << head_detection->class_id
                  << " selected_aob_angle_deg=" << selected_aob_angle_deg
                  << " selected_aob_diff_deg=" << selected_aob_diff_deg
-                 << " head_side=" << head_side
-                 << " head_side_basis=grip_local_ac"
-                 << " D508=" << head_type_code
-                 << " left_count_in_segment=" << left_count_in_segment
-                 << " big_count_in_segment=" << big_count_in_segment
-                 << " small_count_in_segment=" << small_count_in_segment
-                 << " has_head_ray=" << BoolText(has_head_ray)
-                 << " ac_geometry_valid=" << BoolText(ac_geometry.valid)
-                 << " ac_dot=" << ac_geometry.ac_dot
-                 << " O=" << PointText(ac_geometry.segment_center)
-                 << " A=" << PointText(ac_geometry.grip_center)
-                 << " B=" << PointText(ac_geometry.head_center)
-                 << " C=" << PointText(ac_geometry.arrow_end)
-                 << " arrow_start=" << PointText(ac_geometry.arrow_start)
-                 << " ac_angle_deg=" << ComputeFinalRayAngle(ac_geometry.arrow_start, ac_geometry.arrow_end)
-                 << " gripper_long_angle_deg=" << (ac_geometry.valid
-                                                       ? NormalizeAngleDeg(ComputeFinalRayAngle(ac_geometry.arrow_start,
-                                                                                                ac_geometry.arrow_end) + 90.0f)
-                                                       : numeric_limits<float>::quiet_NaN())
-                 << " ray_logic=python_v1.0.15_raw_grip_ac"
-                 << " ray_intersects_head=" << BoolText(ray_intersects_head_ray);
-            cout << " can_grab=" << BoolText(can_grab);
-            if (head_detection == nullptr) {
-                cout << " reason=missing_head_candidate";
-            } else if (!segment_structure_valid) {
-                cout << " reason=invalid_segment_obb_structure";
-            } else if (!ac_geometry.valid) {
-                cout << " reason=" << ac_geometry.invalid_reason;
-            } else if (!has_head_ray) {
-                cout << " reason=invalid_head_type";
-            } else if (ray_intersects_head_ray) {
-                cout << " reason=ray_intersects_head";
-            } else {
-                cout << " reason=can_grab";
-            }
-            cout << endl;
+                 << " O=" << PointText(final_geometry.segment_center)
+                 << " A=" << PointText(final_geometry.arrow_start)
+                 << " B=" << PointText(final_geometry.head_center)
+                 << " C=" << PointText(final_geometry.arrow_end)
+                 << " ac_angle_deg=" << final_geometry.final_ac_deg
+                 << " gripper_long_angle_deg=" << final_geometry.grip_long_angle_deg
+                 << " max_seg_iou=" << final_geometry.max_seg_iou
+                 << " collision_with_other_seg=" << BoolText(final_geometry.collision_with_other_seg)
+                 << " can_grab=" << BoolText(!final_geometry.collision_with_other_seg)
+                 << endl;
         }
 
-        detections.push_back(BuildPoseDetection(detection,
+        detections.push_back(BuildPoseDetection(grip_detection,
                                                 obb_class_names,
                                                 image_width,
                                                 image_height,
-                                                matched_segment_index,
-                                                matched_segment.class_name,
-                                                matched_segment,
-                                                matched_segment.center,
-                                                x_point,
-                                                head_point,
-                                                head_arrow_start,
-                                                head_arrow_end,
-                                                has_head_ray,
-                                                head_side,
-                                                head_type_code,
-                                                head_detection != nullptr ? head_detection->class_id : -1,
-                                                std::move(mask_collisions),
-                                                can_grab,
-                                                ac_geometry));
+                                                segment_index,
+                                                segment.class_name,
+                                                segment,
+                                                final_geometry,
+                                                head_detection->rotated_rect.center));
     }
 
     return detections;
@@ -888,7 +1167,8 @@ FrameInferenceResult BuildFrameInferenceResult(const vector<OBBDetection>& obb_o
                                                int image_height,
                                                double obb_inference_ms,
                                                double seg_inference_ms,
-                                               const FramePostprocessConfig& config)
+                                               const FramePostprocessConfig& config,
+                                               const Mat* original_image)
 {
     FrameInferenceResult result;
     result.image_width = image_width;
@@ -905,7 +1185,8 @@ FrameInferenceResult BuildFrameInferenceResult(const vector<OBBDetection>& obb_o
                                                     image_width,
                                                     image_height,
                                                     config,
-                                                    debug_enabled);
+                                                    debug_enabled,
+                                                    original_image);
 
     ResolvePrimaryDetection(result);
     if (debug_enabled) {

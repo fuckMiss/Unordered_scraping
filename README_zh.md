@@ -10,7 +10,7 @@ TankEye-Iris 是一套 Windows 工业视觉抓取上位机。它负责把现场�
 
 ## 当前版本
 
-- 当前发布包名称：`TankEye-Iris_2.1.4`。
+- 当前发布包名称：`TankEye-Iris_2.1.5`。
 - 主界面采用左图像区约 75%、右控制栏约 25% 的布局。
 - 右侧栏为双列卡片/按钮布局，窗口缩放时会自适应压缩。
 - 图像显示采用完整显示模式，允许边缘留白，不裁剪图像。
@@ -202,14 +202,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_test
 生成独立运行包：
 
 ```powershell
-.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.4 -Force
+.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.5 -Force
 ```
 
 输出目录：
 
 ```text
-dist/TankEye-Iris_2.1.4
-dist/TankEye-Iris_2.1.4.zip
+dist/TankEye-Iris_2.1.5
+dist/TankEye-Iris_2.1.5.zip
 ```
 
 运行包包含主程序、模型、配置、标定输出、示例图、运行时 DLL、启动脚本、桌面图标脚本和使用说明。它不应包含源码、CMake 工程、Python 脚本、测试、`.lib`、`.pdb`、`.pt` 等开发产物。

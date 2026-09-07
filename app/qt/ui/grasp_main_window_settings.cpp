@@ -244,9 +244,20 @@ void GraspMainWindow::refreshAdminModeUi()
     refreshActionButtonMetrics();
     if (!admin_mode_) {
         plc_link_button_->setMinimumHeight(SC(38));
+        target_list_button_->setMinimumHeight(SC(38));
+        image_save_button_->setMinimumHeight(SC(38));
+        display_mode_selector_->setMinimumHeight(SC(38));
+    } else {
         target_list_button_->setMinimumHeight(SC(34));
+        image_save_button_->setMinimumHeight(SC(34));
+        display_mode_selector_->setMinimumHeight(SC(34));
     }
+    refreshProjectProfilePlacement();
+    refreshSidebarCompactMetrics();
+    refreshProjectProfileSelector();
+    refreshStatusSectionMode();
     refreshImageSaveButton();
+    refreshDeviceStatus();
     refreshTopBarMetrics();
 }
 

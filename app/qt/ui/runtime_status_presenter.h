@@ -33,6 +33,7 @@ struct DeviceStatusView
     QLabel* camera_text = nullptr;
     QLabel* model_dot = nullptr;
     QLabel* model_text = nullptr;
+    bool compact_status_mode = false;
     QPushButton* open_camera_button = nullptr;
     QPushButton* start_button = nullptr;
     QPushButton* plc_link_button = nullptr;

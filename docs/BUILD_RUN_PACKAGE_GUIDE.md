@@ -1,4 +1,4 @@
-﻿# TankEye-Iris 1.2 构建运行打包指南
+# TankEye-Iris 2.1.6 构建运行打包指南
 
 ## 适用场景
 
@@ -33,7 +33,6 @@ cmake --build build --config Release --target tankeye-admin-auth-code
 ```text
 build\Release\tankeye-openvino_qt_app.exe
 ```
-
 ## 3. 运行程序
 
 直接启动开发环境下的程序：
@@ -88,19 +87,19 @@ config\admin_auth.key
 ## 5. 打包运行目录
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_1.2 -Force
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.6 -Force
 ```
 
 打包完成后，发布目录在：
 
 ```text
-dist\TankEye-Iris_1.2
+dist\TankEye-Iris_2.1.6
 ```
 
 压缩包在：
 
 ```text
-dist\TankEye-Iris_1.2.zip
+dist\TankEye-Iris_2.1.6.zip
 ```
 
 ## 6. 常见问题
@@ -130,4 +129,3 @@ dist\TankEye-Iris_1.2.zip
 - 授权申请必须从软件里点击 `保存授权申请` 生成，不要手工拼写 JSON。
 - 正式运行包必须把 `admin_license.json` 放在运行包 `config` 目录；开发环境可放在项目根目录 `config` 或 `build\Release\config`。
 - 生成 license 的电脑和打包用的是同一个 `config\admin_auth.key`。
-

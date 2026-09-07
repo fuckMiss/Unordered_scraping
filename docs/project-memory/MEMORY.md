@@ -8,6 +8,8 @@
 
 - 让项目代码和目录组织更干净、可维护，按小批次重构。
 - 当前总体目标升级为全项目瘦身优化：所有代码清理都优先合并重复、减少总代码、减少维护点。
+- 2026-09-04 已修正 PLC 图片保存的“无显示”口径：保存时若选择 `DisplayOverlayMode::None`，直接写入原始 `cv::Mat`，不再经过 `renderFrameImage()`，避免保存图仍带框；其他显示模式仍沿用原有渲染保存路径。
+- 已将用户补充的“先核查事实、区分事实/推测/假设、先读再改、未验证不宣称”要求纳入 `docs/USE_prompt.md` 的协作入口。
 - 第一批选择低风险 UI 辅助拆分：运行日志查看器已从 `GraspMainWindow` 抽离。
 - 第二批继续拆分管理员创建、登录、重置弹窗，主窗口只保留薄包装和账号状态逻辑。
 - 第二批补充已合并创建/重置管理员弹窗重复结构，并提取复用 UI 缩放工具。
@@ -19,6 +21,7 @@
 - 当前功能批次已实现“延长夹爪只按真实 SEG mask 碰撞拒抓”：废弃 bbox/minAreaRect 外框碰撞拒抓，只有延长夹爪 OBB 与旁边物料 `segment.mask` 白色像素发生 1 像素及以上重叠才不可抓；自身 segment 继续忽略；空 mask、尺寸异常或 ROI 为空不 fallback 到外框拒抓；debug reason 为 `extended_touches_other_mask`；调试 overlay 通过 `mask_collisions` 用半透明红色显示真实重叠像素。
 - 当前已补充“放大夹取 OBB 碰撞归属修正”：放大 OBB 形状和倍率不变，但碰撞 overlap 需要先扣掉当前 matched segment mask；只有旁边物料 mask 在当前自身 mask 之外仍落入当前放大 OBB 时，才拒当前目标。旁边框碰到当前 mask、或旁边 mask 与当前 mask 重叠但没有外露像素，不拒当前目标；A 扫到 B 时只拒 A。
 - 当前已实现普通显示按 SEG 去重 OBB 框：普通主画面和普通目标列表通过 `SelectNormalDisplayDetectionIndices()` 每个 `matched_segment_index` 只显示一个代表 detection，优先级为主目标、可抓、置信度最高；全显/调试模式仍显示全部 detections 和 raw OBB；抓取安全逻辑、PLC 写入和主目标选择不变。
+- 当前已按用户要求把 `output/推理v1.0.21.py` 的上游逻辑迁回 C++：分组改为按 SEG 分组，B 选择按 `∠AOB` 最接近 90°，AC 重建加入垂足/固定 `45px` 回推/Canny 微调/延展 OBB，碰撞改为延展 OBB 与其他 SEG mask 的 IOU 过滤；下游机械红框仍继续由 `detection.grip_long_angle_deg` 和坐标变换生成，PLC/ROI/对外接口保持不变。
 - 2026-08-04 已按用户要求丢弃 2026-08-04 本地 AC/绿色框/工程设置角度校准试改，重新从 GitHub `origin/Unordered_Scraping_V5` 拉取并硬回退到提交 `8698d85a33b9c1bdb18ff9b790b91265429504fe`；后续角度问题需要在该 V5 基线上重新设计和实施。
 - 2026-08-04 新增提交信息规则：后续每次提交必须写清楚相对上一版发生了什么变化、改动范围和验证结果，不能使用笼统的 `update`、`fix`、`change`。
 - 2026-08-04 已按五角色计划重新实现角度修正：`frame_postprocess` 最终抓取角度从旧红色 A 框自身 OBB keep-point 射线改为 `SEG 中心 O -> A -> AC` 射线；同一 SEG 内多 big/small B 候选按 `|∠AOB - 90°|` 最小择优，置信度只作并列 tie-break；A 框先按最佳 B 长边/短边最小旋转对齐，再沿长边保持现有 3.0 倍放大，角度、overlay 箭头、PLC 中心偏移和真实 mask 碰撞检测都复用该对齐放大框；无 B、无有效 minRect、OA/AC 退化时不回退旧角度并拒抓。
@@ -50,6 +53,11 @@
   - `tests/frame_overlay_test.cpp`
   - `tests/calibration_profile_store_test.cpp`
   - `tests/frame_postprocess_smoke.cpp` 已扩展真实 mask 碰撞、bbox 空白、mask 空洞、空/异常 mask 和多旁料碰撞用例
+- 本次新增/更新源码：
+  - `app/qt/workflow/frame_postprocess.cpp`
+  - `app/qt/workflow/frame_postprocess.h`
+  - `app/qt/workflow/grasp_workflow.cpp`
+  - `tests/frame_postprocess_smoke.cpp`
 - 已纳入 Git 的既有构建配置修改：
   - `CMakeLists.txt`
 
@@ -382,3 +390,20 @@
 - 2026-08-27: 已完成工程设置职责收口重构第一批：`EngineeringSettingsDialogController::show()` 中保存/应用/另存为/新建方案入口不再直接调用 `SaveProjectProfile()`、`projectProfileSettingsFromDraft()`、`validateProjectProfileModels()`、`switchProjectProfile()` 或 pending 创建逻辑，而是只读取 `EngineeringSettingsDraft` 并调用 `GraspMainWindow` 的明确生命周期入口。新增/收口入口为 `SaveEngineeringProfile()`、`canSaveEngineeringProfile()`、`StageActiveEngineeringProfile()`、`ApplyEngineeringProfile()`、`CreateEngineeringProfile()` 和 `persistEngineeringProfile()`；其中 Save 只负责 Draft->Profile->校验->持久化，Stage 只负责 active 保存后的 pending 创建，Apply 只负责复用持久化后切换 runtime。Auto Exposure 链路未纳入工程方案生命周期。验证通过 `tankeye-openvino_qt_app` Release 构建、完整默认测试脚本和 CPU + 模拟 PLC GUI 启动日志 `build/Release/logs/tankeye_20260827_182255.log`；未连接真实 PLC、真实相机或真实设备，未人工点击工程设置保存/应用流程。
 - 2026-08-27：准备将当前工作区维护快照提交到 GitHub `origin` 的 `Unordered_scraping_v7` 分支。本次提交包含主窗口瘦身、显示模式下拉框与 PLC 检测帧保存、工程方案生命周期收口、运行状态测试和对应记忆文档；本地 `output/` 运行产物不纳入提交。
 - 2026-08-27：用户要求 README 也同步后再上传。本轮将 `README.md` 和 `README_zh.md` 从旧 `1.2`、旧 `models/weights`、旧 INIT/RESET 授权码口径更新到当前 `2.1.4`、DG_8/DG_10 工程方案模型、本机 `admin_license.json` 授权、三档显示、PLC 检测帧保存和主窗口模块瘦身现状；仍以源码、CMake、脚本、测试和 project-memory 为准，不把 README 作为唯一事实来源。
+- 2026-08-28：根据用户现场现象“AC 射线本应向下但部署版偶发向左/向右错 90 度”，已去掉真实夹爪阶段第二次找 C 并覆盖 `angle_deg` 的逻辑。历史上第二次找 C 来自 2026-08-04“真实夹爪框完全接管旧延长框”的设计，当时让真实夹爪框同时接管碰撞、显示、C 点和中心偏移；现在调整为第一次 AC 射线是唯一角度来源，真实夹爪框只负责长宽显示、保护区越界/压线和真实 SEG mask 碰撞，中心偏移沿已有 AC 射线执行，不再由真实夹爪框边界反推 C。已补 `grab_limit_evaluator_test` 覆盖向下 AC 不被真实夹爪侧边替换；仍需现场图片复核 D504 和 overlay 射线。
+- 2026-08-28：用户反馈功能入口的显示模式下拉“没有任何反应”，已修正 `app/qt/ui/grasp_main_window_shell.cpp` 里的 `DisplayModeSelector`，去掉可编辑下拉和 `QLineEdit` 相关处理，保留 `mousePressEvent()->showPopup()`，让控件恢复为正常可点击展开的下拉框；箭头样式仍按用户要求不显示。已完成 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本验证。
+- 2026-08-28：用户要求把显示模式框撤回到和“开始保存”同款的按钮外观，并取消箭头。最终实现改为可编辑只读 `QComboBox`，去掉自绘文字层，使用 `QLineEdit` 居中显示当前值并穿透鼠标，`displayModeSelector` 视觉上与按钮保持同一套背景/边框/圆角/字号/内边距，且箭头隐藏；已完成 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本验证。
+- 2026-08-28：用户反馈“现在又点击没有下拉框了”，已给 `DisplayModeSelector` 补回左键 `showPopup()`，保持当前按钮同款外观不变，只恢复可点击展开能力；已完成 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本验证。
+- 2026-08-28：已按 `docs/PACKAGING_README.md` 统一更新当前版本入口到 `2.1.5`，并成功生成运行包 `dist/TankEye-Iris_2.1.5` 与 `dist/TankEye-Iris_2.1.5.zip`。验证通过 Release 主程序/设备探测程序/授权工具/抓取限位/overlay/后处理构建、完整默认测试脚本、包内关键文件与 hash 一致性检查；运行包不包含 `docs/` 和 `AGENTS.md`。
+- 2026-09-04：主界面非管理员态的“系统状态”已改为相机/模型横向同排展示，并放大指示灯与字体；管理员态仍保持原纵向布局和原尺寸。实现方式是让状态区在普通/管理员模式之间切换同一组控件的布局方向和视觉尺寸，状态刷新时同步使用布局模式标记。验证通过 `tankeye-openvino_qt_app` Release 构建、完整 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 和 `git diff --check`；未做真实 GUI 截图或现场点检。
+- 2026-09-04：现场反馈“每次开始保存图片时第一张总是空白”，当前修正是给保存会话增加起始时刻和首帧跳过标记，只保存 `开始保存` 之后启动的 PLC 触发帧，避免把会话切换瞬间的过渡帧落盘。验证通过 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本；未做现场相机+PLC 联动验证，仍需实际触发一次保存确认首帧是否恢复正常。
+- 2026-09-04：随后又按现场反馈把非管理员态系统状态框体本身同步放大，普通模式下上调了状态卡高度、内边距、条目高度和间距，避免一行展示时视觉上过于拥挤；管理员态仍不变。验证通过 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本。
+- 2026-09-04：非管理员界面的方案切换已从“当前目标参数”标题行拆出，改为独立 `方案切换` 卡片；管理员态仍保留原标题行位置。普通模式下方案下拉、保存按钮、显示模式下拉和目标列表按钮同步放大一档，继续沿用既有自适应缩放基线。验证通过 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本。
+- 2026-09-04：现场又反馈非管理员态系统状态卡仍偏窄，已把普通模式下该卡的最小/最大高度、条目高度和上下内边距再提高一档，使“相机 / 模型”一行展示更松一点；管理员态保持原值。验证通过 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本。
+- 2026-09-04：进一步按现场反馈收紧非管理员态系统状态：普通界面现在只显示“相机/模型 + 指示灯”，不再显示“已加载/加载失败”值文案，也不再保留状态项内层小框；同时把名称字号和圆点尺寸再放大并压近间距。管理员态保持原样。验证通过 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本。
+- 2026-09-04：又按现场反馈修正普通态系统状态组距：每组现在只占自己需要的宽度，组内名字与圆点更紧凑，组间靠固定间距分隔，避免第一组圆点贴近第二组名字。管理员态保持原样。验证通过 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本。
+- 2026-09-05：按参考图重做普通态系统状态布局：左侧相机组、中央自适应竖向分隔线、右侧模型组，左右两组各占一半区域并在各自区域内居中；普通态隐藏状态值且不参与布局，管理员态保留原纵向状态项和值文案。验证通过 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本；未做真实 GUI 截图或人工点检。
+- 2026-09-05：按参考图继续放大普通态系统状态文字和指示灯，普通模式字号与圆点尺寸从 `24` 提升到 `28`，左右两组仍在各自半区内居中；管理员态不变。验证通过 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本。
+- 2026-09-05：现场反馈放大效果不明显，经核查原因是普通态字号和圆点使用 `SC()`，该函数还会乘以侧栏紧凑系数，实际尺寸被额外压缩；已将普通态字号和圆点改用 `S(34)`，保留窗口级自适应但取消侧栏二次缩小，同时配套提高普通态状态卡、状态项和分隔线高度。管理员态保持原样。验证通过 `tankeye-openvino_qt_app` Release 构建和完整默认测试脚本。
+- 2026-09-05：按 `docs/PACKAGING_README.md` 完成 `TankEye-Iris_2.1.6` 正式运行包。重新构建主程序、设备探测程序、管理员授权工具及相关后处理/overlay/限位测试目标，完整默认测试通过；生成 `dist/TankEye-Iris_2.1.6` 和 `dist/TankEye-Iris_2.1.6.zip`。包内包含 DG_8/DG_10 模型、Qt 平台插件、CPU/GPU OpenVINO 插件、`config/admin_auth.key` 和使用说明，不包含 `docs/`、`AGENTS.md`；包内配置版本与源码构建产物哈希一致。由于当前没有有效启用的九点标定方案，打包脚本按既有保护逻辑将包内 `machine_limits.enabled` 设为 `false`。未启动包内 launcher，未连接真实 PLC、真实相机或真实设备。
+- 2026-09-07：用户要求上传当前维护快照到 GitHub。提交范围为当前已跟踪的源码、测试、配置、打包说明、README 和 project-memory 改动；`output/` 下的本机授权文件、授权申请、参考图片和参考推理脚本均保持未跟踪，不纳入 Git。已真实运行 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release`，14 个默认测试全部通过；待完成 Git 提交和推送后以提交哈希为准。

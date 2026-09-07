@@ -22,4 +22,5 @@ FrameInferenceResult BuildFrameInferenceResult(const std::vector<OBBDetection>& 
                                                int image_height,
                                                double obb_inference_ms,
                                                double seg_inference_ms,
-                                               const FramePostprocessConfig& config = {});
+                                               const FramePostprocessConfig& config = {},
+                                               const cv::Mat* original_image = nullptr);

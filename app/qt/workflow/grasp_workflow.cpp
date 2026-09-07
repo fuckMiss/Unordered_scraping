@@ -398,7 +398,8 @@ bool GraspWorkflow::runFrame(const Mat& image, FrameInferenceResult& result, str
                                            input.rows,
                                            obb_inference_ms,
                                            seg_inference_ms,
-                                           postprocess_config_);
+                                           postprocess_config_,
+                                           &input);
         const auto fuse_end = chrono::steady_clock::now();
         const double total_process_ms = MsSince(obb_pre_start, fuse_end);
         result.total_inference_ms = total_process_ms;
