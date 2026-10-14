@@ -3,6 +3,7 @@
 #include "coordinate_transform.h"
 #include "frame_postprocess.h"
 #include "grab_limit_evaluator.h"
+#include "image_retention.h"
 #include "plc_result_contract.h"
 
 #include <QList>
@@ -84,6 +85,7 @@ struct EngineeringSettingsControls
     QCheckBox* postprocess_debug_logging_check = nullptr;
     QCheckBox* auto_start_check = nullptr;
     QSpinBox* startup_delay_spin = nullptr;
+    QSpinBox* image_retention_spin = nullptr;
     QDoubleSpinBox* mechanical_gripper_length_spin = nullptr;
     QDoubleSpinBox* mechanical_gripper_width_spin = nullptr;
     std::array<QDoubleSpinBox*, 5> head_type_angle_offset_spins{};
@@ -129,6 +131,7 @@ struct EngineeringSettingsDraft
     bool postprocess_debug_logging_enabled = false;
     bool auto_start_enabled = true;
     int startup_delay_seconds = 0;
+    int max_saved_images = 1000;
     bool show_grab_limit_overlay = true;
     double mechanical_gripper_length = 0.0;
     double mechanical_gripper_width = 0.0;

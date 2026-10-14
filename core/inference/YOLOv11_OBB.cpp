@@ -99,6 +99,7 @@ void YOLOv11_OBB::initializeModelState()
 
     runtime_.input_h = static_cast<int>(input_shape[2]);
     runtime_.input_w = static_cast<int>(input_shape[3]);
+    runtime_.input_channels = static_cast<int>(input_shape[1]);
 
     const DetectionOutputLayout output_layout =
         ParseDetectionOutputLayout(output_shape, 5, 0, "OBB");
@@ -121,12 +122,16 @@ void YOLOv11_OBB::initializeModelState()
     }
 
     runtime_.output_numel = static_cast<size_t>(runtime_.detection_attribute_size) * runtime_.num_detections;
-    input_buffer_.assign(static_cast<size_t>(3) * runtime_.input_w * runtime_.input_h, 0.0f);
+    input_buffer_.assign(static_cast<size_t>(runtime_.input_channels) *
+                             runtime_.input_w *
+                             runtime_.input_h,
+                         0.0f);
     output_buffer_.assign(runtime_.output_numel, 0.0f);
 
     cout << "YOLOv11_OBB OpenVINO Model Info:" << endl;
     cout << "  Device: " << actual_device_ << endl;
-    cout << "  Input: " << runtime_.input_w << "x" << runtime_.input_h << endl;
+    cout << "  Input: " << runtime_.input_channels << "x"
+         << runtime_.input_h << "x" << runtime_.input_w << endl;
     cout << "  Output: " << runtime_.detection_attribute_size << " x " << runtime_.num_detections << endl;
     cout << "  Num classes: " << runtime_.num_classes << endl;
 
@@ -140,6 +145,7 @@ void YOLOv11_OBB::preprocess(Mat& image)
     PrepareNchwLetterboxInput(image,
                               runtime_.input_w,
                               runtime_.input_h,
+                              runtime_.input_channels,
                               input_port_,
                               infer_request_,
                               input_buffer_,

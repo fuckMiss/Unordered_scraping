@@ -76,6 +76,7 @@ void YOLOv11_SEG::initializeModelState()
     ValidateBatchOneNchwInputShape(input_shape, "SEG input");
     runtime_.input_h = static_cast<int>(input_shape[2]);
     runtime_.input_w = static_cast<int>(input_shape[3]);
+    runtime_.input_channels = static_cast<int>(input_shape[1]);
 
     const ov::Output<const ov::Node> output_a = compiled_model_.output(0);
     const ov::Output<const ov::Node> output_b = compiled_model_.output(1);
@@ -144,13 +145,17 @@ void YOLOv11_SEG::initializeModelState()
     runtime_.mask_output_numel =
         static_cast<size_t>(runtime_.mask_dim) * runtime_.mask_h * runtime_.mask_w;
 
-    input_buffer_.assign(static_cast<size_t>(3) * runtime_.input_w * runtime_.input_h, 0.0f);
+    input_buffer_.assign(static_cast<size_t>(runtime_.input_channels) *
+                             runtime_.input_w *
+                             runtime_.input_h,
+                         0.0f);
     det_output_buffer_.assign(runtime_.det_output_numel, 0.0f);
     mask_output_buffer_.assign(runtime_.mask_output_numel, 0.0f);
 
     cout << "YOLOv11_SEG OpenVINO Model Info:" << endl;
     cout << "  Device: " << actual_device_ << endl;
-    cout << "  Input: " << runtime_.input_w << "x" << runtime_.input_h << endl;
+    cout << "  Input: " << runtime_.input_channels << "x"
+         << runtime_.input_h << "x" << runtime_.input_w << endl;
     cout << "  Raw Detection Tensor: " << ShapeToString(det_shape) << endl;
     cout << "  Raw Proto Tensor: " << ShapeToString(mask_shape) << endl;
     cout << "  Detection Output: " << runtime_.detection_attribute_size << " x " << runtime_.num_detections << endl;
@@ -167,6 +172,7 @@ void YOLOv11_SEG::preprocess(Mat& image)
     PrepareNchwLetterboxInput(image,
                               runtime_.input_w,
                               runtime_.input_h,
+                              runtime_.input_channels,
                               input_port_,
                               infer_request_,
                               input_buffer_,

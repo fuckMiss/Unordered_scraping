@@ -125,10 +125,13 @@ private:
     void bindActions();
     void toggleImageSaveSession();
     void refreshImageSaveButton();
+    void saveLastPlcErrorImages();
+    void refreshErrorImageButton();
     bool savePlcFrameImage(const cv::Mat& frame,
                            const FrameInferenceResult& result,
                            QString* saved_path,
-                           QString* error_message) const;
+                           QString* error_message,
+                           QString* warning_message) const;
     void syncWindowControlButtons();
     void syncSidePanelToggleButton();
     bool isVisuallyMaximized() const;
@@ -193,6 +196,7 @@ private:
     void loadObbPostprocessSettings();
     void saveObbPostprocessSettings() const;
     void loadStartupLaunchSettings();
+    void loadImageRetentionSettings();
     bool saveStartupLaunchSettings(QString* error_message = nullptr) const;
     void loadUiOverlaySettings();
     void saveUiOverlaySettings() const;
@@ -213,7 +217,8 @@ private:
     void applyProjectProfileSettings(const ProjectProfileSettings& profile);
     bool switchProjectProfile(const QString& profile_name,
                               bool reload_models,
-                              QString* error_message = nullptr);
+                              QString* error_message = nullptr,
+                              std::function<void(bool, const QString&)> completion = {});
     bool SaveEngineeringProfile(const EngineeringSettingsDraft& draft,
                                 const QString& profile_name,
                                 ProjectProfileSettings* saved_profile = nullptr,
@@ -305,6 +310,7 @@ private:
     QPushButton* stop_button_ = nullptr;
     QComboBox* display_mode_selector_ = nullptr;
     QPushButton* image_save_button_ = nullptr;
+    QPushButton* error_image_button_ = nullptr;
     QPushButton* engineering_button_ = nullptr;
     QPushButton* target_list_button_ = nullptr;
     QPushButton* runtime_log_button_ = nullptr;
@@ -358,6 +364,9 @@ private:
     InputMode input_mode_ = InputMode::Idle;
     cv::Mat current_frame_;
     FrameInferenceResult current_result_;
+    cv::Mat last_plc_completed_frame_;
+    FrameInferenceResult last_plc_completed_result_;
+    bool has_last_plc_completed_frame_ = false;
     QString obb_model_path_;
     QString seg_model_path_;
     QString current_project_profile_name_;
@@ -386,6 +395,7 @@ private:
     bool postprocess_debug_logging_enabled_ = false;
     bool auto_start_enabled_ = true;
     int startup_delay_seconds_ = 10;
+    int max_saved_images_ = 1000;
     bool show_grab_limit_overlay_ = true;
     double mechanical_gripper_length_ = 0.0;
     double mechanical_gripper_width_ = 0.0;

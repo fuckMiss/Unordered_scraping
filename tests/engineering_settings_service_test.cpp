@@ -155,6 +155,16 @@ void PlcRelatedSettingsRoundTrip()
     EngineeringSettingsService::SaveStartupLaunchSettings({ true, 999 });
     assert(EngineeringSettingsService::LoadStartupLaunchSettings().delay_seconds == 600);
 
+    const ImageRetentionSettings default_retention =
+        EngineeringSettingsService::LoadImageRetentionSettings({});
+    assert(default_retention.max_saved_images == 1000);
+    EngineeringSettingsService::SaveImageRetentionSettings({ 2500 });
+    assert(EngineeringSettingsService::LoadImageRetentionSettings({}).max_saved_images == 2500);
+    EngineeringSettingsService::SaveImageRetentionSettings({ 0 });
+    assert(EngineeringSettingsService::LoadImageRetentionSettings({}).max_saved_images == 1000);
+    EngineeringSettingsService::SaveImageRetentionSettings({ 100001 });
+    assert(EngineeringSettingsService::LoadImageRetentionSettings({}).max_saved_images == 100000);
+
     ModelThresholdSettings thresholds;
     thresholds.obb_conf_threshold = 0.62;
     thresholds.obb_nms_threshold = 0.35;

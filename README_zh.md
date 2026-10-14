@@ -10,14 +10,18 @@ TankEye-Iris 是一套 Windows 工业视觉抓取上位机。它负责把现场�
 
 ## 当前版本
 
-- 当前发布包名称：`TankEye-Iris_2.1.5`。
+- 当前发布包名称：`TankEye-Iris_2.2.3`。
 - 主界面采用左图像区约 75%、右控制栏约 25% 的布局。
 - 右侧栏为双列卡片/按钮布局，窗口缩放时会自适应压缩。
 - 图像显示采用完整显示模式，允许边缘留白，不裁剪图像。
 - 显示模式为下拉选择：`隐藏`、`全显`、`无显示`。`无显示` 只展示原始图，不绘制算法叠加层。
 - `开始保存/停止保存` 用于保存 PLC 触发后的检测帧，图片写入运行目录 `images/`，并按开始保存时选定的显示模式固定本批保存口径。
+- PLC 检测帧默认最多保留 1000 张，管理员可设为 1~100000；只在新图保存成功后按 FIFO 删除最旧的 `images/tankeye_plc_*.png`，不影响其他文件。
+- `保存错误图片` 在首次 PLC 检测完成后可用，普通和管理员模式均可保存最近完成帧的原图与固定 `AllDebug` 诊断图到 `error_images/`，不参与普通图片数量限制。
+- 2.2.3 已恢复 2.1.9 候选旧规则，保留 Canny 三边微调、矩形重建、二次垂足选择、固定 45 px A 点、基础框重建和沿 AC 垂直方向 2 倍放大流程；`PoseDetection::corners` 使用最终 A/C 重建的基础框，真实夹爪方向为归一化 `AC角度+90°`。类型显示补偿旋转后平移，不修改上游安全几何。
+- 登录、管理员创建/重置、模型路径、方案命名和相关下拉框已明确 Return/Enter 行为，回车只推进或提交预期操作。
 - “加载图片”使用后台线程读取，减少 UI 阻塞。
-- 程序启动后会自动加载 OBB/SEG 模型；OpenVINO 首次 GPU/CPU 编译可能较慢，运行包默认保留 `openvino_cache`，第二次通常会更快。
+- AutoStart 或手动指定 `-AutoLoadModels` 时会请求加载 OBB/SEG 模型；OpenVINO 首次 GPU/CPU 编译可能较慢，运行包默认保留 `openvino_cache`，第二次通常会更快。
 - 运行日志默认写入 `logs/tankeye_*.log`，所有 `cout/cerr` 日志都会带时间戳。
 - 界面内“运行日志”支持查看最新日志、自动刷新、搜索、级别过滤、时间过滤和分页。
 - 程序默认进入普通模式；管理员和工程设置需要本机有效的 `config/admin_license.json`，普通检测不依赖管理员授权。
@@ -28,7 +32,7 @@ TankEye-Iris 是一套 Windows 工业视觉抓取上位机。它负责把现场�
 输入：
 
 - 海康 Hikrobot 工业相机图像；调试时可使用 OpenCV camera 0 回退。
-- OBB/SEG 模型来自当前工程方案。默认 `DG_8` 方案使用 `models/DG_8_weights/best_obb.xml` 和 `models/DG_8_weights/best_seg.xml`；运行包也可携带 `DG_10_weights`。
+- OBB/SEG 模型来自当前工程方案。只有方案列表为空时才首次创建 `DG_8`，初始使用 `models/DG_8_weights/best_obb.xml` 和 `models/DG_8_weights/best_seg.xml`；存在其他方案时 `DG_8` 可以删除。运行包也可携带 `DG_10_weights`。
 - 现场配置：`config/tankeye.json`、工程设置窗口保存的 `QSettings`、九点标定配置。
 - PLC 拍照触发寄存器。
 
@@ -40,12 +44,12 @@ TankEye-Iris 是一套 Windows 工业视觉抓取上位机。它负责把现场�
 
 ## 主运行链路
 
-1. 启动 `launch_tankeye.ps1` 或 `launch_tankeye_main_only.vbs`。
+1. 手动调试使用 `launch_tankeye.ps1`；双击 `launch_tankeye_main_only.vbs` 会使用 `StartupProfile AutoStart`。
 2. 启动脚本准备 DLL 搜索路径、OpenVINO 设备、模型路径、日志路径、PLC 覆盖参数、窗口参数和相机 IP。
 3. `tankeye-openvino_qt_app.exe` 启动 Qt 主界面，读取 `config/tankeye.json`。
-4. `GraspWorkflow` 加载 OBB/SEG OpenVINO 模型。
+4. `GraspWorkflow` 加载 OBB/SEG OpenVINO 模型；双击入口会在模型加载完成后请求进入现有 PLC 抓取联动，工程设置关闭“开机自启”时仍会阻止该动作。
 5. 相机线程从 Hikrobot 相机取帧；设置 `TANKEYE_CAMERA_FALLBACK=1` 时，Hikrobot 不可用会回退到 OpenCV camera 0。
-6. 每帧依次执行 OBB 推理、SEG 推理和后处理。
+6. 每帧保留原始彩色 BGR 供显示、保存和后处理，同时派生 `BGR -> 灰度 -> 三通道灰度 BGR` 供 OBB/SEG 推理；公共预处理按已加载模型的输入 shape 生成 `[1, 1, H, W]` 或 `[1, 3, H, W]` 张量。
 7. 后处理只把结构上可解释的目标交给抓取逻辑：OBB 的 `left` 是夹取位，`big/small` 是头部辅助点，SEG 提供物料区域。
 8. 九点标定把主目标中心从图像 `X/Y` 转成机械 `X/Y`。
 9. 机械 ROI、上下限和角度规则过滤不可抓目标。
@@ -123,11 +127,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin
 
 - 相机 IP、曝光值、九点坐标转换、限位、轴向映射、补偿和角度校准会保存，下次打开复用。
 - 工程方案（例如 `DG_8`、`DG_10`）把模型路径和现场可调参数放在同一生命周期里管理；保存、暂存、应用、新建由主窗口明确入口处理，工程设置弹窗不再直接承担运行态切换。
+- `DG_8` 是空方案列表首次初始化时创建的默认方案，不是永久保留方案；存在其他方案时可删除。删除当前运行方案时，先加载替代方案，加载失败则保留旧方案。
 - `曝光 us` 可手动填写，也可使用 `单次自动曝光`。
 - `上下限保护` 使用机械坐标过滤目标；`ROI 留边` 会把边界向内收缩，避免抓取边界附近物料。
 - `夹爪长度/夹爪宽度` 在坐标转换有效时用于绘制真实机械夹爪框；整框越界、缺少有效夹爪框或真实 mask 碰撞都会保守拒抓。
 - `轴向映射` 可选择 `前后=机械Y，左右=机械X` 或 `前后=机械X，左右=机械Y`，同时影响 PLC `D500/D502`、机械 ROI 和限位检查。
-- `前后补偿`、`左右补偿` 只叠加到最终 PLC 输出和 PLC 测试显示，不影响九点矩阵、机械 ROI 或限位判断。
+- `前后补偿`、`左右补偿` 只叠加到最终 PLC 输出和 PLC 测试显示，不改变九点矩阵和机械夹爪几何；最终轴限位会检查补偿后的 PLC 值。
 - 角度校准公式：
 
 ```text
@@ -176,7 +181,7 @@ cmake --build build --config Release
 .\launch_tankeye.ps1 -Configuration Release -BuildDir build -WindowMode Maximized
 ```
 
-源码路径含中文或非 ASCII 字符时，启动脚本默认不自动传模型参数；需要自动加载模型时，优先使用 ASCII-only 路径或运行包。
+手动启动只有指定 `-AutoLoadModels` 才请求加载默认模型；AutoStart 会请求加载模型和进入既有 PLC 联动。排查模型路径时，以活动工程方案和实际启动参数为准。
 
 ## 测试
 
@@ -196,20 +201,27 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_test
 - PLC 输出合约：`plc_result_contract_test`
 - PLC 寄存器映射：`robot_controller_register_map_test`
 - UI 状态展示：`runtime_status_presenter_test`、`plc_runtime_state_test`
+- 管理员认证与回车行为：`admin_auth_helpers_test`
+- 工程控件滚轮与回车行为：`engineering_settings_spinbox_wheel_test`
+- PLC 图片 FIFO 和错误图片保存：`image_retention_test`、`error_image_store_test`
+- OpenVINO 单/三通道输入与模型目录检测：`openvino_input_test`、`model_folder_detector_test`
+- 标定和工程方案持久化：`calibration_profile_store_test`、`project_profile_store_test`
+
+2026-10-12 发布核验中，17 个默认 Release 测试有 15 个真实通过；`admin_auth_helpers_test` 和 `engineering_settings_spinbox_wheel_test` 在 Qt UI 路径阻塞并已终止，因此不得表述为 17/17 全部通过。几何流程 `frame_postprocess_smoke` 另行执行并通过。原认证测试会清空 Windows 用户级 QSettings，执行前必须将设置和临时目录隔离到仓内，不能直接运行原认证测试。2.2.3 打包核验重跑相关六项测试通过，现场 GUI、相机、PLC 验收尚未确认。
 
 ## 部署与打包
 
 生成独立运行包：
 
 ```powershell
-.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.5 -Force
+.\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.2.3 -Force
 ```
 
 输出目录：
 
 ```text
-dist/TankEye-Iris_2.1.5
-dist/TankEye-Iris_2.1.5.zip
+dist/TankEye-Iris_2.2.3
+dist/TankEye-Iris_2.2.3.zip
 ```
 
 运行包包含主程序、模型、配置、标定输出、示例图、运行时 DLL、启动脚本、桌面图标脚本和使用说明。它不应包含源码、CMake 工程、Python 脚本、测试、`.lib`、`.pdb`、`.pt` 等开发产物。
@@ -256,3 +268,7 @@ dist/TankEye-Iris_2.1.5.zip
 - PLC 不联机：先用 `-SimulatePlc` 验证视觉链路，再检查 PLC IP、端口、寄存器地址和网线。
 - 目标坐标异常：优先检查九点标定点顺序、机械坐标录入、单应矩阵有效性和 ROI/轴向映射。
 - 管理员授权无效：检查 `config/admin_license.json` 是否存在、是否属于本机、是否由同一份 `config/admin_auth.key` 生成；忘记密码还需要正确回答创建管理员时设置的恢复问题。
+
+## 最终维护基线
+
+当前正式本地产物为 2.2.3；包哈希、验证限制与现场待验项以 [HANDOFF](docs/project-memory/HANDOFF.md) 为准。远端旧 main 与 V7 历史独立，本轮发布保留两条历史，以最终 Windows 源码树为准，不强制推送。

@@ -73,9 +73,9 @@ void ValidateBatchOneTensorShape(const ov::Shape& shape,
 void ValidateBatchOneNchwInputShape(const ov::Shape& shape, const string& tensor_name)
 {
     ValidateBatchOneTensorShape(shape, 4, tensor_name);
-    if (shape[1] != 3) {
+    if (shape[1] != 1 && shape[1] != 3) {
         throw runtime_error("Unsupported " + tensor_name +
-                            " channel count/layout: expected [1, 3, H, W], got " +
+                            " channel count/layout: expected [1, 1, H, W] or [1, 3, H, W], got " +
                             ShapeToString(shape));
     }
 }
@@ -215,11 +215,15 @@ DetectionOutputLayout ParseDetectionOutputLayout(const ov::Shape& shape,
 vector<float> BuildNchwLetterboxInput(Mat& image,
                                       int input_w,
                                       int input_h,
+                                      int input_channels,
                                       float* scale_ratio,
                                       float* pad_x,
                                       float* pad_y)
 {
     ValidateInputImage(image, 4096 * 4096);
+    if (input_channels != 1 && input_channels != 3) {
+        throw invalid_argument("Input model must use 1 or 3 channels");
+    }
 
     const float scale = min(input_h / static_cast<float>(image.rows),
                             input_w / static_cast<float>(image.cols));
@@ -246,11 +250,22 @@ vector<float> BuildNchwLetterboxInput(Mat& image,
     resize(image, resized, Size(resized_w, resized_h), 0.0, 0.0, INTER_LINEAR);
     resized.copyTo(canvas(Rect(left, top, resized_w, resized_h)));
 
+    const int area = input_w * input_h;
+    vector<float> input(static_cast<size_t>(input_channels) * area);
+    if (input_channels == 1) {
+        Mat gray;
+        cvtColor(canvas, gray, COLOR_BGR2GRAY);
+        for (int y = 0; y < input_h; ++y) {
+            const uchar* row = gray.ptr<uchar>(y);
+            for (int x = 0; x < input_w; ++x) {
+                input[y * input_w + x] = row[x] / 255.0f;
+            }
+        }
+        return input;
+    }
+
     Mat rgb;
     cvtColor(canvas, rgb, COLOR_BGR2RGB);
-
-    vector<float> input(static_cast<size_t>(3) * input_w * input_h);
-    const int area = input_w * input_h;
     for (int y = 0; y < input_h; ++y) {
         const Vec3b* row = rgb.ptr<Vec3b>(y);
         for (int x = 0; x < input_w; ++x) {
@@ -266,6 +281,7 @@ vector<float> BuildNchwLetterboxInput(Mat& image,
 void PrepareNchwLetterboxInput(Mat& image,
                                int input_w,
                                int input_h,
+                               int input_channels,
                                const ov::Output<const ov::Node>& input_port,
                                ov::InferRequest& infer_request,
                                vector<float>& input_buffer,
@@ -273,7 +289,13 @@ void PrepareNchwLetterboxInput(Mat& image,
                                float* pad_x,
                                float* pad_y)
 {
-    input_buffer = BuildNchwLetterboxInput(image, input_w, input_h, scale_ratio, pad_x, pad_y);
+    input_buffer = BuildNchwLetterboxInput(image,
+                                           input_w,
+                                           input_h,
+                                           input_channels,
+                                           scale_ratio,
+                                           pad_x,
+                                           pad_y);
     ov::Tensor input_tensor(ov::element::f32, input_port.get_shape(), input_buffer.data());
     infer_request.set_input_tensor(input_tensor);
 }
@@ -341,4 +363,3 @@ vector<float> TensorToAttributeMajorVector(const ov::Tensor& tensor,
 
     throw runtime_error("Detection tensor shape does not match parsed layout: " + ShapeToString(shape));
 }
-

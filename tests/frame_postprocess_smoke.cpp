@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <vector>
@@ -35,6 +36,14 @@ float PointLength(cv::Point2f point)
     return std::hypot(point.x, point.y);
 }
 
+void RequireDirectionContract(bool condition, const char* message)
+{
+    if (!condition) {
+        std::cerr << "direction contract failed: " << message << std::endl;
+        std::abort();
+    }
+}
+
 cv::Point2f AveragePoint(const std::vector<cv::Point2f>& points)
 {
     cv::Point2f sum(0.0f, 0.0f);
@@ -55,14 +64,20 @@ cv::Point2f ClosestPointOnSegment(cv::Point2f point, cv::Point2f start, cv::Poin
     return start + edge * t;
 }
 
-cv::Point2f ExpectedPythonAcFoot(const std::vector<cv::Point2f>& grip_corners,
-                                 cv::Point2f segment_center)
+struct ExpectedAcSelection
+{
+    cv::Point2f foot;
+    float dot = -std::numeric_limits<float>::infinity();
+    int edge_index = -1;
+};
+
+ExpectedAcSelection ExpectedPythonAcSelection(const std::vector<cv::Point2f>& grip_corners,
+                                              cv::Point2f segment_center)
 {
     const cv::Point2f grip_center = AveragePoint(grip_corners);
     const cv::Point2f oa = grip_center - segment_center;
     const cv::Point2f oa_unit = oa * (1.0f / PointLength(oa));
-    float best_dot = -std::numeric_limits<float>::infinity();
-    cv::Point2f best_foot = grip_center;
+    ExpectedAcSelection best;
 
     for (size_t i = 0; i < grip_corners.size(); ++i) {
         const cv::Point2f foot = ClosestPointOnSegment(
@@ -73,13 +88,47 @@ cv::Point2f ExpectedPythonAcFoot(const std::vector<cv::Point2f>& grip_corners,
             continue;
         }
         const float dot = oa_unit.dot(ac * (1.0f / ac_length));
-        if (dot > best_dot) {
-            best_dot = dot;
-            best_foot = foot;
+        if (dot > best.dot) {
+            best.dot = dot;
+            best.foot = foot;
+            best.edge_index = static_cast<int>(i);
         }
     }
 
-    return best_foot;
+    return best;
+}
+
+cv::Point2f ExpectedPythonAcFoot(const std::vector<cv::Point2f>& grip_corners,
+                                 cv::Point2f segment_center)
+{
+    return ExpectedPythonAcSelection(grip_corners, segment_center).foot;
+}
+
+std::vector<cv::Point2f> SortCornersByCenterAngle(std::vector<cv::Point2f> corners)
+{
+    const cv::Point2f center = AveragePoint(corners);
+    std::sort(corners.begin(),
+              corners.end(),
+              [&](const cv::Point2f& left, const cv::Point2f& right) {
+                  return std::atan2(left.y - center.y, left.x - center.x) <
+                         std::atan2(right.y - center.y, right.x - center.x);
+              });
+    return corners;
+}
+
+void AssertLegacyGeometryContract(const PoseDetection& target)
+{
+    RequireDirectionContract(NearlyEqual(target.grip_long_angle_deg,
+                                         std::fmod(target.angle_deg + 90.0f, 360.0f)),
+                             "legacy gripper direction must equal AC plus 90 degrees");
+    RequireDirectionContract(NearlyEqual(PointLength(target.arrow_end - target.arrow_start), 45.0f),
+                             "legacy A must remain 45 pixels from C");
+    RequireDirectionContract(target.corners.size() == 4,
+                             "legacy base frame must have four corners");
+    const cv::Point2f center = AveragePoint(target.corners);
+    RequireDirectionContract(NearlyEqual(center.x, target.arrow_start.x) &&
+                                 NearlyEqual(center.y, target.arrow_start.y),
+                             "legacy base frame must be centered at final A");
 }
 
 cv::Point2f ExpectedScriptFinalCenter(const std::vector<cv::Point2f>& grip_corners,
@@ -159,7 +208,8 @@ SegDetection MakeWrongSizeMaskSegment(const cv::Rect& bbox)
 
 FrameInferenceResult RunPostprocess(const std::vector<OBBDetection>& obb_output,
                                     const std::vector<SegDetection>& seg_output = { MakeSegment() },
-                                    FramePostprocessConfig config = {})
+                                    FramePostprocessConfig config = {},
+                                    const cv::Mat* original_image = nullptr)
 {
     return BuildFrameInferenceResult(obb_output,
                                      { "left", "big", "small" },
@@ -169,7 +219,8 @@ FrameInferenceResult RunPostprocess(const std::vector<OBBDetection>& obb_output,
                                      kImageSize,
                                      1.0,
                                      1.0,
-                                     config);
+                                     config,
+                                     original_image);
 }
 
 void BigRightMapsToHeadType1()
@@ -529,14 +580,14 @@ void FinalRayAngleMatchesAcRay()
         MakeObb(kBigClass, 0.80f, { 80.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
     }, { MakeSegment(cv::Rect(20, 20, 120, 180)) }, raw_config);
 
-    assert(raw.primary_index >= 0);
+    RequireDirectionContract(raw.primary_index >= 0, "FinalRayAngleMatchesAcRay");
     const PoseDetection& target = raw.detections[raw.primary_index];
-    assert(NearlyEqual(target.angle_deg, AngleBetween(target.arrow_start, target.arrow_end)));
-    assert(target.arrow_end.x > target.arrow_start.x);
-    assert(NearlyEqual(target.angle_deg, 0.0f));
-    assert(NearlyEqual(target.grip_long_angle_deg, 90.0f));
-    assert(NearlyEqual(target.obb_center.x, target.center_x));
-    assert(NearlyEqual(target.obb_center.y, target.center_y));
+    RequireDirectionContract(NearlyEqual(target.angle_deg, AngleBetween(target.arrow_start, target.arrow_end)), "FinalRayAngleMatchesAcRay");
+    RequireDirectionContract(target.arrow_end.x > target.arrow_start.x, "FinalRayAngleMatchesAcRay");
+    RequireDirectionContract(NearlyEqual(target.angle_deg, 0.0f), "FinalRayAngleMatchesAcRay");
+    AssertLegacyGeometryContract(target);
+    RequireDirectionContract(NearlyEqual(target.obb_center.x, target.center_x), "FinalRayAngleMatchesAcRay");
+    RequireDirectionContract(NearlyEqual(target.obb_center.y, target.center_y), "FinalRayAngleMatchesAcRay");
 }
 
 void ScriptGeometryUsesFixedAcDistanceFromFoot()
@@ -548,26 +599,22 @@ void ScriptGeometryUsesFixedAcDistanceFromFoot()
         MakeObb(kBigClass, 0.80f, { 80.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
     }, { MakeSegment(cv::Rect(20, 20, 120, 180)) }, config);
 
-    assert(result.primary_index >= 0);
+    RequireDirectionContract(result.primary_index >= 0, "ScriptGeometryUsesFixedAcDistanceFromFoot");
     const PoseDetection& target = result.detections[result.primary_index];
-    const cv::Point2f expected_foot = ExpectedPythonAcFoot({
+    const std::vector<cv::Point2f> raw_corners = {
         { 105.0f, 100.0f },
         { 115.0f, 100.0f },
         { 115.0f, 120.0f },
         { 105.0f, 120.0f },
-    }, target.seg_center);
-    const cv::Point2f expected_center = ExpectedScriptFinalCenter({
-        { 105.0f, 100.0f },
-        { 115.0f, 100.0f },
-        { 115.0f, 120.0f },
-        { 105.0f, 120.0f },
-    }, target.seg_center);
-    assert(NearlyEqual(target.angle_deg, 0.0f));
-    assert(NearlyEqual(target.arrow_end.x, expected_foot.x));
-    assert(NearlyEqual(target.arrow_end.y, expected_foot.y));
-    assert(NearlyEqual(target.center_x, expected_center.x));
-    assert(NearlyEqual(target.center_y, expected_center.y));
-    assert(NearlyEqual(target.grip_long_angle_deg, 90.0f));
+    };
+    const cv::Point2f expected_foot = ExpectedPythonAcFoot(raw_corners, target.seg_center);
+    const cv::Point2f expected_center = ExpectedScriptFinalCenter(raw_corners, target.seg_center);
+    RequireDirectionContract(NearlyEqual(target.angle_deg, 0.0f), "ScriptGeometryUsesFixedAcDistanceFromFoot");
+    RequireDirectionContract(NearlyEqual(target.arrow_end.x, expected_foot.x), "ScriptGeometryUsesFixedAcDistanceFromFoot");
+    RequireDirectionContract(NearlyEqual(target.arrow_end.y, expected_foot.y), "ScriptGeometryUsesFixedAcDistanceFromFoot");
+    RequireDirectionContract(NearlyEqual(target.center_x, expected_center.x), "ScriptGeometryUsesFixedAcDistanceFromFoot");
+    RequireDirectionContract(NearlyEqual(target.center_y, expected_center.y), "ScriptGeometryUsesFixedAcDistanceFromFoot");
+    AssertLegacyGeometryContract(target);
 }
 
 void MissingHeadKeepsTargetRejectedWithoutAcFallback()
@@ -578,11 +625,9 @@ void MissingHeadKeepsTargetRejectedWithoutAcFallback()
         MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 20.0f, 10.0f }, 90.0f),
     }, { MakeSegment(cv::Rect(20, 20, 170, 180)) }, config);
 
-    assert(result.detections.size() == 1);
-    const PoseDetection& target = result.detections.front();
-    assert(!target.can_grab);
-    assert(NearlyEqual(target.arrow_end.x, target.obb_center.x));
-    assert(NearlyEqual(target.center_y, 110.0f));
+    RequireDirectionContract(result.detections.empty() && result.primary_index == -1 &&
+                                 result.pick_status_code == 3,
+                             "missing head must not produce a fallback AC target");
 }
 
 void ScriptGeometryKeepsBaseCornersAndAngle()
@@ -593,22 +638,22 @@ void ScriptGeometryKeepsBaseCornersAndAngle()
         MakeObb(kSmallClass, 0.80f, { 80.0f, 80.0f }, { 16.0f, 8.0f }, 0.0f),
     }, { MakeSegment(cv::Rect(20, 20, 120, 180)) });
 
-    assert(result.primary_index >= 0);
+    RequireDirectionContract(result.primary_index >= 0, "ScriptGeometryKeepsBaseCornersAndAngle");
     const PoseDetection& target = result.detections[result.primary_index];
     const cv::Point2f expected_foot = ExpectedPythonAcFoot(grip.corners, target.seg_center);
     const cv::Point2f expected_center = ExpectedScriptFinalCenter(grip.corners, target.seg_center);
-    assert(NearlyEqual(target.angle_deg, AngleBetween(target.arrow_start, target.arrow_end)));
-    assert(NearlyEqual(target.arrow_end.x, expected_foot.x));
-    assert(NearlyEqual(target.arrow_end.y, expected_foot.y));
-    assert(NearlyEqual(target.center_x, expected_center.x));
-    assert(NearlyEqual(target.center_y, expected_center.y));
-    assert(NearlyEqual(target.grip_long_angle_deg, std::fmod(target.angle_deg + 90.0f, 360.0f)));
-    assert(target.corners.size() == grip.corners.size());
-    assert(target.bbox.width > 0);
-    assert(target.bbox.height > 0);
+    RequireDirectionContract(NearlyEqual(target.angle_deg, AngleBetween(target.arrow_start, target.arrow_end)), "ScriptGeometryKeepsBaseCornersAndAngle");
+    RequireDirectionContract(NearlyEqual(target.arrow_end.x, expected_foot.x), "ScriptGeometryKeepsBaseCornersAndAngle");
+    RequireDirectionContract(NearlyEqual(target.arrow_end.y, expected_foot.y), "ScriptGeometryKeepsBaseCornersAndAngle");
+    RequireDirectionContract(NearlyEqual(target.center_x, expected_center.x), "ScriptGeometryKeepsBaseCornersAndAngle");
+    RequireDirectionContract(NearlyEqual(target.center_y, expected_center.y), "ScriptGeometryKeepsBaseCornersAndAngle");
+    AssertLegacyGeometryContract(target);
+    RequireDirectionContract(target.corners.size() == grip.corners.size(), "ScriptGeometryKeepsBaseCornersAndAngle");
+    RequireDirectionContract(target.bbox.width > 0, "ScriptGeometryKeepsBaseCornersAndAngle");
+    RequireDirectionContract(target.bbox.height > 0, "ScriptGeometryKeepsBaseCornersAndAngle");
 }
 
-void AcRayChoosesFootWithLargestOaDotProduct()
+void AcRayUsesAllEdgesByMaxOaDotProduct()
 {
     const OBBDetection grip = MakeObb(kGripClass, 0.90f, { 100.0f, 100.0f }, { 40.0f, 20.0f }, 30.0f);
     const FrameInferenceResult result = RunPostprocess({
@@ -616,12 +661,128 @@ void AcRayChoosesFootWithLargestOaDotProduct()
         MakeObb(kBigClass, 0.80f, { 60.0f, 60.0f }, { 16.0f, 8.0f }, 80.0f),
     }, { MakeSegment(cv::Rect(20, 20, 120, 120)) });
 
-    assert(result.primary_index >= 0);
+    RequireDirectionContract(result.primary_index >= 0, "AcRayUsesAllEdgesByMaxOaDotProduct");
     const PoseDetection& target = result.detections[result.primary_index];
     const cv::Point2f expected_foot = ExpectedPythonAcFoot(grip.corners, target.seg_center);
-    assert(NearlyEqual(target.arrow_end.x, expected_foot.x));
-    assert(NearlyEqual(target.arrow_end.y, expected_foot.y));
-    assert(NearlyEqual(target.angle_deg, AngleBetween(target.obb_center, expected_foot)));
+    RequireDirectionContract(NearlyEqual(target.arrow_end.x, expected_foot.x), "AcRayUsesAllEdgesByMaxOaDotProduct");
+    RequireDirectionContract(NearlyEqual(target.arrow_end.y, expected_foot.y), "AcRayUsesAllEdgesByMaxOaDotProduct");
+    RequireDirectionContract(NearlyEqual(target.angle_deg, AngleBetween(target.obb_center, expected_foot)), "AcRayUsesAllEdgesByMaxOaDotProduct");
+    const ExpectedAcSelection expected =
+        ExpectedPythonAcSelection(grip.corners, target.seg_center);
+    RequireDirectionContract(expected.edge_index >= 0 && expected.dot > 0.0f,
+                             "AC candidate selection must use the best all-edge dot product");
+    AssertLegacyGeometryContract(target);
+}
+
+void LegacyBaseFrameCoversDirectionsAndSizeSwap()
+{
+    const cv::Size2f sizes[] = { { 40.0f, 20.0f }, { 40.0f, 20.0f },
+                               { 40.0f, 20.0f }, { 20.0f, 40.0f }, { 30.0f, 20.0f } };
+    const float angles[] = { 0.0f, 90.0f, 45.0f, 45.0f, 0.0f };
+    for (int i = 0; i < 5; ++i) {
+        const OBBDetection grip =
+            MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, sizes[i], angles[i]);
+        const FrameInferenceResult result = RunPostprocess({
+            grip,
+            MakeObb(kBigClass, 0.80f, { 140.0f, 100.0f }, { 16.0f, 8.0f }, 0.0f),
+        }, { MakeSegment(cv::Rect(20, 20, 180, 160)) });
+        RequireDirectionContract(result.primary_index >= 0,
+                                 "legacy direction coverage requires a primary target");
+        const PoseDetection& target = result.detections[result.primary_index];
+        const cv::Point2f expected_c = ExpectedPythonAcFoot(grip.corners, target.seg_center);
+        const cv::Point2f expected_a = ExpectedScriptFinalCenter(grip.corners, target.seg_center);
+        RequireDirectionContract(NearlyEqual(target.arrow_end.x, expected_c.x) &&
+                                     NearlyEqual(target.arrow_end.y, expected_c.y) &&
+                                     NearlyEqual(target.arrow_start.x, expected_a.x) &&
+                                     NearlyEqual(target.arrow_start.y, expected_a.y),
+                                 "legacy final A and C must follow the old all-edge selection");
+        AssertLegacyGeometryContract(target);
+        const cv::Point2f ac = (expected_c - expected_a) * (1.0f / 45.0f);
+        const cv::Point2f perp(-ac.y, ac.x);
+        float half_width = 0.0f;
+        const cv::Point2f raw_center = AveragePoint(grip.corners);
+        for (const cv::Point2f& point : grip.corners) {
+            half_width = std::max(half_width, std::fabs((point - raw_center).dot(perp)));
+        }
+        for (const cv::Point2f& point : target.corners) {
+            RequireDirectionContract(NearlyEqual(std::fabs((point - expected_a).dot(ac)), 45.0f) &&
+                                         NearlyEqual(std::fabs((point - expected_a).dot(perp)), half_width),
+                                     "legacy base frame must be rebuilt around final A and C");
+        }
+    }
+}
+
+void LegacyBaseFrameSupportsDownwardAc()
+{
+    const OBBDetection grip =
+        MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 40.0f, 20.0f }, 0.0f);
+    const FrameInferenceResult result = RunPostprocess({
+        grip,
+        MakeObb(kBigClass, 0.80f, { 140.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    }, { MakeSegment(cv::Rect(20, 10, 180, 120)) });
+
+    RequireDirectionContract(result.primary_index >= 0,
+                             "downward AC coverage requires a primary target");
+    const PoseDetection& target = result.detections[result.primary_index];
+    const cv::Point2f ac_axis = target.arrow_end - target.arrow_start;
+    RequireDirectionContract(ac_axis.y > 0.0f, "AC must point downward in image coordinates");
+    AssertLegacyGeometryContract(target);
+}
+
+void CannyImageParticipatesInRectangleRebuild()
+{
+    const std::vector<OBBDetection> obb_output = {
+        MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, { 40.0f, 20.0f }, 0.0f),
+        MakeObb(kBigClass, 0.80f, { 140.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+    };
+    const std::vector<SegDetection> seg_output = {
+        MakeSegment(cv::Rect(20, 10, 180, 120)),
+    };
+    const FrameInferenceResult without_image = RunPostprocess(obb_output, seg_output);
+
+    cv::Mat original_image(kImageSize, kImageSize, CV_8UC1, cv::Scalar(0));
+    cv::rectangle(original_image, cv::Rect(93, 103, 40, 20), cv::Scalar(255), 1);
+    const FrameInferenceResult with_image =
+        RunPostprocess(obb_output, seg_output, {}, &original_image);
+
+    RequireDirectionContract(with_image.primary_index >= 0 &&
+                                 with_image.detections.front().corners.size() == 4,
+                             "Canny input must preserve a valid rebuilt rectangle");
+    RequireDirectionContract(without_image.primary_index >= 0 &&
+                                 without_image.detections.front().corners.size() == 4,
+                             "Canny comparison requires the no-image geometry");
+    const std::vector<cv::Point2f> without_image_corners =
+        SortCornersByCenterAngle(without_image.detections.front().corners);
+    const std::vector<cv::Point2f> with_image_corners =
+        SortCornersByCenterAngle(with_image.detections.front().corners);
+    bool changed = false;
+    for (size_t i = 0; i < with_image_corners.size(); ++i) {
+        if (!NearlyEqual(with_image_corners[i].x, without_image_corners[i].x) ||
+            !NearlyEqual(with_image_corners[i].y, without_image_corners[i].y)) {
+            changed = true;
+            break;
+        }
+    }
+    RequireDirectionContract(changed,
+                             "Canny input must affect the rebuilt rectangle geometry");
+}
+
+void LegacyGeometryPreservesDegenerateBehavior()
+{
+    for (const cv::Size2f size : { cv::Size2f(0.0f, 0.0f), cv::Size2f(0.0f, 20.0f) }) {
+        const FrameInferenceResult result = RunPostprocess({
+            MakeObb(kGripClass, 0.90f, { 110.0f, 110.0f }, size, 0.0f),
+            MakeObb(kBigClass, 0.80f, { 140.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
+        });
+        if (size.height == 0.0f) {
+            RequireDirectionContract(result.primary_index == -1 && result.detections.empty(),
+                                     "zero-size grip must not produce a fallback AC target");
+        } else {
+            RequireDirectionContract(result.primary_index >= 0,
+                                     "line-shaped grip must preserve the legacy candidate behavior");
+            AssertLegacyGeometryContract(result.detections[result.primary_index]);
+        }
+    }
 }
 
 void ExtendedObbIOUCollisionRejectsConservatively()
@@ -631,15 +792,15 @@ void ExtendedObbIOUCollisionRejectsConservatively()
         MakeObb(kSmallClass, 0.80f, { 70.0f, 70.0f }, { 16.0f, 8.0f }, 0.0f),
     }, {
         MakeSegment(cv::Rect(20, 20, 100, 120)),
-        MakeSegmentWithMask(cv::Rect(108, 20, 80, 120), { cv::Rect(108, 20, 80, 120) }),
+        MakeSegmentWithMask(cv::Rect(90, 70, 40, 40), { cv::Rect(90, 70, 40, 40) }),
     });
 
-    assert(result.detections.size() == 1);
+    RequireDirectionContract(result.detections.size() == 1, "ExtendedObbIOUCollisionRejectsConservatively");
     const PoseDetection& target = result.detections.front();
-    assert(!target.can_grab);
-    assert(!target.mask_collisions.empty());
-    assert(result.primary_index == -1);
-    assert(result.pick_status_code == 3);
+    RequireDirectionContract(!target.can_grab, "ExtendedObbIOUCollisionRejectsConservatively");
+    RequireDirectionContract(!target.mask_collisions.empty(), "ExtendedObbIOUCollisionRejectsConservatively");
+    RequireDirectionContract(result.primary_index == -1, "ExtendedObbIOUCollisionRejectsConservatively");
+    RequireDirectionContract(result.pick_status_code == 3, "ExtendedObbIOUCollisionRejectsConservatively");
 }
 
 } // namespace
@@ -671,7 +832,11 @@ int main()
     ScriptGeometryUsesFixedAcDistanceFromFoot();
     MissingHeadKeepsTargetRejectedWithoutAcFallback();
     ScriptGeometryKeepsBaseCornersAndAngle();
-    AcRayChoosesFootWithLargestOaDotProduct();
+    AcRayUsesAllEdgesByMaxOaDotProduct();
+    LegacyBaseFrameCoversDirectionsAndSizeSwap();
+    LegacyBaseFrameSupportsDownwardAc();
+    CannyImageParticipatesInRectangleRebuild();
+    LegacyGeometryPreservesDegenerateBehavior();
     ExtendedObbIOUCollisionRejectsConservatively();
 
     std::cout << "frame_postprocess_smoke passed" << std::endl;

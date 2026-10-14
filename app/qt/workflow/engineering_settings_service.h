@@ -3,6 +3,7 @@
 #include "coordinate_transform.h"
 #include "frame_postprocess.h"
 #include "grab_limit_evaluator.h"
+#include "image_retention.h"
 #include "plc_result_contract.h"
 
 #include <array>
@@ -98,6 +99,9 @@ public:
 
     static StartupLaunchSettings LoadStartupLaunchSettings();
     static void SaveStartupLaunchSettings(const StartupLaunchSettings& settings);
+
+    static ImageRetentionSettings LoadImageRetentionSettings(const ImageRetentionSettings& defaults);
+    static void SaveImageRetentionSettings(const ImageRetentionSettings& settings);
 
     static HeadTypeCompensationSettings LoadHeadTypeCompensationSettings();
     static HeadTypeCompensationSettings LoadHeadTypeCompensationSettings(const HeadTypeCompensationSettings& defaults);

@@ -29,6 +29,7 @@ struct OBBConfig
 
 struct OBBRuntimeState
 {
+    int input_channels = 0;
     int input_w = 0;
     int input_h = 0;
 
@@ -73,4 +74,3 @@ private:
     OBBConfig config_;
     OBBRuntimeState runtime_;
 };
-

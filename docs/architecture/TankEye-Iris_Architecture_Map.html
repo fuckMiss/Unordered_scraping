@@ -21,6 +21,7 @@
       border: 1px solid #d7dee8;
       page-break-after: always;
     }
+    body:has(#runtime-flow:target) #architecture-map { display: none; }
     h1 {
       margin: 0 0 2mm;
       font-size: 24px;
@@ -58,9 +59,9 @@
   </style>
 </head>
 <body>
-  <section class="page">
+  <section class="page" id="architecture-map">
     <h1>TankEye-Iris 项目架构思维导图</h1>
-    <p class="subtitle">事实来源：当前源码、CMake、脚本、测试和 docs/project-memory；README 不作为主依据。</p>
+    <p class="subtitle">更新：2026-10-14；事实来源：源码、CMake、脚本、测试和 project-memory；现场验收待确认。</p>
     <svg viewBox="0 0 1120 650" role="img" aria-label="TankEye-Iris architecture mind map">
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto">
@@ -70,7 +71,7 @@
 
       <rect x="450" y="280" width="220" height="72" rx="14" fill="#1f6feb" stroke="#1454b8" stroke-width="2"/>
       <text x="560" y="308" text-anchor="middle" font-size="22" font-weight="800" fill="#fff">TankEye-Iris</text>
-      <text x="560" y="332" text-anchor="middle" font-size="12" fill="#dce9ff">V5 / 1.4.1 运行包</text>
+      <text x="560" y="332" text-anchor="middle" font-size="12" fill="#dce9ff">main / 2.2.3 本地产物</text>
 
       <path class="line" d="M450 304 C360 260 300 190 235 116"/>
       <path class="line" d="M450 332 C360 370 300 455 235 535"/>
@@ -84,7 +85,7 @@
       <text class="small" x="78" y="101">main.cpp：日志、启动参数、Startup 同步</text>
       <text class="small" x="78" y="124">GraspMainWindow：主界面、检测、PLC 联动</text>
       <text class="small" x="78" y="147">frame_overlay：OBB / SEG / 夹爪框 / AC 射线</text>
-      <text class="small" x="78" y="170">runtime_status_presenter：开始 / 关闭状态</text>
+      <text class="small" x="78" y="170">最近 PLC 完成帧：原图 + AllDebug 错误图片</text>
 
       <rect class="node green" x="48" y="470" width="304" height="132"/>
       <text class="label" x="200" y="496" text-anchor="middle">Workflow 工作流</text>
@@ -96,7 +97,7 @@
       <text class="label" x="560" y="50" text-anchor="middle">CV / 推理 core</text>
       <text class="small" x="442" y="79">YOLOv11_OBB / YOLOv11_SEG</text>
       <text class="small" x="442" y="102">openvino_utils：预处理、warmup、输出解析</text>
-      <text class="small" x="442" y="125">frame_postprocess：A/B/SEG、AC 几何、D508</text>
+      <text class="small" x="442" y="125">frame_postprocess：A/C 基础框、AC+90°、D508</text>
 
       <rect class="node red" x="420" y="540" width="280" height="92"/>
       <text class="label" x="560" y="566" text-anchor="middle">安全与 PLC 合同</text>
@@ -111,15 +112,15 @@
 
       <rect class="node gray" x="776" y="480" width="312" height="138"/>
       <text class="label" x="932" y="506" text-anchor="middle">配置 / 脚本 / 测试 / 打包</text>
-      <text class="small" x="798" y="535">config、models/weights、calibration_profiles</text>
+      <text class="small" x="798" y="535">config、models/DG_8_weights、project_profiles</text>
       <text class="small" x="798" y="558">launch_tankeye.ps1：Manual / StartupProfile AutoStart</text>
-      <text class="small" x="798" y="581">package_runtime.ps1：生成 dist 运行包与 manifest</text>
-      <text class="small" x="798" y="604">tests：后处理、overlay、PLC 合同、工程设置</text>
+      <text class="small" x="798" y="581">package_runtime.ps1：生成 2.2.3 运行包与 ZIP</text>
+      <text class="small" x="798" y="604">tests：几何、PLC、FIFO、错误图片、UI 合同</text>
     </svg>
-    <p class="note">当前自启合同已收敛为：<strong>-StartupProfile AutoStart -StartupDelaySeconds N</strong>；旧 Startup LNK 只作为迁移残留清理。</p>
+    <p class="note">当前自启合同为 <strong>-StartupProfile AutoStart -StartupDelaySeconds N</strong>；源码、运行包和桌面双击入口均复用 AutoStart，工程设置关闭自启时仍会阻止自动进入检测。</p>
   </section>
 
-  <section class="page">
+  <section class="page" id="runtime-flow">
     <h1>核心运行链路架构图</h1>
     <p class="subtitle">从启动、模型、相机/图片、CV 后处理到 PLC 写入和画面显示。</p>
     <svg viewBox="0 0 1120 650" role="img" aria-label="TankEye-Iris runtime architecture flow">
@@ -155,7 +156,7 @@
 
       <rect class="node orange" x="246" y="202" width="180" height="74"/>
       <text class="label" x="336" y="232" text-anchor="middle">OBB / SEG 推理</text>
-      <text class="tiny" x="336" y="254" text-anchor="middle">OpenVINO CPU/GPU/AUTO</text>
+      <text class="tiny" x="336" y="254" text-anchor="middle">灰度推理 / OpenVINO 1 或 3 通道</text>
 
       <rect class="node orange" x="466" y="202" width="206" height="74"/>
       <text class="label" x="569" y="232" text-anchor="middle">frame_postprocess</text>
@@ -178,7 +179,7 @@
       <rect class="node green" x="80" y="370" width="226" height="88"/>
       <text class="label" x="193" y="402" text-anchor="middle">frame_overlay</text>
       <text class="tiny" x="193" y="424" text-anchor="middle">基础 OBB、真实夹爪框、AC 射线</text>
-      <text class="tiny" x="193" y="444" text-anchor="middle">普通 / 全显调试层</text>
+      <text class="tiny" x="193" y="444" text-anchor="middle">类型显示旋转 + 平移；普通 / 全显</text>
 
       <rect class="node purple" x="444" y="370" width="226" height="88"/>
       <text class="label" x="557" y="402" text-anchor="middle">robot_controller</text>
@@ -187,7 +188,7 @@
 
       <rect class="node gray" x="808" y="370" width="226" height="88"/>
       <text class="label" x="921" y="402" text-anchor="middle">运行包与测试</text>
-      <text class="tiny" x="921" y="424" text-anchor="middle">dist/TankEye-Iris_1.4.1</text>
+      <text class="tiny" x="921" y="424" text-anchor="middle">dist/TankEye-Iris_2.2.3</text>
       <text class="tiny" x="921" y="444" text-anchor="middle">run_build_tests.ps1</text>
 
       <path class="flow-arrow" d="M808 276 C760 334 690 370 670 392"/>

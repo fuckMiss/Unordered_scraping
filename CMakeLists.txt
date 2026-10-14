@@ -135,6 +135,8 @@ set(QT_WORKFLOW_BUSINESS_SOURCES
     app/qt/workflow/grab_limit_evaluator.cpp
     app/qt/workflow/plc_trigger_coordinator.cpp
     app/qt/workflow/plc_result_contract.cpp
+    app/qt/workflow/image_retention.cpp
+    app/qt/workflow/error_image_store.cpp
 )
 set(QT_WORKFLOW_BUSINESS_HEADERS
     app/qt/workflow/app_config_service.h
@@ -145,6 +147,8 @@ set(QT_WORKFLOW_BUSINESS_HEADERS
     app/qt/workflow/grab_limit_evaluator.h
     app/qt/workflow/plc_trigger_coordinator.h
     app/qt/workflow/plc_result_contract.h
+    app/qt/workflow/image_retention.h
+    app/qt/workflow/error_image_store.h
 )
 
 function(configure_yolov11_target target_name)
@@ -210,6 +214,19 @@ add_tankeye_test(frame_postprocess_smoke
         openvino::runtime
 )
 
+add_tankeye_test(openvino_input_test
+    SOURCES
+        tests/openvino_input_test.cpp
+        core/inference/openvino_utils.cpp
+    INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/inference
+        ${OpenCV_INCLUDE_DIRS}
+    LIBS
+        ${OpenCV_LIBS}
+        openvino::runtime
+)
+
 add_tankeye_test(plc_result_contract_test
     SOURCES
         tests/plc_result_contract_test.cpp
@@ -226,6 +243,7 @@ if(BUILD_QT_APP)
         SOURCES
             tests/app_config_service_test.cpp
             app/qt/workflow/app_config_service.cpp
+            app/qt/workflow/image_retention.cpp
             app/qt/workflow/plc_result_contract.cpp
         INCLUDE_DIRS
             ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
@@ -240,6 +258,7 @@ if(BUILD_QT_APP)
             tests/robot_controller_register_map_test.cpp
             app/qt/hardware/robot_controller.cpp
             app/qt/workflow/app_config_service.cpp
+            app/qt/workflow/image_retention.cpp
             app/qt/workflow/plc_result_contract.cpp
         INCLUDE_DIRS
             ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/hardware
@@ -287,11 +306,35 @@ if(BUILD_QT_APP)
             app/qt/workflow/coordinate_transform.cpp
             app/qt/workflow/grab_limit_evaluator.cpp
             app/qt/workflow/plc_result_contract.cpp
+            app/qt/workflow/image_retention.cpp
         INCLUDE_DIRS
             ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
             ${OpenCV_INCLUDE_DIRS}
         LIBS
             Qt5::Core
+            ${OpenCV_LIBS}
+    )
+
+    add_tankeye_test(image_retention_test
+        SOURCES
+            tests/image_retention_test.cpp
+            app/qt/workflow/image_retention.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+        LIBS
+            Qt5::Core
+    )
+
+    add_tankeye_test(error_image_store_test
+        SOURCES
+            tests/error_image_store_test.cpp
+            app/qt/workflow/error_image_store.cpp
+        INCLUDE_DIRS
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
+            ${OpenCV_INCLUDE_DIRS}
+        LIBS
+            Qt5::Core
+            Qt5::Gui
             ${OpenCV_LIBS}
     )
 
@@ -316,6 +359,7 @@ if(BUILD_QT_APP)
             app/qt/workflow/coordinate_transform.cpp
             app/qt/workflow/grab_limit_evaluator.cpp
             app/qt/workflow/plc_result_contract.cpp
+            app/qt/workflow/image_retention.cpp
         INCLUDE_DIRS
             ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/workflow
             ${CMAKE_CURRENT_SOURCE_DIR}/core/common
@@ -387,6 +431,7 @@ if(BUILD_QT_APP)
     add_tankeye_test(admin_auth_helpers_test
         SOURCES
             tests/admin_auth_helpers_test.cpp
+            app/qt/ui/admin_auth_dialogs.cpp
             app/qt/ui/admin_auth_helpers.cpp
         INCLUDE_DIRS
             ${CMAKE_CURRENT_SOURCE_DIR}/app/qt/ui

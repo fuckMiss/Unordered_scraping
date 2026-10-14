@@ -31,6 +31,7 @@ struct SEGConfig
 
 struct SEGRuntimeState
 {
+    int input_channels = 0;
     int input_w = 0;
     int input_h = 0;
 
@@ -84,4 +85,3 @@ private:
     SEGConfig config_;
     SEGRuntimeState runtime_;
 };
-

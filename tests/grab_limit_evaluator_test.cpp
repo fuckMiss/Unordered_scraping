@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 
 namespace {
@@ -133,6 +134,134 @@ bool NearlyEqual(float left, float right)
     return std::fabs(left - right) < 0.02f;
 }
 
+bool ParallelModulo180(cv::Point2f first, cv::Point2f second)
+{
+    const float first_length = std::hypot(first.x, first.y);
+    const float second_length = std::hypot(second.x, second.y);
+    return first_length >= 1e-6f &&
+           second_length >= 1e-6f &&
+           std::fabs(first.cross(second)) / (first_length * second_length) < 0.01f;
+}
+
+void RequireDirectionContract(bool condition, const char* message)
+{
+    if (!condition) {
+        std::cerr << "direction contract failed: " << message << std::endl;
+        std::abort();
+    }
+}
+
+void MechanicalGripperCornersFollowLongAxis()
+{
+    const float angles[] = { 0.0f, 90.0f, 45.0f, 135.0f };
+    for (const float angle : angles) {
+        FrameInferenceResult result = MakeMechanicalGripperCollisionResult();
+        result.segments.resize(1);
+        PoseDetection& target = result.detections.front();
+        target.grip_long_angle_deg = angle;
+        const float ac_angle_rad = (angle + 90.0f) * static_cast<float>(CV_PI) / 180.0f;
+        target.arrow_end = target.arrow_start +
+                           cv::Point2f(std::cos(ac_angle_rad), std::sin(ac_angle_rad)) * 10.0f;
+        target.angle_deg = angle + 90.0f;
+        const MechanicalGripperCollisionConfig config{ 40.0, 20.0, 10.0, false };
+
+        ApplyMechanicalGripperCollisionFilter(result,
+                                              IdentityCoordinateState(),
+                                              config,
+                                              MakeImageProtectionLimits(),
+                                              AxisMappingMode::FrontBackMachineX);
+
+        RequireDirectionContract(result.detections.front().can_grab,
+                                 "mechanical gripper coverage requires a grabbable target");
+        const std::vector<cv::Point2f>& corners = result.detections.front().mechanical_gripper_corners;
+        RequireDirectionContract(corners.size() == 4,
+                                 "mechanical gripper must have four corners");
+        const float angle_rad = angle * static_cast<float>(CV_PI) / 180.0f;
+        const cv::Point2f expected_long_axis(std::cos(angle_rad), std::sin(angle_rad));
+        const cv::Point2f actual_long_axis = corners[1] - corners[0];
+        RequireDirectionContract(ParallelModulo180(actual_long_axis, expected_long_axis),
+                                 "mechanical gripper long axis must match grip long angle");
+    }
+}
+
+void MechanicalGripperSizeCannotChangeUpstreamBaseFrame()
+{
+    FrameInferenceResult short_gripper = MakeMechanicalGripperCollisionResult();
+    FrameInferenceResult wide_gripper = short_gripper;
+    short_gripper.segments.resize(1);
+    wide_gripper.segments.resize(1);
+
+    const std::vector<cv::Point2f> base_corners = {
+        { 45.0f, 30.0f },
+        { 55.0f, 30.0f },
+        { 55.0f, 70.0f },
+        { 45.0f, 70.0f },
+    };
+    short_gripper.detections.front().corners = base_corners;
+    wide_gripper.detections.front().corners = base_corners;
+    short_gripper.detections.front().grip_long_angle_deg = 90.0f;
+    wide_gripper.detections.front().grip_long_angle_deg = 90.0f;
+    short_gripper.detections.front().arrow_start = { 50.0f, 50.0f };
+    short_gripper.detections.front().arrow_end = { 60.0f, 50.0f };
+    wide_gripper.detections.front().arrow_start = short_gripper.detections.front().arrow_start;
+    wide_gripper.detections.front().arrow_end = short_gripper.detections.front().arrow_end;
+    short_gripper.detections.front().angle_deg = 0.0f;
+    wide_gripper.detections.front().angle_deg = 0.0f;
+
+    const MechanicalGripperCollisionConfig short_config{ 20.0, 10.0, 10.0, false };
+    const MechanicalGripperCollisionConfig wide_config{ 60.0, 20.0, 10.0, false };
+    ApplyMechanicalGripperCollisionFilter(short_gripper,
+                                          IdentityCoordinateState(),
+                                          short_config,
+                                          MakeImageProtectionLimits(),
+                                          AxisMappingMode::FrontBackMachineX);
+    ApplyMechanicalGripperCollisionFilter(wide_gripper,
+                                          IdentityCoordinateState(),
+                                          wide_config,
+                                          MakeImageProtectionLimits(),
+                                          AxisMappingMode::FrontBackMachineX);
+
+    const PoseDetection& short_target = short_gripper.detections.front();
+    const PoseDetection& wide_target = wide_gripper.detections.front();
+    RequireDirectionContract(short_target.can_grab && wide_target.can_grab,
+                             "size independence coverage requires accepted grippers");
+    RequireDirectionContract(short_target.mechanical_gripper_corners.size() == 4 &&
+                                 wide_target.mechanical_gripper_corners.size() == 4,
+                             "size independence coverage requires two mechanical rectangles");
+    RequireDirectionContract(ParallelModulo180(short_target.mechanical_gripper_corners[1] -
+                                                   short_target.mechanical_gripper_corners[0],
+                                               { 0.0f, 1.0f }) &&
+                                 ParallelModulo180(wide_target.mechanical_gripper_corners[1] -
+                                                       wide_target.mechanical_gripper_corners[0],
+                                                   { 0.0f, 1.0f }),
+                             "real gripper rectangles must keep the base frame direction");
+    RequireDirectionContract(NearlyEqual(short_target.arrow_start.x, wide_target.arrow_start.x) &&
+                                 NearlyEqual(short_target.arrow_start.y, wide_target.arrow_start.y) &&
+                                 NearlyEqual(short_target.arrow_end.x, wide_target.arrow_end.x) &&
+                                 NearlyEqual(short_target.arrow_end.y, wide_target.arrow_end.y) &&
+                                 NearlyEqual(short_target.angle_deg, wide_target.angle_deg),
+                             "real gripper size must not change AC or angle");
+    RequireDirectionContract(short_target.corners.size() == wide_target.corners.size(),
+                             "real gripper size must not change the base frame shape");
+    for (size_t i = 0; i < base_corners.size(); ++i) {
+        RequireDirectionContract(NearlyEqual(short_target.corners[i].x, base_corners[i].x) &&
+                                     NearlyEqual(short_target.corners[i].y, base_corners[i].y) &&
+                                     NearlyEqual(wide_target.corners[i].x, base_corners[i].x) &&
+                                     NearlyEqual(wide_target.corners[i].y, base_corners[i].y),
+                                 "real gripper size must not change the base frame corners");
+    }
+    RequireDirectionContract(
+        std::hypot(short_target.mechanical_gripper_corners[1].x -
+                       short_target.mechanical_gripper_corners[0].x,
+                   short_target.mechanical_gripper_corners[1].y -
+                       short_target.mechanical_gripper_corners[0].y) <
+            std::hypot(wide_target.mechanical_gripper_corners[1].x -
+                           wide_target.mechanical_gripper_corners[0].x,
+                       wide_target.mechanical_gripper_corners[1].y -
+                           wide_target.mechanical_gripper_corners[0].y),
+        "real gripper size must change only the real gripper rectangle");
+}
+
 void InRangeTargetIsAccepted()
 {
     PlcOutputConfig plc_config;
@@ -259,13 +388,13 @@ void MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf()
                                           MakeImageProtectionLimits(),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(result.detections.size() == 1);
-    assert(!result.detections.front().can_grab);
-    assert(result.detections.front().pick_status_code == 3);
-    assert(result.detections.front().mechanical_gripper_corners.size() == 4);
-    assert(result.detections.front().mask_collisions.size() == 1);
-    assert(result.primary_index == -1);
-    assert(result.pick_status_code == 3);
+    RequireDirectionContract(result.detections.size() == 1, "MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf");
+    RequireDirectionContract(!result.detections.front().can_grab, "MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf");
+    RequireDirectionContract(result.detections.front().pick_status_code == 3, "MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf");
+    RequireDirectionContract(result.detections.front().mechanical_gripper_corners.size() == 4, "MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf");
+    RequireDirectionContract(result.detections.front().mask_collisions.size() == 1, "MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf");
+    RequireDirectionContract(result.primary_index == -1, "MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf");
+    RequireDirectionContract(result.pick_status_code == 3, "MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf");
 }
 
 void MechanicalGripperInvalidSizeRejectsConservatively()
@@ -279,10 +408,10 @@ void MechanicalGripperInvalidSizeRejectsConservatively()
                                           MakeImageProtectionLimits(),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(!result.detections.front().can_grab);
-    assert(result.detections.front().mechanical_gripper_corners.empty());
-    assert(result.primary_index == -1);
-    assert(result.pick_status_code == 3);
+    RequireDirectionContract(!result.detections.front().can_grab, "MechanicalGripperInvalidSizeRejectsConservatively");
+    RequireDirectionContract(result.detections.front().mechanical_gripper_corners.empty(), "MechanicalGripperInvalidSizeRejectsConservatively");
+    RequireDirectionContract(result.primary_index == -1, "MechanicalGripperInvalidSizeRejectsConservatively");
+    RequireDirectionContract(result.pick_status_code == 3, "MechanicalGripperInvalidSizeRejectsConservatively");
 }
 
 void MechanicalGripperInvalidCoordinateRejectsConservatively()
@@ -299,10 +428,10 @@ void MechanicalGripperInvalidCoordinateRejectsConservatively()
                                           MakeImageProtectionLimits(),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(!result.detections.front().can_grab);
-    assert(result.detections.front().mechanical_gripper_corners.empty());
-    assert(result.primary_index == -1);
-    assert(result.pick_status_code == 3);
+    RequireDirectionContract(!result.detections.front().can_grab, "MechanicalGripperInvalidCoordinateRejectsConservatively");
+    RequireDirectionContract(result.detections.front().mechanical_gripper_corners.empty(), "MechanicalGripperInvalidCoordinateRejectsConservatively");
+    RequireDirectionContract(result.primary_index == -1, "MechanicalGripperInvalidCoordinateRejectsConservatively");
+    RequireDirectionContract(result.pick_status_code == 3, "MechanicalGripperInvalidCoordinateRejectsConservatively");
 }
 
 void MechanicalGripperPreservesAcPoseAndOffsetsCenter()
@@ -317,24 +446,24 @@ void MechanicalGripperPreservesAcPoseAndOffsetsCenter()
                                           MakeImageProtectionLimits(),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(result.detections.front().can_grab);
-    assert(NearlyEqual(result.detections.front().arrow_start.x, 50.0f));
-    assert(NearlyEqual(result.detections.front().arrow_start.y, 50.0f));
-    assert(NearlyEqual(result.detections.front().arrow_end.x, 60.0f));
-    assert(NearlyEqual(result.detections.front().arrow_end.y, 50.0f));
-    assert(NearlyEqual(result.detections.front().angle_deg, 0.0f));
-    assert(NearlyEqual(result.detections.front().center_x, 60.0f));
-    assert(NearlyEqual(result.detections.front().center_y, 50.0f));
+    RequireDirectionContract(result.detections.front().can_grab, "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(result.detections.front().arrow_start.x, 50.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(result.detections.front().arrow_start.y, 50.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(result.detections.front().arrow_end.x, 60.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(result.detections.front().arrow_end.y, 50.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(result.detections.front().angle_deg, 0.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(result.detections.front().center_x, 60.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(result.detections.front().center_y, 50.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
     const std::vector<cv::Point2f>& corners = result.detections.front().mechanical_gripper_corners;
-    assert(corners.size() == 4);
-    assert(NearlyEqual(std::hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y), 40.0f));
-    assert(NearlyEqual(std::hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y), 20.0f));
-    assert(NearlyEqual(corners[0].x, 60.0f));
-    assert(NearlyEqual(corners[1].x, 60.0f));
-    assert(NearlyEqual(corners[0].y, 30.0f));
-    assert(NearlyEqual(corners[1].y, 70.0f));
-    assert(result.primary_index == 0);
-    assert(result.pick_status_code == 1);
+    RequireDirectionContract(corners.size() == 4, "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(std::hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y), 40.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(std::hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y), 20.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(corners[0].x, 60.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(corners[1].x, 60.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(corners[0].y, 30.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(NearlyEqual(corners[1].y, 70.0f), "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(result.primary_index == 0, "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
+    RequireDirectionContract(result.pick_status_code == 1, "MechanicalGripperPreservesAcPoseAndOffsetsCenter");
 }
 
 void MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary()
@@ -354,16 +483,16 @@ void MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary()
                                           MakeImageProtectionLimits(),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(result.detections.front().can_grab);
-    assert(NearlyEqual(result.detections.front().arrow_start.x, 50.0f));
-    assert(NearlyEqual(result.detections.front().arrow_start.y, 50.0f));
-    assert(NearlyEqual(result.detections.front().arrow_end.x, 50.0f));
-    assert(NearlyEqual(result.detections.front().arrow_end.y, 60.0f));
-    assert(NearlyEqual(result.detections.front().angle_deg, 90.0f));
-    assert(NearlyEqual(result.detections.front().center_x, 50.0f));
-    assert(NearlyEqual(result.detections.front().center_y, 60.0f));
-    assert(result.primary_index == 0);
-    assert(result.pick_status_code == 1);
+    RequireDirectionContract(result.detections.front().can_grab, "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
+    RequireDirectionContract(NearlyEqual(result.detections.front().arrow_start.x, 50.0f), "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
+    RequireDirectionContract(NearlyEqual(result.detections.front().arrow_start.y, 50.0f), "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
+    RequireDirectionContract(NearlyEqual(result.detections.front().arrow_end.x, 50.0f), "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
+    RequireDirectionContract(NearlyEqual(result.detections.front().arrow_end.y, 60.0f), "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
+    RequireDirectionContract(NearlyEqual(result.detections.front().angle_deg, 90.0f), "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
+    RequireDirectionContract(NearlyEqual(result.detections.front().center_x, 50.0f), "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
+    RequireDirectionContract(NearlyEqual(result.detections.front().center_y, 60.0f), "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
+    RequireDirectionContract(result.primary_index == 0, "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
+    RequireDirectionContract(result.pick_status_code == 1, "MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary");
 }
 
 void MechanicalGripperInsideProtectionPolygonIsAccepted()
@@ -378,9 +507,9 @@ void MechanicalGripperInsideProtectionPolygonIsAccepted()
                                           MakeImageProtectionLimits(),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(result.detections.front().can_grab);
-    assert(result.primary_index == 0);
-    assert(result.pick_status_code == 1);
+    RequireDirectionContract(result.detections.front().can_grab, "MechanicalGripperInsideProtectionPolygonIsAccepted");
+    RequireDirectionContract(result.primary_index == 0, "MechanicalGripperInsideProtectionPolygonIsAccepted");
+    RequireDirectionContract(result.pick_status_code == 1, "MechanicalGripperInsideProtectionPolygonIsAccepted");
 }
 
 void MechanicalGripperCornerOutsideProtectionPolygonIsRejected()
@@ -395,10 +524,10 @@ void MechanicalGripperCornerOutsideProtectionPolygonIsRejected()
                                           MakeImageProtectionLimits(35.0, 95.0),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(!result.detections.front().can_grab);
-    assert(result.detections.front().pick_status_code == 3);
-    assert(result.primary_index == -1);
-    assert(result.pick_status_code == 3);
+    RequireDirectionContract(!result.detections.front().can_grab, "MechanicalGripperCornerOutsideProtectionPolygonIsRejected");
+    RequireDirectionContract(result.detections.front().pick_status_code == 3, "MechanicalGripperCornerOutsideProtectionPolygonIsRejected");
+    RequireDirectionContract(result.primary_index == -1, "MechanicalGripperCornerOutsideProtectionPolygonIsRejected");
+    RequireDirectionContract(result.pick_status_code == 3, "MechanicalGripperCornerOutsideProtectionPolygonIsRejected");
 }
 
 void MechanicalGripperTouchingProtectionBoundaryIsRejected()
@@ -413,10 +542,10 @@ void MechanicalGripperTouchingProtectionBoundaryIsRejected()
                                           MakeImageProtectionLimits(30.0, 95.0),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(!result.detections.front().can_grab);
-    assert(result.detections.front().pick_status_code == 3);
-    assert(result.primary_index == -1);
-    assert(result.pick_status_code == 3);
+    RequireDirectionContract(!result.detections.front().can_grab, "MechanicalGripperTouchingProtectionBoundaryIsRejected");
+    RequireDirectionContract(result.detections.front().pick_status_code == 3, "MechanicalGripperTouchingProtectionBoundaryIsRejected");
+    RequireDirectionContract(result.primary_index == -1, "MechanicalGripperTouchingProtectionBoundaryIsRejected");
+    RequireDirectionContract(result.pick_status_code == 3, "MechanicalGripperTouchingProtectionBoundaryIsRejected");
 }
 
 void MechanicalGripperPartlyOutsideProtectionPolygonIsRejected()
@@ -431,10 +560,10 @@ void MechanicalGripperPartlyOutsideProtectionPolygonIsRejected()
                                           MakeImageProtectionLimits(5.0, 70.0),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(!result.detections.front().can_grab);
-    assert(result.detections.front().pick_status_code == 3);
-    assert(result.primary_index == -1);
-    assert(result.pick_status_code == 3);
+    RequireDirectionContract(!result.detections.front().can_grab, "MechanicalGripperPartlyOutsideProtectionPolygonIsRejected");
+    RequireDirectionContract(result.detections.front().pick_status_code == 3, "MechanicalGripperPartlyOutsideProtectionPolygonIsRejected");
+    RequireDirectionContract(result.primary_index == -1, "MechanicalGripperPartlyOutsideProtectionPolygonIsRejected");
+    RequireDirectionContract(result.pick_status_code == 3, "MechanicalGripperPartlyOutsideProtectionPolygonIsRejected");
 }
 
 void MechanicalGripperInvalidProtectionPolygonRejectsConservatively()
@@ -449,10 +578,10 @@ void MechanicalGripperInvalidProtectionPolygonRejectsConservatively()
                                           MakeImageProtectionLimits(5.0, 95.0, 1000.0),
                                           AxisMappingMode::FrontBackMachineX);
 
-    assert(!result.detections.front().can_grab);
-    assert(result.detections.front().pick_status_code == 3);
-    assert(result.primary_index == -1);
-    assert(result.pick_status_code == 3);
+    RequireDirectionContract(!result.detections.front().can_grab, "MechanicalGripperInvalidProtectionPolygonRejectsConservatively");
+    RequireDirectionContract(result.detections.front().pick_status_code == 3, "MechanicalGripperInvalidProtectionPolygonRejectsConservatively");
+    RequireDirectionContract(result.primary_index == -1, "MechanicalGripperInvalidProtectionPolygonRejectsConservatively");
+    RequireDirectionContract(result.pick_status_code == 3, "MechanicalGripperInvalidProtectionPolygonRejectsConservatively");
 }
 
 void OverlayPolygonUsesInnerRoiAndDefaultAxisMapping()
@@ -519,6 +648,8 @@ int main()
     MechanicalGripperCollisionRejectsNeighborMaskOutsideSelf();
     MechanicalGripperInvalidSizeRejectsConservatively();
     MechanicalGripperInvalidCoordinateRejectsConservatively();
+    MechanicalGripperCornersFollowLongAxis();
+    MechanicalGripperSizeCannotChangeUpstreamBaseFrame();
     MechanicalGripperPreservesAcPoseAndOffsetsCenter();
     MechanicalGripperDoesNotReplaceDownwardAcWithSideBoundary();
     MechanicalGripperInsideProtectionPolygonIsAccepted();

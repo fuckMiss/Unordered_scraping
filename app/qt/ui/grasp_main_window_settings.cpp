@@ -205,6 +205,7 @@ void GraspMainWindow::refreshAdminModeUi()
 
         display_mode_selector_->setVisible(true);
         image_save_button_->setVisible(true);
+        error_image_button_->setVisible(true);
         engineering_button_->setVisible(true);
         runtime_log_button_->setVisible(true);
         target_list_button_->setVisible(true);
@@ -212,9 +213,10 @@ void GraspMainWindow::refreshAdminModeUi()
 
         function_layout_->addWidget(display_mode_selector_, 0, 0);
         function_layout_->addWidget(image_save_button_, 0, 1);
-        function_layout_->addWidget(target_list_button_, 1, 0);
-        function_layout_->addWidget(runtime_log_button_, 1, 1);
-        function_layout_->addWidget(engineering_button_, 2, 0, 1, 2);
+        function_layout_->addWidget(error_image_button_, 1, 0);
+        function_layout_->addWidget(target_list_button_, 1, 1);
+        function_layout_->addWidget(runtime_log_button_, 2, 0);
+        function_layout_->addWidget(engineering_button_, 2, 1);
     } else {
         if (input_group_) {
             input_group_->setVisible(false);
@@ -232,13 +234,15 @@ void GraspMainWindow::refreshAdminModeUi()
 
         display_mode_selector_->setVisible(true);
         image_save_button_->setVisible(true);
+        error_image_button_->setVisible(true);
         engineering_button_->setVisible(false);
         runtime_log_button_->setVisible(false);
         target_list_button_->setVisible(true);
         target_list_button_->setMinimumHeight(SC(34));
         function_layout_->addWidget(display_mode_selector_, 0, 0);
         function_layout_->addWidget(image_save_button_, 0, 1);
-        function_layout_->addWidget(target_list_button_, 1, 0, 1, 2);
+        function_layout_->addWidget(error_image_button_, 1, 0);
+        function_layout_->addWidget(target_list_button_, 1, 1);
     }
 
     refreshActionButtonMetrics();
@@ -246,10 +250,12 @@ void GraspMainWindow::refreshAdminModeUi()
         plc_link_button_->setMinimumHeight(SC(38));
         target_list_button_->setMinimumHeight(SC(38));
         image_save_button_->setMinimumHeight(SC(38));
+        error_image_button_->setMinimumHeight(SC(38));
         display_mode_selector_->setMinimumHeight(SC(38));
     } else {
         target_list_button_->setMinimumHeight(SC(34));
         image_save_button_->setMinimumHeight(SC(34));
+        error_image_button_->setMinimumHeight(SC(34));
         display_mode_selector_->setMinimumHeight(SC(34));
     }
     refreshProjectProfilePlacement();
@@ -257,6 +263,7 @@ void GraspMainWindow::refreshAdminModeUi()
     refreshProjectProfileSelector();
     refreshStatusSectionMode();
     refreshImageSaveButton();
+    refreshErrorImageButton();
     refreshDeviceStatus();
     refreshTopBarMetrics();
 }
@@ -483,6 +490,12 @@ void GraspMainWindow::loadStartupLaunchSettings()
     startup_delay_seconds_ = ClampStartupDelaySeconds(startup.delay_seconds);
 }
 
+void GraspMainWindow::loadImageRetentionSettings()
+{
+    max_saved_images_ = EngineeringSettingsService::LoadImageRetentionSettings(
+        app_config_.image_retention).max_saved_images;
+}
+
 bool GraspMainWindow::saveStartupLaunchSettings(QString* error_message) const
 {
     const StartupLaunchSettings startup{
@@ -631,7 +644,10 @@ void GraspMainWindow::loadProjectProfileSettings()
     if (!LoadProjectProfile(profile_name, &profile, &error_message)) {
         std::cerr << "[ProjectProfile] load active failed: "
                   << error_message.toStdString() << std::endl;
-        profile_name = DefaultProjectProfileName();
+        const QStringList profile_names = ListProjectProfileNames();
+        profile_name = profile_names.isEmpty()
+            ? DefaultProjectProfileName()
+            : profile_names.first();
         if (!LoadProjectProfile(profile_name, &profile, &error_message)) {
             profile = legacyProjectProfileDefaults();
             profile.name = profile_name;

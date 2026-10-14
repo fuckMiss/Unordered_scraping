@@ -1,6 +1,7 @@
 #include "grasp_workflow.h"
 
 #include "hik_camera.h"
+#include "model_utils.h"
 
 #include <algorithm>
 #include <chrono>
@@ -358,28 +359,34 @@ bool GraspWorkflow::runFrame(const Mat& image, FrameInferenceResult& result, str
             throw runtime_error("OBB and SEG models must both be loaded before inference.");
         }
 
-        Mat input = image.clone();
+        Mat original_input = image.clone();
+        ValidateInputImage(original_input, 4096 * 4096);
+
+        Mat inference_gray;
+        cvtColor(original_input, inference_gray, COLOR_BGR2GRAY);
+        Mat inference_input;
+        cvtColor(inference_gray, inference_input, COLOR_GRAY2BGR);
 
         vector<OBBDetection> obb_output;
         const auto obb_pre_start = chrono::steady_clock::now();
-        obb_model_->preprocess(input);
+        obb_model_->preprocess(inference_input);
         const auto obb_pre_end = chrono::steady_clock::now();
         const auto obb_start = chrono::steady_clock::now();
         obb_model_->infer();
         const auto obb_end = chrono::steady_clock::now();
         const auto obb_post_start = chrono::steady_clock::now();
-        obb_model_->postprocess(obb_output, input.cols, input.rows);
+        obb_model_->postprocess(obb_output, original_input.cols, original_input.rows);
         const auto obb_post_end = chrono::steady_clock::now();
 
         vector<SegDetection> seg_output;
         const auto seg_pre_start = chrono::steady_clock::now();
-        seg_model_->preprocess(input);
+        seg_model_->preprocess(inference_input);
         const auto seg_pre_end = chrono::steady_clock::now();
         const auto seg_start = chrono::steady_clock::now();
         seg_model_->infer();
         const auto seg_end = chrono::steady_clock::now();
         const auto seg_post_start = chrono::steady_clock::now();
-        seg_model_->postprocess(seg_output, input.cols, input.rows);
+        seg_model_->postprocess(seg_output, original_input.cols, original_input.rows);
         const auto seg_post_end = chrono::steady_clock::now();
 
         const double obb_pre_ms = MsSince(obb_pre_start, obb_pre_end);
@@ -394,12 +401,12 @@ bool GraspWorkflow::runFrame(const Mat& image, FrameInferenceResult& result, str
                                            obb_model_->getClassNames(),
                                            seg_output,
                                            seg_model_->getClassNames(),
-                                           input.cols,
-                                           input.rows,
+                                           original_input.cols,
+                                           original_input.rows,
                                            obb_inference_ms,
                                            seg_inference_ms,
                                            postprocess_config_,
-                                           &input);
+                                           &original_input);
         const auto fuse_end = chrono::steady_clock::now();
         const double total_process_ms = MsSince(obb_pre_start, fuse_end);
         result.total_inference_ms = total_process_ms;

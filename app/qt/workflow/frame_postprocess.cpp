@@ -513,8 +513,7 @@ vector<Point2f> ReconstructObbCenterFoot(const Point2f& center_A,
                                          float half_perp)
 {
     const Point2f dir_perp(-dir_ca.y, dir_ca.x);
-    const float dist_AC = PointLength(foot_C - center_A);
-    const float half_ca = dist_AC;
+    const float half_ca = PointLength(foot_C - center_A);
 
     return {
         center_A - dir_ca * half_ca - dir_perp * half_perp,

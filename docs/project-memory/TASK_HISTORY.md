@@ -14,6 +14,30 @@
 - 遗留：未完成事项、风险、后续建议。
 ```
 
+## 2026-09-09 - 统一输入流程回车行为
+
+- 目标：让登录、密码、模型路径、方案名称和工程设置中的回车只推进当前流程或执行主操作，避免误触忘记密码、取消、删除、浏览和下拉切换。
+- 修改：`admin_auth_dialogs.cpp` 显式指定认证提交按钮和认证字段回车顺序；`engineering_settings_dialog.cpp` 显式指定名称弹窗、管理员密码和模型路径的回车顺序，并关闭工程设置次要按钮的默认回车；`engineering_settings_dialog_helpers.cpp` 禁止通用设置下拉框用回车切换；`grasp_main_window_shell.cpp` 禁止主界面方案/显示下拉框用回车切换；扩展 `admin_auth_helpers_test.cpp` 和 `engineering_settings_spinbox_wheel_test.cpp` 的 Qt 按键测试，CMake 接入认证对话框实现。
+- 结果：认证回车主路径为登录/提交，忘记密码、取消、关闭、浏览、删除、导入、导出、应用等按钮不再具备默认回车资格；模型 A/B 路径和认证字段按顺序推进；两个下拉框的 Return/Enter 不再改变选择。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_admin_auth_helpers_test tankeye-openvino_engineering_settings_service_test tankeye-openvino_project_profile_store_test tankeye-openvino_engineering_settings_spinbox_wheel_test tankeye-openvino_qt_app` 通过；认证按键测试、工程设置按键测试和完整 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 均通过；`git diff --check` 无空白错误，仅有既有 LF/CRLF 转换提示。
+- 遗留：未启动真实 GUI；工程方案最后一步回车的独立红转绿反向测试未完成，现有方案操作依赖模态名称弹窗且没有可控测试入口；未连接真实 PLC、相机或设备。
+
+## 2026-09-09 - 重新打包 TankEye-Iris 2.2.1
+
+- 目标：将本次输入流程回车行为修复纳入 `TankEye-Iris_2.2.1` 运行包。
+- 修改：执行 `scripts/package_runtime.ps1` 重新生成 `dist/TankEye-Iris_2.2.1` 和 `dist/TankEye-Iris_2.2.1.zip`；未修改打包脚本、模型、PLC 或设备配置。
+- 结果：目录包共 131 个文件，包含主程序、设备探测程序、Qt 运行库、DG_8/DG_10 模型、`config/admin_auth.key` 和 `USAGE_GUIDE.txt`；包内版本为 `2.2.1`，`machine_limits.enabled=false`。
+- 验证：正式打包命令成功；目录包关键文件、两个 exe hash 与 `build/Release` 一致、`docs/` 和 `AGENTS.md` 缺失检查通过；ZIP 共 137 个条目且无 `docs/` 或 `AGENTS.md`；打包有已知 `VCINSTALLDIR is not set` 警告；未启动包内 GUI、未连接真实 PLC、相机或设备。
+- 遗留：本包仍未完成真实 GUI 人工点检；工程方案最后一步回车反向测试入口缺失，详见 `BLOCKED.md`。
+
+## 2026-09-08 - 修复小夹取框到真实夹爪框的单向因果链
+
+- 目标：恢复 `output/推理v1.0.16灰度.py` 的计算顺序，保证真实夹爪框只跟随已经生成的小夹取框，不反向决定 AC、垂足或小框方向。
+- 修改：`frame_postprocess.cpp` 让 raw left 四条边全部参与垂足候选，并按归一化 `OA·AC` 最大值选 AC；随后按 AC 垂直方向生成小夹取框，再从小框长边生成 `grip_long_angle_deg`。`grab_limit_evaluator.cpp` 只用该方向和真实夹爪长宽生成真实夹爪框；`frame_overlay.cpp` 不再把类型显示补偿旋转到 raw、小夹取框、真实夹爪或 AC。同步更新三个定向测试和项目记忆文档。
+- 结果：真实夹爪尺寸改变不会改变 AC、`angle_deg` 或小夹取框；小夹取框与真实夹爪长轴始终平行（模 180），AC 与二者正交；不改模型、标定、配置、PLC 通信和设备行为。
+- 验证：定向测试覆盖水平、垂直、45 度、长宽交换、向下 AC、真实夹爪尺寸变化和类型补偿开关；故意取反 AC 候选断言时 Release 测试真实失败，恢复后通过；四目标 Release 构建和完整测试 15/15、skip 0 通过；未启动真实 GUI、VBS、相机、PLC 或设备。
+- 遗留：`BLOCKED.md` 当前为“无”；仍需现场在安全环境用真实图片人工复核 overlay 画面，但不作为本地自动化完成条件。
+
 ## 2026-09-04 - 补充协作提示词入口
 
 - 目标：把用户补充的准确性、独立判断、事实区分和先核查再执行要求，放到仓内合适的文档入口。
@@ -1253,6 +1277,215 @@
 
 - 目标：将当前 `Unordered_scraping_v7` 工作区的已跟踪维护改动上传到 `origin`。
 - 修改：提交 UI 状态展示、PLC 帧保存、后处理和夹爪安全逻辑、测试、配置、打包/运行说明、README 及 project-memory 的既有改动；明确排除未跟踪 `output/` 中的本机授权文件、授权申请、参考图片和参考推理脚本。
-- 结果：待 Git 提交和推送完成后，以提交哈希和 `origin/Unordered_scraping_v7` 同步状态确认上传结果。
+- 结果：已创建并推送提交 `59e0e27b60994f096b02c5902a09d46796144697`（`feat: sync v7 UI, postprocess, safety, packaging and test maintenance`）；本地 `HEAD` 与 `origin/Unordered_scraping_v7` 已一致。
 - 验证：已真实执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release`，14 个默认测试全部通过；`git diff --check` 无空白错误，仅有既有 LF/CRLF 转换提示。
-- 遗留：未连接真实 PLC、真实相机或真实设备；仍需完成 Git 元数据写入权限授权后的提交和推送。
+- 遗留：未连接真实 PLC、真实相机或真实设备；`output/` 仍保留为未跟踪本地产物，未上传。
+
+## 2026-09-07 - 灰度伪单通道模型输入
+
+- 目标：保持原始彩色 BGR 的显示、overlay、保存、后处理和 PLC 业务流程不变，同时让所有经 `GraspWorkflow` 进入 OBB/SEG 的图像固定采用参考脚本 `推理v1.0.16灰度.py` 的灰度伪单通道输入方式。
+- 修改：仅调整 `app/qt/workflow/grasp_workflow.cpp` 的 `GraspWorkflow::runFrame()`。原有单个 `input` 彩色副本被替换为 `original_input` 和 `inference_input` 两份图：先复用既有 `ValidateInputImage()` 规范化原始图为 BGR，再执行 `BGR2GRAY -> GRAY2BGR`；OBB 和 SEG 都接收 `inference_input`，检测结果尺寸映射和 `BuildFrameInferenceResult()` 仍使用彩色 `original_input`。
+- 结果：本地图、相机帧和 PLC 触发帧经公共 `runFrame()` 统一使用灰度信息但保留 3 通道张量的模型输入；模型张量仍为 `[1, 3, H, W]`，不是 `[1, 1, H, W]`。模型输入颜色语义改变，因此检测框、置信度、分割和抓取结果可能与原彩色推理不同；坐标、ROI、标定、PLC 协议和 UI 显示流程未改。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 通过，14 项默认测试全部通过；`git diff --check` 无空白错误，仅输出既有 LF/CRLF 转换提示。
+- 遗留：未连接真实 PLC、真实相机或真实设备；未完成计划中的 GUI 人工验收。后续应加载 `samples/Image_20260808154107626.bmp`、运行已加载模型，并确认画面保持彩色、overlay 与结果正常。
+
+## 2026-09-07 - 双击启动自动检测
+
+- 目标：修复用户关闭程序后再次双击桌面图标或运行包根目录 VBS，只打开程序但不自动进入检测的问题。
+- 根因：开机 Startup 入口已经使用 `-StartupProfile AutoStart`，但源码和运行包的 `launch_tankeye_main_only.vbs` 没有传递该参数，因而 `launch_tankeye.ps1` 按 Manual 语义运行，不设置 `TANKEYE_AUTO_START_GRASP=1`。
+- 修改：仅修改源码 `launch_tankeye_main_only.vbs` 和 `scripts/package_runtime.ps1` 中的运行包 VBS 模板。源码入口现在传入 `-BuildDir build -Configuration Release -StartupProfile AutoStart`；运行包入口现在传入 `-Device AUTO -StartupProfile AutoStart`。最大化、模型加载和自动进入 PLC 检测继续由现有 `StartupProfile AutoStart` 链路负责，未复制检测逻辑；工程设置关闭自启时仍保持禁止自动进入，Manual 启动默认行为不变。
+- 结果：桌面快捷方式继续指向 `launch_tankeye_main_only.vbs`，因此源码和重新生成的运行包双击入口都复用自动启动链路。
+- 验证：修改后 `cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_engineering_settings_service_test` 通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 14 项全部通过；源码/模板/包内入口静态合同检查、PowerShell 解析和去掉/恢复 `AutoStart` 反向检查通过；重新生成 `dist/TankEye-Iris_2.1.7` 和 ZIP 成功。打包有已知 `VCINSTALLDIR is not set` 警告但未影响产物；未启动 VBS/launcher，未连接真实 PLC、相机或设备。
+
+## 2026-09-07 - 打包 TankEye-Iris 2.1.7
+
+- 目标：按照 `docs/PACKAGING_README.md` 将当前维护状态生成 `2.1.7` 正式运行包。
+- 修改：同步源码默认版本、运行包配置、打包脚本默认发布名、运行说明、打包说明和构建打包指南到 `2.1.7`；未修改灰度伪单通道推理逻辑。
+- 结果：生成 `dist/TankEye-Iris_2.1.7` 和 `dist/TankEye-Iris_2.1.7.zip`。目录包和 ZIP 均包含主程序、设备探测程序、DG_8/DG_10 模型、Qt 平台插件、CPU/GPU OpenVINO 插件、`config/admin_auth.key` 和 `USAGE_GUIDE.txt`；不包含 `docs/`、`AGENTS.md` 或单机 `config/admin_license.json`。包内配置版本为 `2.1.7`，`machine_limits.enabled=false`，主程序和设备探测程序与 `build\Release` 对应文件哈希一致。
+- 验证：已执行 Release 多目标构建、`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release`，14 项默认测试全部通过；已执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.7 -Force`；目录包关键文件、版本、哈希、禁入文件以及 ZIP 条目检查通过；`git diff --check` 通过，仅有既有 LF/CRLF 转换提示。
+- 遗留：`windeployqt` 输出 `VCINSTALLDIR is not set` 警告但未影响打包；未启动包内 launcher，未连接真实 PLC、真实相机或真实设备；未进行现场 GUI 人工验收。
+
+## 2026-09-07 - 打包 TankEye-Iris 2.1.8
+
+- 目标：在不改变现有灰度伪单通道推理、AutoStart、PLC、安全和 UI 逻辑的前提下，生成当前源码的 `2.1.8` 正式运行包。
+- 修改：将应用默认版本、`config/tankeye.json`、打包脚本默认发布名、README、运行说明、构建/打包指南、项目配置和架构图当前标识同步到 `2.1.8`；历史记录中的 `2.1.7` 保留。未删除或回滚用户已有改动。
+- 结果：生成 `dist/TankEye-Iris_2.1.8` 和 `dist/TankEye-Iris_2.1.8.zip`。目录包与 ZIP 包含主程序、设备探测程序、DG_8/DG_10 模型、Qt 平台插件、CPU/GPU OpenVINO 插件、`config/admin_auth.key` 和 `USAGE_GUIDE.txt`；不包含 `docs/`、`AGENTS.md` 或单机 `admin_license.json`。包内配置版本为 `2.1.8`，`machine_limits.enabled=false`，主程序和设备探测程序哈希与 `build\Release` 一致。架构图 PDF 已根据 2.1.8 HTML 重新生成。
+- 验证：已执行 Release 多目标构建；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 14 项默认测试全部通过；已执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.8 -Force`；目录包关键文件、版本、哈希、禁入项和 ZIP 条目检查通过；`git diff --check` 无空白错误，仅有既有 LF/CRLF 转换提示。
+- 遗留：`windeployqt` 输出 `VCINSTALLDIR is not set` 警告但未影响打包；未启动包内 launcher，未连接真实 PLC、真实相机或真实设备；未进行现场 GUI 人工验收；当前环境缺少 PDF 页面渲染器且浏览器禁止直接打开本地 PDF，未完成逐页 PNG 目视验收。
+
+## 2026-09-07 - neat-freak 项目知识收尾
+
+- 目标：以当前源码、CMake、配置、脚本、测试和 project-memory 为准，核对 TankEye-Iris 的文档、规则、动态记忆、架构图和工作区状态，给后续会话保留一份一致的 V7 / 2.1.7 基线。
+- 修改：同步 `.gitignore`、`AGENTS.md`、中英文 README、构建/打包/运行说明、`PROJECT_CONFIGURATION.md`、`MEMORY.md`、`HANDOFF.md`、`OPERATING_LIMITS.md` 和架构图 HTML/PDF；明确灰度伪单通道仍为 `[1, 3, H, W]`、双击入口使用 AutoStart、Manual 默认不自动抓取、2.1.7 产物状态与真实设备验收边界；将 `output/` 加入忽略规则。未修改业务代码，未删除用户文件。
+- 工作区：本地和远端 `HEAD` 仍为 `59e0e27b60994f096b02c5902a09d46796144697`，上述收尾以及此前灰度推理、2.1.7、AutoStart 改动仍未提交。用户已有 `推理v1.0.16(1).py` 删除状态保留；`PROGRESS.md`、`BLOCKED.md` 仅列为待确认删除候选；`output/` 内容保留且已忽略。审计开始时存在的未跟踪 `aaa.md` 已在本轮过程中由外部操作移除，当前已不存在，非本轮代理删除。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_engineering_settings_service_test` 通过；完整 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 14/14 通过；源码/模板/2.1.7 包内 VBS、桌面快捷方式、Manual 默认值、必需记忆文件和 `output/` 忽略规则的静态合同检查全部通过；非历史文档未发现残留 2.1.5、V5 / 1.4.1 或旧双击 Manual 口径；`git diff --check` 无空白错误，仅有 LF/CRLF 转换提示。
+- 遗留：未连接真实 PLC、相机或设备，未执行现场双击 AutoStart 与指定 BMP 人工验收；架构 PDF 已重生成，但当前环境缺少 PDF 页面渲染器，且浏览器安全策略禁止直接打开本地 PDF，未完成逐页 PNG 目视验收。
+
+## 2026-09-07 - 真正单通道模型输入兼容修复
+
+- 目标：修复加载 `models/DG_8_dan` 真正单通道模型失败的问题。日志 `build/Release/logs/tankeye_20260907_220527.log` 已确认原代码在 OBB 模型加载阶段拒绝 `[1, 1, 640, 640]`，报错为 `expected [1, 3, H, W], got [1, 1, 640, 640]`。
+- 根因：公共 `ValidateBatchOneNchwInputShape()`、letterbox 输入 buffer、OBB/SEG 输入 buffer 初始化均硬编码三通道；此前 `GraspWorkflow::runFrame()` 的 `BGR2GRAY -> GRAY2BGR` 只是灰度伪单通道，仍要求 `[1,3,H,W]`。
+- 修改：公共输入校验现在支持模型真实 shape 的 1 或 3 通道；公共 letterbox 根据输入通道数生成真正的单平面 `[1,1,H,W]` 或三平面 `[1,3,H,W]` buffer；OBB/SEG 保存并使用各自模型的真实输入通道数。显示、保存、后处理、坐标、PLC 和 `runFrame()` 的彩色原图/灰度推理图边界未改变。
+- 测试：新增 `tests/openvino_input_test.cpp`，覆盖 1/3 通道 shape 校验、1 平面/3 平面 buffer 长度及数值语义；默认测试从 14 项增加为 15 项。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_openvino_input_test` 通过；`cmake --build build --config Release --target tankeye-openvino_obb tankeye-openvino_seg` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 15/15 通过；使用 `models/DG_8_dan/best_obb.xml`、`best_seg.xml` 和 `samples/Image_20260808154107626.bmp` 的 CPU CLI 均成功加载并推理，日志显示 `Input: 1x640x640`；使用现有 `models/DG_8_weights/best_obb.xml` 成功显示 `Input: 3x640x640` 并推理；`git diff --check` 无空白错误，仅有既有 LF/CRLF 转换提示。
+- 遗留：CLI 因项目固定 `IsGuiAvailable() == true` 在生成结果后等待窗口关闭，已通过 Ctrl+C 结束等待；未连接真实 PLC、相机或设备，未完成 Qt 主界面彩色显示人工验收；现有 `dist/TankEye-Iris_2.1.8` 在本修复前生成，需要重新打包才能包含本修复。
+
+## 2026-09-07 - 重新打包 TankEye-Iris 2.1.8 单通道修复版
+
+- 目标：将真正单通道模型兼容修复重新打入 `2.1.8` 运行包。
+- 执行：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.8 -Force`。
+- 结果：重新生成 `dist/TankEye-Iris_2.1.8` 和 `dist/TankEye-Iris_2.1.8.zip`；目录包与 ZIP 均为当前 Release 构建产物，包含主程序、设备探测程序、模型、Qt 平台插件、CPU/GPU OpenVINO 插件、授权密钥和使用说明。
+- 验证：关键文件检查全部为 `True`；`config/tankeye.json` 版本为 `2.1.8`，`machine_limits.enabled=false`；主程序和设备探测程序与 `build/Release` 哈希一致；`docs` 与 `AGENTS.md` 未进入运行包；ZIP 存在，大小为 `155514976` 字节。
+- 遗留：打包过程有已知 `VCINSTALLDIR is not set` 警告但未影响产物；未启动包内 VBS，未连接真实 PLC、相机或设备，未完成现场部署验证。
+
+## 2026-09-08 - DG_8 默认方案可删除
+
+- 目标：修正工程设置中 `DG_8` 被永久禁止删除的问题，使其只作为无方案时的首次默认方案。
+- 修改：`app/qt/workflow/project_profile_store.cpp` 删除 `DG_8` 专属删除禁令，改为至少保留一个方案；`EnsureDefaultProjectProfile()` 仅在方案列表为空时创建 `DG_8`。`app/qt/ui/engineering_settings_dialog.cpp` 允许删除 `DG_8`，删除当前运行方案时先异步切换并加载替代方案，成功后删除旧方案；补充 `<algorithm>` 依赖。`grasp_main_window.h/.shell.cpp` 透传模型加载完成回调；启动设置在活动方案失效时选择现有方案；`tests/project_profile_store_test.cpp` 增加删除和初始化边界测试。
+- 结果：存在其他工程方案时可以删除 `DG_8`；删除最后一个方案会被拒绝；删除当前方案不会在新模型加载成功前破坏运行方案，模型加载失败时旧方案保留；删除后的 `DG_8` 不会在下次启动自动复活。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_project_profile_store_test` 通过；`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；定向测试通过；完整 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 15/15 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -BuildDir build -Configuration Release -Device CPU -SimulatePlc -StartupDelaySeconds 0` 真实启动并完成主窗口、模拟 PLC、OBB/SEG 模型初始化，日志为 `build/Release/logs/tankeye_20260908_144836.log`；测试后无残留 Qt 进程；`git diff --check` 无空白错误，仅有既有 LF/CRLF 转换提示。
+- 遗留：未人工点击工程设置删除流程，未连接真实 PLC、真实相机或真实设备。
+
+## 2026-09-08 - neat-freak 项目收尾与记忆同步
+
+- 目标：以源码、CMake、配置、脚本、测试和 project-memory 为准，复核当前 TankEye-Iris 的规则、现役文档、动态记忆和工作区状态，消除 DG_8 方案生命周期的错误认知。
+- 修改：更新 `PROJECT_CONFIGURATION.md`、中英文 README、`MEMORY.md` 和 `HANDOFF.md`。明确 `DG_8` 仅在方案列表为空时首次创建、存在其他方案时可删除、当前活动方案决定实际模型；同步 OpenVINO 支持 `[1,1,H,W]` 与 `[1,3,H,W]` 输入。移除 `MEMORY.md` 中已不存在的 `PROGRESS.md`/`BLOCKED.md` 删除待办。记录 `deploy_windows.ps1` 只复制 DG_8、`package_runtime.ps1` 只显式打包 DG_8/DG_10 的当前维护边界。
+- 结果：现役交接与使用说明不再把 DG_8 表述为永久不可删除方案，也不再把所有模型输入表述为固定三通道；历史版本记录保持不动。未删除任何文件，未修改业务代码、模型、配置或打包/部署脚本。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_project_profile_store_test` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 15/15 通过；必需规则、记忆、源码、测试和脚本路径检查通过，现役文档过期表述检查通过，6 个修改文件 UTF-8 检查通过；`git diff --check` 无空白错误，仅输出既有 LF/CRLF 转换警告；工作区审计确认用户已有删除和未跟踪文件均保留。
+
+## 2026-09-08 - 工程方案选择框文字居中
+
+- 目标：让管理员工程设置与非管理员主界面的工程方案选择框，当前显示值和下拉方案项都水平居中；不改变方案管理或运行逻辑。
+- 前提核验：源码确认非管理员控件为 `grasp_main_window_shell.cpp` 内的 `ProjectProfileSelector`，管理员控件为 `engineering_settings_dialog.cpp` 内的 `project_profile_combo`；两者原先都不是依靠 `Qt::TextAlignmentRole` 可靠绘制当前值。该角色只用于下拉项，当前值需分别处理。
+- 修改：非管理员 `ProjectProfileSelector` 在保留既有箭头绘制的同时，以 ComboBox 编辑区为边界自绘居中的、省略后的当前方案名；刷新选项后写入 `Qt::TextAlignmentRole`。管理员仅将 `project_profile_combo` 改为 `NoInsert` 的只读 editable ComboBox，以居中、无边框、鼠标穿透的内部 `QLineEdit` 呈现当前值，并在刷新选项后写入同一项对齐角色。未修改其他 ComboBox、方案切换、删除、保存、权限、加载、模型、PLC 或 CV 逻辑。
+- 结果：两个指定工程方案框都具备当前值和下拉项的居中实现；非管理员当前值按编辑区宽度右侧省略，避免遮挡原有下拉箭头。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 15/15 通过，skip 为 0；`git diff --check` 通过，仅输出既有 LF/CRLF 转换警告。
+- 遗留：未实际启动 Qt 程序做人工视觉点检。当前启动路径可能使用既有 AutoStart/设备设置并进入设备链路，按操作限制未直接启动；需在安全环境确认管理员/非管理员当前值和下拉项居中、长名称省略、禁用状态、窗口缩放及紧凑布局。
+
+## 2026-09-08 - 非管理员方案选择框高对比与字号提升
+
+- 目标：提高非管理员主界面工程方案选择框的当前方案名可读性，并放大字体；管理员界面和方案业务逻辑保持不变。
+- 修改：仅调整 `app/qt/ui/grasp_main_window_shell.cpp` 中非管理员 `ProjectProfileSelector` 的当前文字/箭头和控件样式。当前框从深底浅字改为浅色背景 `#f4f8fc`、深色文字/箭头 `#101820`，禁用态使用独立灰底灰字；非管理员字号从 `SC(16)` 提升至 `SC(18)`。展开列表继续保留既有深色背景和浅色文字。
+- 结果：非管理员工程方案框的当前显示值与背景形成稳定高对比，字号提高一档；居中、下拉项对齐、长文本省略、箭头位置和禁用逻辑不变。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_qt_app` 通过；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 15/15 通过，skip 为 0。构建仅输出既有 `QComboBox::activated` 弃用警告。
+- 遗留：未实际启动 Qt 程序人工确认高对比配色、字号、长方案名、省略、禁用状态和窗口缩放；未连接真实 PLC、相机或设备。
+
+## 2026-09-08 - 打包 TankEye-Iris 2.1.9
+
+- 目标：将当前工作区维护状态生成 `2.1.9` 正式运行包，包含真正单通道模型兼容修复、方案框视觉调整和既有 AutoStart 行为。
+- 修改：同步应用默认版本、运行包配置、打包脚本默认发布名、README、运行说明、构建/打包指南、项目配置、架构图 HTML、`MEMORY.md` 和 `HANDOFF.md` 到 `2.1.9`；历史版本条目保留，未删除或回滚用户已有改动。
+- 结果：生成 `dist/TankEye-Iris_2.1.9` 和 `dist/TankEye-Iris_2.1.9.zip`。目录包与 ZIP 包含主程序、设备探测程序、DG_8/DG_10 模型、Qt 平台插件、CPU/GPU OpenVINO 插件、`config/admin_auth.key` 和 `USAGE_GUIDE.txt`；不包含 `docs/`、`AGENTS.md` 或单机 `admin_license.json`。包内配置版本为 `2.1.9`，`machine_limits.enabled=false`，主程序和设备探测程序哈希与 `build\Release` 一致。
+- 验证：已执行 Release 多目标构建；`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release` 15 项默认测试全部通过；已执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.9 -Force`；目录包关键文件、版本、哈希、禁入项和 ZIP 条目检查通过；`git diff --check` 通过，仅有既有 LF/CRLF 转换提示。
+- 遗留：`windeployqt` 输出 `VCINSTALLDIR is not set` 警告但未影响产物；未启动包内 launcher，未连接真实 PLC、真实相机或真实设备；未进行现场 GUI 人工验收；架构图 PDF 仍为既有 2.1.8 生成物。尝试调用本机 Edge headless 重生成仓内 PDF 时权限审批被环境拒绝，未绕过执行，且未完成逐页 PNG 目视验收。
+
+## 2026-09-08 - 修复真实夹爪框与 raw left OBB 方向契约
+
+- 目标：保证原生推理 left OBB 长轴与真实夹爪框长轴一致，允许 180 度反向；AC 射线与二者正交，消除横竖互换和显示角度不一致。
+- 根因：后处理曾用 `final_ac_deg + 90` 推导夹爪长轴；AC 垂足可能落在 raw left 短边，导致 90 度错误。overlay 又在类型显示补偿开启时旋转真实夹爪框，而 raw OBB 保持原位，造成视觉不一致。
+- 修改：`frame_postprocess.cpp` 从 raw left 四点最长边取得唯一长轴来源，并在两阶段 AC 候选中只接受与该轴平行的边；`grip_long_angle_deg` 直接由该轴生成。真实夹爪不再接受类型显示角度补偿，只保留 PLC 命令姿态的平移边界；未改模型、标定、PLC、配置和设备行为。
+- 测试：`frame_postprocess_smoke` 覆盖水平、垂直、45 度、长宽交换和向下 AC；`grab_limit_evaluator_test` 覆盖机械框四方向长轴及 AC 正交；`frame_overlay_test` 覆盖类型显示补偿开/关不旋转 raw/真实夹爪。新增方向检查使用显式失败路径，避免 Release 的 `NDEBUG` 移除标准 `assert()`。
+- 红转绿：先将平行检查故意取反，Release 测试输出 `direction contract failed: raw left OBB and grip long axis must be parallel`、非零退出；恢复后定向测试全部通过。
+- 验证：`cmake --build build --config Release --target tankeye-openvino_frame_postprocess_smoke tankeye-openvino_grab_limit_evaluator_test tankeye-openvino_frame_overlay_test tankeye-openvino_qt_app` 通过；完整 `scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 为 15/15，跳过 0；`NormalizeAngleDeg()` 无残留；`git diff --check` 通过，仅有既有 LF/CRLF 转换提示。
+- 遗留：未启动 GUI，未加载现场图片做人工视觉验收，未连接真实相机、PLC 或设备；需在安全环境用真实画面确认 overlay 与现场夹具方向。
+
+## 2026-09-09 - 严格同步 Python 1.0.21 几何流程
+
+- 目标：让当前 C++ 后处理严格执行 `output/推理v1.0.21.py` 的 Canny 三边微调、矩形重建、二次垂足选 C、固定 45 px 生成 A、基础框重建和沿 AC 垂直方向放大 2 倍流程；保留机械尺寸、九点坐标转换、安全过滤、PLC 和 overlay 框架。
+- 修改：`frame_postprocess.cpp` 恢复并串联上述 Python 几何步骤；`PoseDetection::corners` 使用 Python `new_rect_4pts` 小框语义；`grip_long_angle_deg` 由小框长边方向产生，机械框只使用该方向和工程机械长宽生成，不再用独立 `angle_deg + 90` 推导。overlay 保留 raw left 框、机械框和 AC 射线，类型显示补偿不单独旋转几何层。
+- 测试：后处理覆盖固定 45 px、二次最大归一化 `OA·AC` 选 C、水平/垂直/45 度/向下 AC、长宽交换和 Canny 原图输入；机械框覆盖四方向长轴、机械尺寸不改变上游几何及保护区/SEG mask 拒抓；overlay 覆盖机械框绘制、拒抓颜色、PLC command pose 平移和显示补偿不旋转原始几何。
+- 反向验证：临时将 `grip_long_angle_deg` 旋转 90 度，`frame_postprocess_smoke` 真实失败并输出 `direction contract failed: small grip OBB and real grip long axis must be parallel`；恢复后定向测试通过。
+- 验证：四目标 Release 构建通过；`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release` 实测 15/15、skip 0；`git diff --check` 无空白错误，仅有既有 LF/CRLF 转换提示。
+- 未验证：未启动 GUI、未使用现场图片做人工视觉验收，未连接真实相机、PLC 或设备；机械尺寸到像素的现场标定效果仍需安全环境确认。
+
+## 2026-09-09 - 打包 TankEye-Iris 2.2.1
+
+- 目标：将当前工作区的 Python 1.0.21 后处理同步结果打包为 `TankEye-Iris_2.2.1`。
+- 修改：统一当前版本来源为 `2.2.1`，包括 `config/tankeye.json`、应用默认版本、打包脚本默认包名、运行说明、打包指南和架构图 HTML；未修改历史版本记录。
+- 产物：生成 `dist/TankEye-Iris_2.2.1` 和 `dist/TankEye-Iris_2.2.1.zip`，目录包共 131 个文件，包含主程序、设备探测程序、Qt 运行库、DG_8/DG_10 模型、配置、管理员授权 key 和 `USAGE_GUIDE.txt`。
+- 验证：Release 目标构建成功；默认测试 `15/15`、skip `0`；正式打包命令成功；包内版本为 `2.2.1`，说明首行为 `TankEye-Iris 2.2.1`；主程序和设备探测程序 hash 与 `build/Release` 一致；目录包和 ZIP 均不含 `docs/` 或 `AGENTS.md`；`git diff --check` 通过，仅有既有 LF/CRLF 转换提示。
+- 未验证：未启动包内 GUI，未连接真实相机、PLC 或设备；打包过程有已知 `VCINSTALLDIR is not set` 警告，但未影响产物生成。
+
+## 2026-09-23 - PLC 保存图片 FIFO 数量限制
+
+- 目标：限制 PLC 检测帧图片数量，默认最多保留 1000 张；保存新图成功后按文件名时间戳删除最旧的 `tankeye_plc_*.png`，不影响其他图片文件。
+- 修改：新增 `image_retention` 模块，提供 1~100000 的保留数量校正和真实目录 FIFO 清理；`config/tankeye.json` 增加默认 `image_retention.max_saved_images=1000`；`EngineeringSettingsService` 增加全局 QSettings 读写；管理员工程设置新增“图片最多保留”输入框；保存链路区分图片写盘失败与旧图清理警告。
+- 行为：新图片写盘成功后才清理；已有超限图片不会在启动或保存设置时立即删除，只在下一次成功保存时处理；清理失败保留新图、记录 `[ImageSave] retention warning` 并提示界面；只管理 `images/tankeye_plc_*.png`。
+- 测试：新增 `image_retention_test` 覆盖混合显示模式、最旧文件淘汰、历史超限收敛、非目标文件保护和数量边界；工程设置测试覆盖默认值、往返保存及 1~100000 边界校正。Release 构建成功，`scripts/run_build_tests.ps1 -BuildDir build -Configuration Release -BuildFirst` 实测全部 16 项通过；`git diff --check` 无空白错误，仅有既有 LF/CRLF 转换提示。
+- 未验证：未启动真实 GUI 做工程设置视觉点检，未连接真实 PLC、相机或设备；CTest 直接启动因缺少运行时 DLL 返回 `0xc0000135`，改用项目既有测试脚本并正确设置 DLL PATH 后全部通过。
+
+## 2026-09-23 - PLC 事故帧错误集保存
+
+- 目标：管理员和普通操作员均可点击“保存错误图片”，保存最近一次 PLC 检测完成帧的原图及同帧 `AllDebug` overlay。
+- 修改：新增 `error_image_store` 独立保存模块，自动创建程序目录下的 `error_images/`；生成带毫秒和重复序号的 raw/overlay 成对 PNG，不参与普通 `images/` FIFO，也不自动删除。主窗口新增专用 PLC 完成帧、结果快照和按钮，按钮沿用现有 action button 样式、布局和缩放逻辑。
+- 行为：按钮在首次 PLC 检测完成前禁用；保存不重新触发 PLC、不重新推理、不使用相机后续刷新帧；目录、原图、overlay 分别失败时独立提示，原图成功而 overlay 失败时保留原图并提示部分保存。
+- 验证：`tankeye-openvino_qt_app` 和 `tankeye-openvino_error_image_store_test` Release 编译通过；`git diff --check` 通过。新增测试覆盖自动建目录、raw/overlay 成对写入、重复命名唯一、非目标文件保护和无效输入。测试可执行文件在当前环境运行阶段仍有 Qt/OpenCV DLL 装载问题，完整默认脚本未将该运行结果记为通过。
+- 未验证：未启动真实 GUI，未连接真实 PLC、相机或设备；管理员/普通界面的人工尺寸和 DPI 点检待现场完成。
+
+## 2026-10-12 - 打包 TankEye-Iris 2.2.2
+
+- 目标：按 `docs/PACKAGING_README.md` 把当前工作区打包为 `TankEye-Iris_2.2.2`，纳入 Python 1.0.21 几何流程同步、输入/认证/模型路径/下拉框回车行为修复、PLC 保存图片 FIFO 数量限制和最近 PLC 完成帧错误图片保存。
+- 修改：将 `config/tankeye.json`、应用内置默认版本、打包脚本默认包名、`runtime/USAGE_GUIDE.txt`、现役打包/构建指南和架构图 HTML 的版本同步为 `2.2.2`；打包说明补充 FIFO 和错误图片保存行为。未修改业务函数，未替换历史版本记录。
+- 构建：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-admin-auth-code tankeye-openvino_device_probe tankeye-openvino_frame_postprocess_smoke tankeye-openvino_image_retention_test tankeye-openvino_error_image_store_test` 成功。仅有既有 `QComboBox::activated` C4996 警告，无构建错误。
+- 测试：`frame_postprocess_smoke` 单独通过；默认 17 个 Release 测试中 15 个真实通过。`admin_auth_helpers_test` 与 `engineering_settings_spinbox_wheel_test` 长时间无输出并阻塞，已终止，未记为通过；前者将有副作用的凭据创建调用放在 `assert(...)` 内，Release `NDEBUG` 会移除该调用。为避免扩大本次打包任务范围，未修改测试代码。
+- 产物：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.2.2 -Force` 成功，生成 `dist/TankEye-Iris_2.2.2` 和 `dist/TankEye-Iris_2.2.2.zip`。打包时无有效九点方案，按既有安全规则写入 `machine_limits.enabled=false`；`windeployqt` 仅输出既有 `VCINSTALLDIR is not set` 警告。
+- 核验：文档收尾后已重新打包；目录包 143 个文件，ZIP 149 个条目，最终 ZIP 大小 156952132 字节，SHA256 为 `B5D9AA6390517207AADB0C1897E717E961F6ADF5144CF0E8890BA3C5CF34E421`。包内版本为 `2.2.2`，说明首行为 `TankEye-Iris 2.2.2 使用说明`，`image_retention.max_saved_images=1000`；关键文件、DG_8/DG_10 模型、CPU/GPU OpenVINO 插件和管理员授权 key 齐全。主程序 SHA256 为 `D227719E622415B57D39B5384B42EA0E1F63B13362139A766304473B50126A95`，设备探测程序 SHA256 为 `8517208089B01015277F71BE55290F5D07ED00A5392D18FB77ECE3C001E5E960`，两者均与 `build/Release` 一致；目录包和 ZIP 都不含 `docs/`、`AGENTS.md` 或 `config/admin_license.json`。
+- 未验证：未启动包内 GUI，未连接真实相机、PLC 或设备；需后续在安全现场检查 UI、九点标定、PLC FIFO 滚动和错误图片同帧内容。
+
+## 2026-10-12 - 2.2.2 全文档事实收尾
+
+- 目标：将所有现役文档与当前源码、CMake、配置、测试和 2.2.2 本地产物对齐；历史记录中的旧版本号和当时结论保留。
+- 修改：中英文 README 从 2.1.9 同步到 2.2.2，补充 Python 1.0.21 几何、回车交互、PLC 图片 FIFO、错误图片和当前测试边界；运行说明修正旧“首次 AC”描述并增加图片保留/错误图片章节；项目静态档案更新版本、模块、配置、测试和打包命令。
+- 收敛：`HANDOFF.md` 已删除多份互相冲突的旧“当前基线”，重写为单一 2.2.2 交接答案；`MEMORY.md` 现役摘要不再把 2.1.9/2.2.1 称为当前产物，错误图片测试也已更新为 2026-10-12 真实通过结果。
+- 架构文档：HTML 补充 Python 1.0.21、OpenVINO 1/3 通道、PLC 错误图片、FIFO 和 2.2.2 打包信息；使用 Edge headless 从最终 HTML 重生成 PDF，PDF 大小 158450 字节，SHA256 为 `B17AAB4519208A5C4D4A60F8B7FA70D7FB75E2A4A2DE45D13B918DD1897644C7`。两页打印源截图已人工检查无裁切、重叠或乱码；Edge PDF viewer 无界面截图返回空白画布，未取得 viewer 本身的逐页像素验收。
+- 工作区：未删除 `PROGRESS.md`、`BLOCKED.md`、结果 BMP、模型或任何用户文件；这些保留为用户复核现场。未提交、未推送、未部署。
+- 验证：增量 Release 构建 `tankeye-openvino_qt_app`、`frame_postprocess_smoke`、`image_retention_test`、`error_image_store_test`、`app_config_service_test` 通过；上述 4 个定向测试可执行目标全部通过。现役文档旧版“当前”表述扫描通过，Markdown 本地链接存在性检查通过，PDF 头/EOF/2 页对象检查通过，`git diff --check` 返回 0，仅有既有 LF/CRLF 转换提示。
+- 运行包文档闭环：因 `runtime/USAGE_GUIDE.txt` 在首次打包后又完成事实同步，已重新执行 2.2.2 正式打包。源码与包内 `USAGE_GUIDE.txt` SHA256 一致，包内已包含“八、PLC 图片保留与错误图片”；最终 ZIP 大小 156952132 字节，SHA256 为 `B5D9AA6390517207AADB0C1897E717E961F6ADF5144CF0E8890BA3C5CF34E421`。
+
+## 2026-10-12 - 维护接手前置核查
+
+- 范围：读取指定协作规则与项目记忆，核查实际目录、CMake 入口和 Git 状态；尚无具体功能维护目标。
+- 结果：分支 `Unordered_scraping_v7`；HEAD 与本地 origin 跟踪引用均为 `59e0e27`；48 个已跟踪修改、1 个删除、15 个未跟踪文件均保留，未确认每项改动来源。
+- 发现：MEMORY 中 PROGRESS/BLOCKED 已删除的旧描述与实际存在状态冲突；追加当前事实，不覆盖历史内容。
+- 修改：仅在 MEMORY 和 TASK_HISTORY 追加接手记录；未修改代码、配置、脚本或产物。
+- 验证：实际执行 Git 状态/引用检查、显式 UTF-8 文档读取及新增记录读回；未执行构建、测试或 GUI 启动，历史验证不视为本轮结果；未连接真实设备。
+- 后续：等待用户指定功能、问题或验收目标，再阅读相关实现并按要求执行最小改动和真实验证。
+
+
+## 2026-10-12 - 恢复 2.1.9 候选几何计算与显示行为
+
+- 授权：用户明确选择计算与显示一起恢复并要求实施；版本不变、不重打包、不提交推送。先完成产品、项目、架构、CV、Qt、测试六角色评审和带行号删除清单。
+- 改动：局部替换 frame_postprocess 几何函数及 frame_overlay 显示函数；恢复基础框输出、AC+90 夹爪方向、类型显示旋转及既有平移，删除小框字段/长边推导及无用测试辅助字段。相关测试改为旧规则预期，并启用 Release 有效失败检查；保留安全过滤生产代码和其他功能。
+- 依据：四个恢复函数与 `59e0e27` 完整函数一致，关键规则与 2.1.9 前后历史记录一致；缺少 2.1.9 原包/标签，不声称原包精确还原。
+- 构建命令：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-openvino_frame_postprocess_smoke tankeye-openvino_grab_limit_evaluator_test tankeye-openvino_frame_overlay_test` 成功。
+- 验证命令：三个定向目标分别通过 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter <目标.exe>`；`python build/legacy_geometry_audit/run_tests.py` 按项目脚本逐项运行默认测试和后处理冒烟，每项限时 30 秒，TEMP/TMP 均在仓内。
+- 最终结果：默认 17 项中 15 项通过、认证和滚轮 2 项超时终止；后处理冒烟另行通过，最终合计 16 PASS、0 FAIL、2 TIMEOUT。状态显示测试强制 offscreen 超时，按原默认平台重跑通过；后处理修正相关旧测试预期后重跑通过，JSON 保留最终结果，不能声称默认全部通过。
+- 测试隔离：认证测试采用仓内强制头和 MSBuild props，将 QSettings 默认格式设为 IniFormat 并限制路径，避免清空 Windows 用户级设置；隔离设置已撤销且原认证测试重新构建。初次 taskkill 失败后使用精确 PID Stop-Process 结束本轮测试，最终确认无残留 tankeye 测试进程。
+- 已知边界：旧算法 0x20 退化框仍可产生候选；几何变化可影响拒抓及 PLC 数值。未启动主程序 GUI或真实设备，未验证现场画面/动作；dist 仍是回退前 2.2.2 包。
+- 保护与输出：仅五个实现/测试文件和三份动态记忆文档改变，其他已有改动文件哈希保持；完整源码/测试文件输出 `build/legacy_geometry_audit/COMPLETE_CODE.md`，日志与状态备份同目录。UTF-8 读回及 git diff --check 已通过，仅既有 LF/CRLF 提示。
+
+
+## 2026-10-12 - 打包 TankEye-Iris 2.2.3（旧几何现场测试版）
+
+- 用户授权：生成 2.2.3，交由用户现场验证。本版包含已恢复的 2.1.9 候选几何与类型显示补偿，保存错误图片、FIFO、回车、灰度推理等其他功能保留。
+- 修改：应用默认版本、主配置、打包脚本默认名称及包内说明改为 2.2.3；现役打包/构建指南和静态配置档案同步旧基础框/AC+90 规则。未改其他业务逻辑，不覆盖用户已有改动。
+- 构建：`cmake --build build --config Release --target tankeye-openvino_qt_app tankeye-admin-auth-code tankeye-openvino_device_probe tankeye-openvino_app_config_service_test` 通过，只有既有 QComboBox 弃用警告。
+- 测试：`python build/legacy_geometry_audit/run_tests.py tankeye-openvino_app_config_service_test.exe tankeye-openvino_frame_postprocess_smoke.exe tankeye-openvino_grab_limit_evaluator_test.exe tankeye-openvino_frame_overlay_test.exe tankeye-openvino_error_image_store_test.exe tankeye-openvino_image_retention_test.exe` 6/6 通过，TEMP/TMP 在仓内。其余默认测试沿用同会话回退验证：默认 15/17 通过，认证/滚轮 2 项超时；后处理冒烟另行通过。不声称本次重跑了全部默认测试。
+- 打包：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.2.3` 成功；先确认 release、ZIP、staging 都不存在且位于仓内 dist，未使用 Force，未删除/覆盖 2.2.2 包。
+- 产物：目录包 143 个文件、ZIP 149 个条目、ZIP 156952177 字节；ZIP SHA256 `101BB804D1DF71CE66803C977D2113BECE08D85285B1D905198F3589ED4FF948`。
+- 核验：目录包与 ZIP 所有文件逐一哈希一致；主程序/设备探测 exe 与本次 build 一致；二进制内置版本与配置/说明为 2.2.3；DG_8/DG_10 XML/BIN、CPU/GPU OpenVINO 插件、Qt 平台插件和授权 key 齐全；不含 docs、AGENTS.md、单机 admin_license.json。认证 key 仅检查哈希，不输出内容。
+- 配置边界：包内 max_saved_images=1000；无有效启用九点方案，既有脚本写入 machine_limits.enabled=false，现场需确认标定及限位设置；只显式包含 DG_8_weights/DG_10_weights，不自动包含自定义模型目录。
+- 未验证：未启动包内 GUI/VBS、未连接真实 PLC、相机或设备；现场需核对 A/C、AC+90 夹爪方向、类型显示补偿、拒抓/PLC 值、保存错误图原图与诊断图同帧、FIFO/回车交互。
+- 记录：完整版本代码/配置及核验 JSON 位于 build/package_2_2_3_audit；未提交、推送或部署。架构 HTML/PDF 仍为既有 2.2.2 历史材料，本轮未重生成。
+
+
+## 2026-10-14 - 最终版文档同步与 main 发布核查
+
+- 授权：用户确认2.2.3为最终版，要求所有文档同步后提交main，并明确选择本地/GitHub都更新，只删除已被main包含的其他分支。
+- 前提：远端main为7e0bfad，当前V7基线59e0e27，两者无共同祖先；发布保留双历史，以最终Windows树为准，不强制推送或改写旧提交。最终发布/删除结果另行追加。
+- 文档：机械枚举全部项目文档，区分现役/历史；更新中英文README、构建/打包指南、静态配置、架构HTML/PDF、MEMORY/HANDOFF；修正小框方向、自动加载、轴补偿不参与限位等过时说法。将收尾前记忆完整归档到archive/2026-10-14-memory-before-closeout.md，当前记忆仅保留唯一现役答案；PROGRESS/BLOCKED标为历史并保留，不提交或删除。
+- 规则：AGENTS、操作限制、六角色流程及瘦身纠偏仍有效，无新增业务代码；仅补齐DG_8_dan模型与生成BMP的ignore规则，防止误提交私有产物。
+- 验证：`cmake --build build --config Release`完整构建成功；安全默认测试通过15项、滚轮1项30秒超时终止，后处理冒烟另行通过，共16PASS/1TIMEOUT。原认证测试会清空用户级QSettings，本轮未重跑，保留2026-10-12隔离测试超时事实。不声称本轮17/17通过，也不把Release旧assert全部视为有效验收。
+- 测试命令：`python build/legacy_geometry_audit/run_tests.py tankeye-openvino_frame_postprocess_smoke.exe <除admin_auth_helpers之外的默认test.exe列表>`，各项经项目run_build_tests.ps1运行，TEMP/TMP限制仓内；详细日志/JSON见build/legacy_geometry_audit。
+- PDF：Edge沙箱渲染遇到GPU进程失败，未提升浏览器权限；改用本机已有svglib/reportlab从最终HTML的两张SVG生成PDF，以MicrosoftYaHei嵌入字体，并通过Windows.Data.Pdf实际渲染两页PNG逐页检查无裁切、重叠或乱码。PDF SHA256 `DC7E2B1059799E407A4528EE51AE4265CD3B32A94A7DF292B3879D7DEE4B2E9A`。未安装依赖或改系统设置。
+- 产物：2.2.3 ZIP原SHA256 `101BB804D1DF71CE66803C977D2113BECE08D85285B1D905198F3589ED4FF948`保持不变，目录/ZIP每个文件相同，主程序和探测exe与当前build一致。未重新打包、未启动主程序GUI或设备。
+- 文档UTF-8及内部链接检查通过；业务代码、模型及结果BMP哈希保持，复核现场未清场。Git/现场运行的最终状态以本次后续记录为准；现场GUI、PLC、相机及真实动作仍pending。

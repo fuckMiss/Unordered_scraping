@@ -208,6 +208,14 @@ void ApplyJson(AppConfig& config, const QJsonObject& root)
     if (config.camera.exposure_us < 0.0) {
         config.camera.exposure_us = 0.0;
     }
+
+    const QJsonObject image_retention = ObjectValue(root, "image_retention");
+    config.image_retention.max_saved_images = ClampMaxSavedImages(
+        IntValue(image_retention,
+                 "max_saved_images",
+                 config.image_retention.max_saved_images,
+                 1,
+                 100000));
 }
 
 } // namespace

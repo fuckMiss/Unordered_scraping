@@ -216,8 +216,14 @@ bool ShowAccountAuthCodeDialog(QWidget* parent,
     layout->addLayout(grid);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(options.submit_text);
-    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    auto* submit_button = buttons->button(QDialogButtonBox::Ok);
+    auto* cancel_button = buttons->button(QDialogButtonBox::Cancel);
+    submit_button->setText(options.submit_text);
+    submit_button->setDefault(true);
+    submit_button->setAutoDefault(true);
+    cancel_button->setText(QStringLiteral("取消"));
+    cancel_button->setDefault(false);
+    cancel_button->setAutoDefault(false);
     layout->addWidget(buttons);
 
     QObject::connect(save_request_button, &QPushButton::clicked, &dialog, [&dialog, window_title = options.window_title, machine_code]() {
@@ -250,6 +256,28 @@ bool ShowAccountAuthCodeDialog(QWidget* parent,
         }
         save_remembered_password(false, QString());
         dialog.accept();
+    });
+    QObject::connect(username_edit, &QLineEdit::returnPressed, password_edit, [password_edit]() {
+        password_edit->setFocus();
+    });
+    QObject::connect(password_edit, &QLineEdit::returnPressed, confirm_edit, [confirm_edit]() {
+        confirm_edit->setFocus();
+    });
+    if (recovery_answer_check_edit) {
+        QObject::connect(recovery_answer_check_edit,
+                         &QLineEdit::returnPressed,
+                         username_edit,
+                         [username_edit]() { username_edit->setFocus(); });
+    }
+    QObject::connect(confirm_edit, &QLineEdit::returnPressed, recovery_question_edit, [recovery_question_edit]() {
+        recovery_question_edit->setFocus();
+    });
+    QObject::connect(recovery_question_edit,
+                     &QLineEdit::returnPressed,
+                     recovery_answer_edit,
+                     [recovery_answer_edit]() { recovery_answer_edit->setFocus(); });
+    QObject::connect(recovery_answer_edit, &QLineEdit::returnPressed, submit_button, [submit_button]() {
+        submit_button->click();
     });
 
     return dialog.exec() == QDialog::Accepted;
@@ -294,7 +322,10 @@ void ShowAdminLicenseRequestDialog(QWidget* parent, double ui_scale, const QStri
     layout->addLayout(grid);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok, &dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("关闭"));
+    auto* close_button = buttons->button(QDialogButtonBox::Ok);
+    close_button->setText(QStringLiteral("关闭"));
+    close_button->setDefault(false);
+    close_button->setAutoDefault(false);
     layout->addWidget(buttons);
 
     QObject::connect(save_request_button, &QPushButton::clicked, &dialog, [&dialog, window_title, machine_code]() {
@@ -366,6 +397,12 @@ bool ShowAdminLoginDialog(QWidget* parent,
     auto* login_button = new QPushButton(QStringLiteral("登录"), &dialog);
     auto* cancel_button = new QPushButton(QStringLiteral("取消"), &dialog);
     cancel_button->setObjectName("secondaryAuthButton");
+    login_button->setDefault(true);
+    login_button->setAutoDefault(true);
+    reset_button->setDefault(false);
+    reset_button->setAutoDefault(false);
+    cancel_button->setDefault(false);
+    cancel_button->setAutoDefault(false);
     button_row->addWidget(reset_button, 0, Qt::AlignLeft);
     button_row->addStretch(1);
     button_row->addWidget(login_button);
@@ -385,6 +422,12 @@ bool ShowAdminLoginDialog(QWidget* parent,
         }
         save_remembered_password(remember_check->isChecked(), password_edit->text());
         dialog.accept();
+    });
+    QObject::connect(username_edit, &QLineEdit::returnPressed, password_edit, [password_edit]() {
+        password_edit->setFocus();
+    });
+    QObject::connect(password_edit, &QLineEdit::returnPressed, login_button, [login_button]() {
+        login_button->click();
     });
 
     return dialog.exec() == QDialog::Accepted;

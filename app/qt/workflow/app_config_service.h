@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "engineering_settings_service.h"
+#include "image_retention.h"
 
 #include <QString>
 #include <QtGlobal>
@@ -35,7 +36,7 @@ struct PlcConnectionConfig
 struct AppDisplayConfig
 {
     QString name = QStringLiteral("TankEye-Iris");
-    QString version = QStringLiteral("2.1.6");
+    QString version = QStringLiteral("2.2.3");
     QString title = QStringLiteral("截止阀抓取上料系统");
 };
 
@@ -49,6 +50,7 @@ struct AppConfig
     AxisCompensationSettings axis_compensation;
     AngleCalibrationSettings angle_calibration;
     CameraSettings camera;
+    ImageRetentionSettings image_retention;
 };
 
 class AppConfigService

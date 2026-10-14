@@ -23,6 +23,7 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QImage>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QList>
@@ -45,6 +46,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QStyle>
 #include <QToolButton>
 #include <QVariant>
 #include <QVBoxLayout>
@@ -70,12 +72,32 @@ public:
     }
 
 protected:
+    void keyPressEvent(QKeyEvent* event) override
+    {
+        if (event != nullptr &&
+            (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
+            event->accept();
+            return;
+        }
+        QComboBox::keyPressEvent(event);
+    }
+
     void paintEvent(QPaintEvent* event) override
     {
-        QComboBox::paintEvent(event);
-
         QStyleOptionComboBox option;
         initStyleOption(&option);
+        option.currentText.clear();
+        QPainter painter(this);
+        style()->drawComplexControl(QStyle::CC_ComboBox, &option, &painter, this);
+
+        const QRect text_rect = style()->subControlRect(
+            QStyle::CC_ComboBox, &option, QStyle::SC_ComboBoxEditField, this);
+        const QFontMetrics metrics(font());
+        const QString text = metrics.elidedText(currentText(), Qt::ElideRight, text_rect.width());
+        painter.setPen(isEnabled() ? QColor(QStringLiteral("#101820"))
+                                   : QColor(QStringLiteral("#6f7d88")));
+        painter.drawText(text_rect, Qt::AlignCenter, text);
+
         QRect arrow_rect = style()->subControlRect(
             QStyle::CC_ComboBox, &option, QStyle::SC_ComboBoxArrow, this);
         if (!arrow_rect.isValid() || arrow_rect.width() < 12) {
@@ -88,10 +110,9 @@ protected:
         const int right_x = center.x() + chevron_width / 2;
         const int top_y = center.y() - chevron_height / 2;
         const int bottom_y = center.y() + chevron_height / 2;
-        QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing, true);
-        QPen pen(isEnabled() ? QColor(QStringLiteral("#f4f8fc"))
-                             : QColor(QStringLiteral("#9aaab7")),
+        QPen pen(isEnabled() ? QColor(QStringLiteral("#101820"))
+                             : QColor(QStringLiteral("#6f7d88")),
                  2.0);
         pen.setCapStyle(Qt::RoundCap);
         pen.setJoinStyle(Qt::RoundJoin);
@@ -118,6 +139,16 @@ public:
     }
 
 protected:
+    void keyPressEvent(QKeyEvent* event) override
+    {
+        if (event != nullptr &&
+            (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
+            event->accept();
+            return;
+        }
+        QComboBox::keyPressEvent(event);
+    }
+
     void mousePressEvent(QMouseEvent* event) override
     {
         if (event != nullptr && event->button() == Qt::LeftButton) {
@@ -622,6 +653,7 @@ GraspMainWindow::GraspMainWindow(const AppConfig& app_config, QWidget* parent)
     plc_poll_timer_->setInterval(50);
     loadCameraSettings();
     loadStartupLaunchSettings();
+    loadImageRetentionSettings();
     loadProjectProfileSettings();
     display_overlay_mode_ = DisplayOverlayMode::NormalHidden;
     setupUi();
@@ -674,6 +706,15 @@ void GraspMainWindow::refreshImageSaveButton()
         image_save_active_
             ? QStringLiteral("正在保存PLC检测帧：%1模式").arg(DisplayOverlayModeText(image_save_overlay_mode_))
             : QStringLiteral("开始保存PLC检测帧，使用当前显示模式"));
+}
+
+void GraspMainWindow::refreshErrorImageButton()
+{
+    if (!error_image_button_) {
+        return;
+    }
+    error_image_button_->setEnabled(has_last_plc_completed_frame_ && !last_plc_completed_frame_.empty());
+    error_image_button_->setToolTip(QStringLiteral("保存最近一次 PLC 检测完成帧的原图和全显诊断图"));
 }
 
 bool GraspMainWindow::eventFilter(QObject* watched, QEvent* event)
@@ -1239,13 +1280,14 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     display_mode_selector_->setCurrentIndex(0);
     display_mode_selector_->setObjectName(QStringLiteral("displayModeSelector"));
     image_save_button_ = new QPushButton(QStringLiteral("开始保存"), this);
+    error_image_button_ = new QPushButton(QStringLiteral("保存错误图片"), this);
     target_list_button_ = new QPushButton(QStringLiteral("目标列表"), this);
     engineering_button_ = new QPushButton(QStringLiteral("工程设置"), this);
     runtime_log_button_ = new QPushButton(QStringLiteral("运行日志"), this);
 
     const QList<QPushButton*> action_buttons = {
         load_image_button_, open_camera_button_, start_button_, plc_link_button_,
-        plc_test_button_, stop_button_, image_save_button_,
+        plc_test_button_, stop_button_, image_save_button_, error_image_button_,
         target_list_button_, engineering_button_, runtime_log_button_
     };
     for (QPushButton* button : action_buttons) {
@@ -1264,10 +1306,12 @@ void GraspMainWindow::buildActionSection(QVBoxLayout* side_layout)
     display_mode_selector_->setMinimumHeight(secondary_button_height);
     display_mode_selector_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     image_save_button_->setMinimumHeight(secondary_button_height);
+    error_image_button_->setMinimumHeight(secondary_button_height);
     target_list_button_->setMinimumHeight(secondary_button_height);
     engineering_button_->setMinimumHeight(secondary_button_height);
     runtime_log_button_->setMinimumHeight(secondary_button_height);
     image_save_button_->setObjectName("secondaryActionButton");
+    error_image_button_->setObjectName("secondaryActionButton");
     target_list_button_->setObjectName("secondaryActionButton");
     engineering_button_->setObjectName("secondaryActionButton");
     runtime_log_button_->setObjectName("secondaryActionButton");
@@ -1751,7 +1795,7 @@ void GraspMainWindow::refreshActionButtonMetrics()
         load_image_button_, open_camera_button_, start_button_, plc_link_button_, plc_test_button_, stop_button_
     };
     const QList<QPushButton*> secondary_buttons = {
-        image_save_button_, target_list_button_, engineering_button_,
+        image_save_button_, error_image_button_, target_list_button_, engineering_button_,
         runtime_log_button_, target_list_back_button_
     };
 
@@ -1804,26 +1848,26 @@ void GraspMainWindow::refreshSidebarCompactMetrics()
     if (project_profile_selector_) {
         const int selector_min_width = admin_mode_ ? SC(96) : SC(120);
         const int selector_min_height = admin_mode_ ? SC(30) : SC(38);
-        const int selector_font_size = admin_mode_ ? SC(14) : SC(16);
+        const int selector_font_size = admin_mode_ ? SC(14) : SC(18);
         project_profile_selector_->setMinimumWidth(selector_min_width);
         project_profile_selector_->setMinimumHeight(selector_min_height);
         project_profile_selector_->setStyleSheet(QString(
             "QComboBox {"
-            " background: rgba(8,16,25,0.72);"
-            " color: #f4f8fc;"
-            " border: 1px solid #4e718a;"
+            " background: #f4f8fc;"
+            " color: #101820;"
+            " border: 1px solid #9bb1c3;"
             " border-radius: %1px;"
             " padding: 0px %2px;"
             " font-size: %3px;"
             " min-height: %4px;"
             "}"
-            "QComboBox:hover { border-color: #78a9c7; background: rgba(20,42,58,0.88); }"
+            "QComboBox:hover { border-color: #1d9bf0; background: #ffffff; }"
             "QComboBox:focus { border-color: #3ca7ef; }"
-            "QComboBox:disabled { color: #9aaab7; border-color: #465968; background: rgba(40,53,63,0.72); }"
+            "QComboBox:disabled { color: #6f7d88; border-color: #aebbc5; background: #dce4ea; }"
             "QComboBox::drop-down {"
             " width: %5px;"
             " border: none;"
-            " border-left: 1px solid #4e718a;"
+            " border-left: 1px solid #9bb1c3;"
             " border-top-right-radius: %1px;"
             " border-bottom-right-radius: %1px;"
             "}"
@@ -1902,6 +1946,7 @@ void GraspMainWindow::bindActions()
         setDisplayOverlayMode(static_cast<DisplayOverlayMode>(data.toInt()));
     });
     connect(image_save_button_, &QPushButton::clicked, this, [this]() { toggleImageSaveSession(); });
+    connect(error_image_button_, &QPushButton::clicked, this, [this]() { saveLastPlcErrorImages(); });
     connect(target_list_button_, &QPushButton::clicked, this, [this]() { showTargetListPage(); });
     connect(target_list_back_button_, &QPushButton::clicked, this, [this]() { showDetailPage(); });
     connect(engineering_button_, &QPushButton::clicked, this, [this]() { openEngineeringSettings(); });
@@ -2073,7 +2118,8 @@ void GraspMainWindow::stopRuntimeForProjectProfileSwitch()
 
 bool GraspMainWindow::switchProjectProfile(const QString& profile_name,
                                            bool reload_models,
-                                           QString* error_message)
+                                           QString* error_message,
+                                           std::function<void(bool, const QString&)> completion)
 {
     if (models_loading_) {
         if (error_message != nullptr) {
@@ -2107,11 +2153,22 @@ bool GraspMainWindow::switchProjectProfile(const QString& profile_name,
 
     if (reload_models) {
         pending_project_profile_name_ = current_project_profile_name_;
-        loadModelsFromPathsAsync(obb_model_path_, seg_model_path_, true, true);
+        loadModelsFromPathsAsync(obb_model_path_,
+                                 seg_model_path_,
+                                 true,
+                                 true,
+                                 [completion](bool success, const QString& load_error) {
+                                     if (completion) {
+                                         completion(success, load_error);
+                                     }
+                                 });
     } else {
         active_project_profile_name_ = current_project_profile_name_;
         SaveActiveProjectProfileName(active_project_profile_name_);
         has_pending_previous_project_profile_settings_ = false;
+        if (completion) {
+            completion(true, QString());
+        }
     }
     return true;
 }
@@ -2338,6 +2395,9 @@ void GraspMainWindow::refreshProjectProfileSelector()
     const QString active_name = active_project_profile_name_.trimmed();
     project_profile_selector_->clear();
     project_profile_selector_->addItems(ListProjectProfileNames());
+    for (int index = 0; index < project_profile_selector_->count(); ++index) {
+        project_profile_selector_->setItemData(index, Qt::AlignCenter, Qt::TextAlignmentRole);
+    }
     const int active_index = project_profile_selector_->findText(active_name);
     if (active_index >= 0) {
         project_profile_selector_->setCurrentIndex(active_index);

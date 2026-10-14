@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 
 #include <cassert>
+#include <cstdlib>
 #include <iostream>
 
 namespace {
@@ -31,6 +32,14 @@ int CountNonBlackPixels(const cv::Mat& image, const cv::Rect& roi)
         }
     }
     return count;
+}
+
+void RequireOverlayContract(bool condition, const char* message)
+{
+    if (!condition) {
+        std::cerr << "overlay contract failed: " << message << std::endl;
+        std::abort();
+    }
 }
 
 PoseDetection MakeDisplayDetection(int matched_segment_index,
@@ -216,57 +225,59 @@ void NormalViewDoesNotRotateGeometryForGlobalCalibrationAngle()
     assert(CountNonBlackPixels(image, cv::Rect(74, 54, 12, 30)) == 0);
 }
 
-void NormalViewRotatesGeometryForHeadTypeVisualAngleOffset()
+void TypeDisplayRotationMatchesLegacyGeometryAndTranslation()
 {
-    cv::Mat image(120, 140, CV_8UC3, cv::Scalar(0, 0, 0));
-    FrameInferenceResult result;
-    result.display_scale = 1.0;
-    result.primary_index = 0;
-    PoseDetection detection = MakeDisplayDetection(0, 0.95f, true, { 50.0f, 40.0f });
-    detection.angle_deg = 0.0f;
-    detection.center_x = 50.0f;
-    detection.center_y = 40.0f;
-    detection.mechanical_gripper_corners = {
-        { 35.0f, 32.0f },
-        { 65.0f, 32.0f },
-        { 65.0f, 48.0f },
-        { 35.0f, 48.0f },
-    };
-    detection.display_geometry_angle_offset_deg = 90.0f;
-    detection.has_display_geometry_angle_offset = true;
-    result.detections.push_back(detection);
+    for (const bool show_all : { false, true }) {
+        for (const bool use_command_pose : { false, true }) {
+            FrameInferenceResult result;
+            result.display_scale = 1.0;
+            result.primary_index = 0;
+            PoseDetection detection = MakeDisplayDetection(0, 0.95f, true, { 50.0f, 40.0f });
+            detection.center_x = 50.0f;
+            detection.center_y = 40.0f;
+            detection.corners = { { 35.0f, 35.0f }, { 65.0f, 35.0f },
+                                  { 65.0f, 45.0f }, { 35.0f, 45.0f } };
+            detection.mechanical_gripper_corners = {
+                { 35.0f, 32.0f }, { 65.0f, 32.0f }, { 65.0f, 48.0f }, { 35.0f, 48.0f },
+            };
+            detection.display_geometry_angle_offset_deg = 90.0f;
+            detection.has_display_geometry_angle_offset = true;
+            detection.plc_command_center = { 70.0f, 60.0f };
+            detection.has_plc_command_pose = use_command_pose;
+            result.detections.push_back(detection);
 
-    DrawFrameOverlay(image, result, -1, false, false, false, true, nullptr);
+            FrameInferenceResult expected = result;
+            PoseDetection& rotated = expected.detections.front();
+            const auto rotate = [](cv::Point2f point) {
+                return cv::Point2f(50.0f - (point.y - 40.0f), 40.0f + (point.x - 50.0f));
+            };
+            for (cv::Point2f& point : rotated.corners) {
+                point = rotate(point);
+            }
+            for (cv::Point2f& point : rotated.mechanical_gripper_corners) {
+                point = rotate(point);
+            }
+            rotated.arrow_start = rotate(rotated.arrow_start);
+            rotated.arrow_end = rotate(rotated.arrow_end);
+            rotated.has_display_geometry_angle_offset = false;
 
-    assert(CountNonBlackPixels(image, cv::Rect(34, 30, 32, 20)) == 0);
-    assert(CountNonBlackPixels(image, cv::Rect(42, 24, 16, 34)) > 0);
-    assert(CountNonBlackPixels(image, cv::Rect(44, 68, 14, 30)) > 0);
-}
-
-void NormalViewCanKeepRawGeometryForHeadTypeVisualAngleOffset()
-{
-    cv::Mat image(120, 140, CV_8UC3, cv::Scalar(0, 0, 0));
-    FrameInferenceResult result;
-    result.display_scale = 1.0;
-    result.primary_index = 0;
-    PoseDetection detection = MakeDisplayDetection(0, 0.95f, true, { 50.0f, 40.0f });
-    detection.angle_deg = 0.0f;
-    detection.center_x = 50.0f;
-    detection.center_y = 40.0f;
-    detection.mechanical_gripper_corners = {
-        { 35.0f, 32.0f },
-        { 65.0f, 32.0f },
-        { 65.0f, 48.0f },
-        { 35.0f, 48.0f },
-    };
-    detection.display_geometry_angle_offset_deg = 90.0f;
-    detection.has_display_geometry_angle_offset = true;
-    result.detections.push_back(detection);
-
-    DrawFrameOverlay(image, result, -1, false, false, false, true, nullptr, false);
-
-    assert(CountNonBlackPixels(image, cv::Rect(34, 30, 32, 20)) > 0);
-    assert(CountNonBlackPixels(image, cv::Rect(44, 68, 14, 30)) == 0);
+            cv::Mat actual(160, 160, CV_8UC3, cv::Scalar(0, 0, 0));
+            cv::Mat reference = actual.clone();
+            cv::Mat raw = actual.clone();
+            DrawFrameOverlay(actual, result, -1, false, show_all, false, false, nullptr, true);
+            DrawFrameOverlay(reference, expected, -1, false, show_all, false, false, nullptr, false);
+            DrawFrameOverlay(raw, result, -1, false, show_all, false, false, nullptr, false);
+            RequireOverlayContract(cv::norm(actual, reference, cv::NORM_INF) == 0.0,
+                                   "type rotation must rotate both frames and AC before command translation");
+            RequireOverlayContract(cv::norm(actual, raw, cv::NORM_INF) > 0.0,
+                                   "disabling type compensation must keep raw geometry");
+            RequireOverlayContract(result.detections.front().corners == detection.corners &&
+                                       result.detections.front().mechanical_gripper_corners ==
+                                           detection.mechanical_gripper_corners &&
+                                       result.detections.front().arrow_end == detection.arrow_end,
+                                   "display rotation must not mutate upstream safety geometry");
+        }
+    }
 }
 
 void NormalViewDoesNotDrawAngleBadgeForCalibratedPose()
@@ -452,8 +463,7 @@ int main()
     MechanicalGripperOverlayUsesRejectedStateColor();
     NormalViewDrawsPlcCommandPoseWhenAvailable();
     NormalViewDoesNotRotateGeometryForGlobalCalibrationAngle();
-    NormalViewRotatesGeometryForHeadTypeVisualAngleOffset();
-    NormalViewCanKeepRawGeometryForHeadTypeVisualAngleOffset();
+    TypeDisplayRotationMatchesLegacyGeometryAndTranslation();
     NormalViewDoesNotDrawAngleBadgeForCalibratedPose();
     NormalViewAlignsBaseObbToMechanicalGripper();
     DebugViewDrawsRawObbOnceAndCommandPoseWhenCommandPoseExists();

@@ -9,7 +9,7 @@ appDir = fso.GetParentFolderName(WScript.ScriptFullName)
 launchScript = fso.BuildPath(appDir, "launch_tankeye.ps1")
 
 command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " & _
-          """" & launchScript & """ -BuildDir build -Configuration Release -WindowMode Maximized"
+          """" & launchScript & """ -BuildDir build -Configuration Release -StartupProfile AutoStart"
 
 shell.CurrentDirectory = appDir
 shell.Run command, 0, False

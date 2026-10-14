@@ -535,9 +535,10 @@ bool SaveProjectProfile(const ProjectProfileSettings& profile,
 bool DeleteProjectProfile(const QString& name, QString* error_message)
 {
     const QString safe_name = SanitizeProjectProfileName(name);
-    if (safe_name == DefaultProjectProfileName()) {
+    const QStringList profile_names = ListProjectProfileNames();
+    if (profile_names.contains(safe_name) && profile_names.size() <= 1) {
         if (error_message != nullptr) {
-            *error_message = QStringLiteral("默认 DG_8 工程方案不能删除。");
+            *error_message = QStringLiteral("至少保留一个工程方案。");
         }
         return false;
     }
@@ -553,7 +554,7 @@ bool DeleteProjectProfile(const QString& name, QString* error_message)
 
 bool EnsureDefaultProjectProfile(const ProjectProfileSettings& defaults, QString* error_message)
 {
-    if (QFileInfo::exists(ProjectProfilePath(DefaultProjectProfileName()))) {
+    if (!ListProjectProfileNames().isEmpty()) {
         return true;
     }
     ProjectProfileSettings next = defaults;

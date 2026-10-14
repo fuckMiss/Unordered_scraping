@@ -37,7 +37,7 @@ docs/project-memory/2026-08-03-slimming-correction.md
    - docs/project-memory/MEMORY.md
    必要时更新：
    - docs/project-memory/HANDOFF.md
-7. 当前大方向是“真正瘦身优化”：优先合并重复代码、减少项目总代码量和维护点，不要只是把大文件拆成更多文件。
+7. 优先合并重复代码、减少项目总代码量和维护点，当项目瘦身时，不要只是把大文件拆成更多文件。
 8. 当前协作流程为六角色评审：
    - 产品经理
    - 项目经理

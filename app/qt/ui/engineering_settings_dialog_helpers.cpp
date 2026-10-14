@@ -12,6 +12,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIntValidator>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QCheckBox>
@@ -91,6 +92,16 @@ public:
     }
 
 protected:
+    void keyPressEvent(QKeyEvent* event) override
+    {
+        if (event != nullptr &&
+            (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
+            event->accept();
+            return;
+        }
+        QComboBox::keyPressEvent(event);
+    }
+
     void wheelEvent(QWheelEvent* event) override
     {
         if (!WidgetOrChildHasFocus(this)) {
@@ -267,6 +278,8 @@ QHBoxLayout* CreatePathRow(QDialog* dialog, QLineEdit* path_edit, const QString&
     auto* title_label = new QLabel(title, dialog);
     title_label->setMinimumWidth(S(90));
     auto* browse_button = new QPushButton(QStringLiteral("浏览"), dialog);
+    browse_button->setDefault(false);
+    browse_button->setAutoDefault(false);
     row->addWidget(title_label);
     row->addWidget(path_edit, 1);
     row->addWidget(browse_button);
@@ -558,6 +571,7 @@ bool ReadEngineeringSettingsDraft(const EngineeringSettingsControls& controls,
     next_draft.postprocess_debug_logging_enabled = controls.postprocess_debug_logging_check->isChecked();
     next_draft.auto_start_enabled = controls.auto_start_check->isChecked();
     next_draft.startup_delay_seconds = controls.startup_delay_spin->value();
+    next_draft.max_saved_images = controls.image_retention_spin->value();
     next_draft.show_grab_limit_overlay = controls.show_grab_limit_overlay_check->isChecked();
     next_draft.mechanical_gripper_length = controls.mechanical_gripper_length_spin->value();
     next_draft.mechanical_gripper_width = controls.mechanical_gripper_width_spin->value();

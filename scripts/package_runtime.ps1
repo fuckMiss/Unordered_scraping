@@ -1,6 +1,6 @@
 ﻿param(
     [string]$BuildDir = "build",
-    [string]$ReleaseName = "TankEye-Iris_2.1.6",
+    [string]$ReleaseName = "TankEye-Iris_2.2.3",
     [switch]$Force
 )
 
@@ -518,7 +518,7 @@ appDir = fso.GetParentFolderName(WScript.ScriptFullName)
 launchScript = fso.BuildPath(appDir, "launch_tankeye.ps1")
 
 command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " & _
-          """" & launchScript & """ -Device AUTO -WindowMode Maximized"
+          """" & launchScript & """ -Device AUTO -StartupProfile AutoStart"
 
 shell.CurrentDirectory = appDir
 shell.Run command, 0, False

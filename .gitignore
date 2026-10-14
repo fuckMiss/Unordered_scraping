@@ -41,6 +41,7 @@ __pycache__/
 # Generated or local calibration/runtime artifacts
 calibration_output/
 calibration_profiles/
+/output/
 kernel.errors.txt
 config/admin_auth.key
 config/admin_license.json
@@ -74,3 +75,10 @@ models/DG_10_weights/*.py
 
 # Local archives
 _archive/
+
+# Local one-channel model and generated inference images
+models/DG_8_dan/*.xml
+models/DG_8_dan/*.bin
+models/DG_8_dan/*.pt
+models/DG_8_dan/*.onnx
+/*_result_*.bmp

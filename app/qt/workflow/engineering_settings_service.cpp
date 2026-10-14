@@ -402,6 +402,28 @@ void EngineeringSettingsService::SaveStartupLaunchSettings(const StartupLaunchSe
     settings->sync();
 }
 
+ImageRetentionSettings EngineeringSettingsService::LoadImageRetentionSettings(
+    const ImageRetentionSettings& defaults)
+{
+    ImageRetentionSettings retention = defaults;
+    auto settings = CreateSettings();
+    settings->beginGroup(QStringLiteral("image_retention"));
+    retention.max_saved_images = ClampMaxSavedImages(
+        settings->value(QStringLiteral("max_saved_images"), retention.max_saved_images).toInt());
+    settings->endGroup();
+    return retention;
+}
+
+void EngineeringSettingsService::SaveImageRetentionSettings(const ImageRetentionSettings& settings)
+{
+    auto settings_store = CreateSettings();
+    settings_store->beginGroup(QStringLiteral("image_retention"));
+    settings_store->setValue(QStringLiteral("max_saved_images"),
+                             ClampMaxSavedImages(settings.max_saved_images));
+    settings_store->endGroup();
+    settings_store->sync();
+}
+
 HeadTypeCompensationSettings EngineeringSettingsService::LoadHeadTypeCompensationSettings()
 {
     return LoadHeadTypeCompensationSettings(HeadTypeCompensationSettings{});

@@ -14,9 +14,11 @@
 - 先读实际项目结构与配置，再做修改；不要依赖过期 README。
 - 读取和写入仓内文本文件默认使用 UTF-8；PowerShell 必须显式使用 `-Encoding UTF8`，脚本生成文本也必须写 UTF-8，避免中文文档、配置和界面文案乱码。
 - 大任务必须拆成小批次推进，每批有清晰目标、改动范围和验证方式。
+- 当前代码清理方向是“真正瘦身”：优先合并重复实现、减少总代码量和维护点，不把单纯拆成更多文件当作瘦身成果。
+- 涉及新功能或高风险 UI、CV、PLC 改动时，先按 `docs/project-memory/AI_ROLE_WORKFLOW.md` 做产品、项目、架构、CV、Qt、测试六角色评审。
 - 每次提交的提交信息必须写清楚相对上一版发生了什么变化、改了哪些范围、验证了什么；不能只写笼统的 `update`、`fix`、`change`。
 - 每次任务结束后更新 `docs/project-memory/TASK_HISTORY.md`。
-- 当前任务、未完成决策、已知问题和交接信息维护在 `docs/project-memory/MEMORY.md`。
+- 当前任务、未完成决策和已知问题维护在 `docs/project-memory/MEMORY.md`；跨会话接手所需的当前状态维护在 `docs/project-memory/HANDOFF.md`。
 - 当上下文消耗接近 80% 时，先更新动态记忆；需要压缩时使用 `/compact`。上下文即将耗尽时，必须把未完成事项写入 `docs/project-memory/HANDOFF.md`。
 
 ## 验证要求
@@ -32,3 +34,4 @@
 - 历史任务记录：`docs/project-memory/TASK_HISTORY.md`
 - 操作限制细则：`docs/project-memory/OPERATING_LIMITS.md`
 - 会话交接：`docs/project-memory/HANDOFF.md`
+- 六角色评审：`docs/project-memory/AI_ROLE_WORKFLOW.md`

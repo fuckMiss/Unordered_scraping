@@ -1,11 +1,18 @@
 #include "admin_auth_helpers.h"
+#include "admin_auth_dialogs.h"
 
 #include <QByteArray>
+#include <QApplication>
+#include <QDialog>
 #include <QFile>
+#include <QKeyEvent>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDir>
+#include <QLineEdit>
+#include <QMetaObject>
+#include <QTimer>
 #include <QSettings>
 
 #include <cassert>
@@ -132,10 +139,58 @@ void LicenseUsesStableMachineIdentityForLongTermLogin()
     assert(!status.valid);
 }
 
+void LoginReturnOnlySubmits(int key)
+{
+    bool login_called = false;
+    bool reset_called = false;
+    QTimer::singleShot(0, [&]() {
+        for (QWidget* widget : QApplication::topLevelWidgets()) {
+            auto* dialog = qobject_cast<QDialog*>(widget);
+            if (dialog == nullptr || dialog->windowTitle() != QStringLiteral("管理员登录")) {
+                continue;
+            }
+            for (QLineEdit* edit : dialog->findChildren<QLineEdit*>()) {
+                if (edit->echoMode() != QLineEdit::Password) {
+                    continue;
+                }
+                edit->setText(QStringLiteral("pass123"));
+                edit->setFocus();
+                QKeyEvent event(QEvent::KeyPress, key, Qt::NoModifier);
+                QApplication::sendEvent(edit, &event);
+                return;
+            }
+        }
+        assert(false);
+    });
+
+    const bool accepted = ShowAdminLoginDialog(
+        nullptr,
+        1.0,
+        QStringLiteral("admin"),
+        QString(),
+        [&login_called](const QString&, const QString& password) {
+            login_called = password == QStringLiteral("pass123");
+            return login_called;
+        },
+        [](bool, const QString&) {},
+        [&reset_called]() {
+            reset_called = true;
+            return false;
+        });
+    assert(accepted);
+    assert(login_called);
+    assert(!reset_called);
+}
+
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) {
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+    }
+    QApplication app(argc, argv);
+
     const QString temp_root = QDir::temp().absoluteFilePath(QStringLiteral("tankeye_admin_auth_helpers_test"));
     QDir(temp_root).removeRecursively();
     QDir().mkpath(temp_root);
@@ -218,6 +273,8 @@ int main()
     assert(AdminAuthRememberedPassword().isEmpty());
 
     LicenseUsesStableMachineIdentityForLongTermLogin();
+    LoginReturnOnlySubmits(Qt::Key_Return);
+    LoginReturnOnlySubmits(Qt::Key_Enter);
 
     QDir(temp_root).removeRecursively();
     std::cout << "admin_auth_helpers_test passed" << std::endl;

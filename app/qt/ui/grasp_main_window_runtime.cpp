@@ -2,6 +2,7 @@
 
 #include "frame_overlay.h"
 #include "frame_processing_service.h"
+#include "error_image_store.h"
 #include "grasp_main_window_common.h"
 #include "grasp_main_window_scale.h"
 #include "plc_trigger_coordinator.h"
@@ -870,6 +871,11 @@ void GraspMainWindow::finishPlcTriggeredFrame(QFutureWatcher<QString>* watcher,
         return;
     }
 
+    last_plc_completed_frame_ = frame->clone();
+    last_plc_completed_result_ = *result;
+    has_last_plc_completed_frame_ = !last_plc_completed_frame_.empty();
+    refreshErrorImageButton();
+
     const auto ui_start = std::chrono::steady_clock::now();
     setFrameAndResult(*frame, *result);
     const auto ui_end = std::chrono::steady_clock::now();
@@ -881,9 +887,10 @@ void GraspMainWindow::finishPlcTriggeredFrame(QFutureWatcher<QString>* watcher,
     const bool skip_save_frame = should_save_image && image_save_skip_next_frame_;
     QString saved_image_path;
     QString save_error;
+    QString save_warning;
     const bool image_saved = should_save_image &&
         !skip_save_frame &&
-        savePlcFrameImage(*frame, *result, &saved_image_path, &save_error);
+        savePlcFrameImage(*frame, *result, &saved_image_path, &save_error, &save_warning);
     if (should_save_image) {
         if (skip_save_frame) {
             image_save_skip_next_frame_ = false;
@@ -892,6 +899,11 @@ void GraspMainWindow::finishPlcTriggeredFrame(QFutureWatcher<QString>* watcher,
             cout << "[ImageSave] saved PLC frame: "
                  << saved_image_path.toStdString()
                  << endl;
+            if (!save_warning.isEmpty()) {
+                cerr << "[ImageSave] retention warning: "
+                     << save_warning.toStdString()
+                     << endl;
+            }
         } else {
             cerr << "[ImageSave] failed to save PLC frame: "
                  << save_error.toStdString()
@@ -913,10 +925,13 @@ void GraspMainWindow::finishPlcTriggeredFrame(QFutureWatcher<QString>* watcher,
     refreshDeviceStatus();
     refreshRuntimeStrip();
     if (should_save_image && !skip_save_frame) {
-        updateStatusMessage(image_saved
-                                ? QStringLiteral("PLC图片已保存：%1").arg(saved_image_path)
-                                : QStringLiteral("PLC图片保存失败：%1").arg(save_error),
-                            image_saved ? 5000 : 8000);
+        if (!image_saved) {
+            updateStatusMessage(QStringLiteral("PLC图片保存失败：%1").arg(save_error), 8000);
+        } else if (!save_warning.isEmpty()) {
+            updateStatusMessage(QStringLiteral("PLC图片已保存，但%1").arg(save_warning), 8000);
+        } else {
+            updateStatusMessage(QStringLiteral("PLC图片已保存：%1").arg(saved_image_path), 5000);
+        }
     }
     if (plc_test_result_dialog_pending_) {
         plc_test_result_dialog_pending_ = false;
@@ -1206,8 +1221,12 @@ QImage GraspMainWindow::renderFrameImage(const Mat& frame,
 bool GraspMainWindow::savePlcFrameImage(const Mat& frame,
                                         const FrameInferenceResult& result,
                                         QString* saved_path,
-                                        QString* error_message) const
+                                        QString* error_message,
+                                        QString* warning_message) const
 {
+    if (warning_message != nullptr) {
+        warning_message->clear();
+    }
     if (frame.empty()) {
         if (error_message) {
             *error_message = QStringLiteral("当前没有可保存图像。");
@@ -1251,7 +1270,49 @@ bool GraspMainWindow::savePlcFrameImage(const Mat& frame,
     if (saved_path) {
         *saved_path = QFileInfo(file_path).absoluteFilePath();
     }
+    QString retention_warning;
+    if (!EnforceImageRetention(image_dir.absolutePath(), max_saved_images_, &retention_warning) &&
+        warning_message != nullptr) {
+        *warning_message = retention_warning;
+    }
     return true;
+}
+
+void GraspMainWindow::saveLastPlcErrorImages()
+{
+    if (!has_last_plc_completed_frame_ || last_plc_completed_frame_.empty()) {
+        refreshErrorImageButton();
+        updateStatusMessage(QStringLiteral("当前没有可保存的 PLC 检测帧。"), 6000);
+        return;
+    }
+
+    QDir application_directory(QCoreApplication::applicationDirPath());
+    const QString error_directory = application_directory.filePath(QStringLiteral("error_images"));
+    const QImage overlay_image = renderFrameImage(last_plc_completed_frame_,
+                                                  last_plc_completed_result_,
+                                                  QSize(last_plc_completed_frame_.cols,
+                                                        last_plc_completed_frame_.rows),
+                                                  DisplayOverlayMode::AllDebug);
+    const ErrorImageSaveResult save_result =
+        SaveErrorImagePair(last_plc_completed_frame_, overlay_image, error_directory);
+    if (save_result.success) {
+        cout << "[ErrorImage] saved raw: " << save_result.raw_path.toStdString()
+             << ", overlay: " << save_result.overlay_path.toStdString()
+             << endl;
+        updateStatusMessage(QStringLiteral("错误图片保存成功：%1；%2")
+                                .arg(save_result.raw_path, save_result.overlay_path),
+                            8000);
+    } else if (save_result.partial) {
+        cerr << "[ErrorImage] partial save: " << save_result.error_message.toStdString()
+             << ", raw: " << save_result.raw_path.toStdString()
+             << endl;
+        updateStatusMessage(QStringLiteral("错误图片部分保存：%1。原图：%2")
+                                .arg(save_result.error_message, save_result.raw_path),
+                            8000);
+    } else {
+        cerr << "[ErrorImage] save failed: " << save_result.error_message.toStdString() << endl;
+        updateStatusMessage(QStringLiteral("错误图片保存失败：%1").arg(save_result.error_message), 8000);
+    }
 }
 
 void GraspMainWindow::refreshInfoPanel()

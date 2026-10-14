@@ -43,6 +43,7 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <memory>
@@ -117,14 +118,23 @@ bool PromptNamedValue(QWidget* parent,
     auto* name_edit = new QLineEdit(default_name, &dialog);
     name_edit->selectAll();
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确定"));
-    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    auto* accept_button = buttons->button(QDialogButtonBox::Ok);
+    auto* reject_button = buttons->button(QDialogButtonBox::Cancel);
+    accept_button->setText(QStringLiteral("确定"));
+    accept_button->setDefault(true);
+    accept_button->setAutoDefault(true);
+    reject_button->setText(QStringLiteral("取消"));
+    reject_button->setDefault(false);
+    reject_button->setAutoDefault(false);
     layout->addWidget(label);
     layout->addWidget(name_edit);
     layout->addWidget(buttons);
 
     QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    QObject::connect(name_edit, &QLineEdit::returnPressed, accept_button, [accept_button]() {
+        accept_button->click();
+    });
     if (dialog.exec() != QDialog::Accepted) {
         return false;
     }
@@ -357,6 +367,11 @@ void EngineeringSettingsDialogController::show()
     auto_start_check->setToolTip(QStringLiteral("在当前用户 Startup 文件夹中创建或移除 TankEye-Iris 启动入口。"));
     auto* startup_delay_spin = CreateStartupDelaySpinBox(dialog, owner->startup_delay_seconds_);
     startup_delay_spin->setToolTip(QStringLiteral("仅开机自启时生效；等待现场网络、相机和 PLC 服务完成初始化后再启动。"));
+    auto* image_retention_spin = new QSpinBox(dialog);
+    image_retention_spin->setRange(1, 100000);
+    image_retention_spin->setValue(owner->max_saved_images_);
+    image_retention_spin->setSuffix(QStringLiteral(" 张"));
+    image_retention_spin->setToolTip(QStringLiteral("仅保留 images 目录中 tankeye_plc_*.png 图片；调整后下一次成功保存时清理。"));
     auto* mechanical_gripper_length_spin = CreateGripperDimensionSpinBox(dialog, owner->mechanical_gripper_length_);
     mechanical_gripper_length_spin->setToolTip(QStringLiteral("真实夹爪机械长度；为 0 时保守判为不可抓。"));
     auto* mechanical_gripper_width_spin = CreateGripperDimensionSpinBox(dialog, owner->mechanical_gripper_width_);
@@ -418,6 +433,21 @@ void EngineeringSettingsDialogController::show()
     admin_form->addRow(QStringLiteral("确认新密码"), CreatePasswordFieldWithVisibilityButton(admin_confirm_password_edit, admin_card));
     admin_card_layout->addLayout(admin_form);
     auto* save_admin_button = new QPushButton(QStringLiteral("保存管理员账号"), admin_card);
+    QObject::connect(admin_current_password_edit,
+                     &QLineEdit::returnPressed,
+                     admin_username_edit,
+                     [admin_username_edit]() { admin_username_edit->setFocus(); });
+    QObject::connect(admin_username_edit,
+                     &QLineEdit::returnPressed,
+                     admin_new_password_edit,
+                     [admin_new_password_edit]() { admin_new_password_edit->setFocus(); });
+    QObject::connect(admin_new_password_edit,
+                     &QLineEdit::returnPressed,
+                     admin_confirm_password_edit,
+                     [admin_confirm_password_edit]() { admin_confirm_password_edit->setFocus(); });
+    QObject::connect(admin_confirm_password_edit, &QLineEdit::returnPressed, save_admin_button, [save_admin_button]() {
+        save_admin_button->click();
+    });
     auto* admin_button_row = new QHBoxLayout();
     admin_button_row->addStretch(1);
     admin_button_row->addWidget(save_admin_button);
@@ -595,6 +625,7 @@ void EngineeringSettingsDialogController::show()
     settings_controls.postprocess_debug_logging_check = postprocess_debug_logging_check;
     settings_controls.auto_start_check = auto_start_check;
     settings_controls.startup_delay_spin = startup_delay_spin;
+    settings_controls.image_retention_spin = image_retention_spin;
     settings_controls.mechanical_gripper_length_spin = mechanical_gripper_length_spin;
     settings_controls.mechanical_gripper_width_spin = mechanical_gripper_width_spin;
     settings_controls.head_type_angle_offset_spins = head_type_angle_offset_spins;
@@ -682,6 +713,17 @@ void EngineeringSettingsDialogController::show()
     auto* save_settings_button = new QPushButton(QStringLiteral("保存设置"), dialog);
 
     auto* project_profile_combo = CreateClickFocusedComboBox(dialog);
+    project_profile_combo->setEditable(true);
+    project_profile_combo->setInsertPolicy(QComboBox::NoInsert);
+    if (QLineEdit* line_edit = project_profile_combo->lineEdit()) {
+        line_edit->setReadOnly(true);
+        line_edit->setAlignment(Qt::AlignCenter);
+        line_edit->setFrame(false);
+        line_edit->setTextMargins(0, 0, 0, 0);
+        line_edit->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        line_edit->setStyleSheet(
+            QStringLiteral("QLineEdit { background: transparent; color: #111111; border: none; padding: 0px; }"));
+    }
     project_profile_combo->setFixedWidth(S(190));
     auto* new_project_profile_button = new QPushButton(QStringLiteral("新建"), dialog);
     auto* save_as_project_profile_button = new QPushButton(QStringLiteral("另存为"), dialog);
@@ -695,12 +737,46 @@ void EngineeringSettingsDialogController::show()
         QSignalBlocker blocker(project_profile_combo);
         project_profile_combo->clear();
         project_profile_combo->addItems(ListProjectProfileNames());
+        for (int index = 0; index < project_profile_combo->count(); ++index) {
+            project_profile_combo->setItemData(index, Qt::AlignCenter, Qt::TextAlignmentRole);
+        }
         const int index = project_profile_combo->findText(*selected_project_profile_name);
         if (index >= 0) {
             project_profile_combo->setCurrentIndex(index);
         }
     };
     refresh_project_profile_combo();
+
+    const auto disableButtonDefault = [](QPushButton* button) {
+        if (button != nullptr) {
+            button->setDefault(false);
+            button->setAutoDefault(false);
+        }
+    };
+    disableButtonDefault(select_model_folder_button);
+    disableButtonDefault(auto_exposure_button);
+    disableButtonDefault(capture_current_angle_button);
+    disableButtonDefault(calculate_angle_offset_button);
+    disableButtonDefault(save_admin_button);
+    disableButtonDefault(apply_profile_button);
+    disableButtonDefault(import_profile_button);
+    disableButtonDefault(save_as_profile_button);
+    disableButtonDefault(delete_profile_button);
+    disableButtonDefault(load_button);
+    disableButtonDefault(save_settings_button);
+    disableButtonDefault(new_project_profile_button);
+    disableButtonDefault(save_as_project_profile_button);
+    disableButtonDefault(delete_project_profile_button);
+    disableButtonDefault(import_project_profile_button);
+    disableButtonDefault(export_project_profile_button);
+    disableButtonDefault(apply_project_profile_button);
+
+    QObject::connect(obb_path_edit, &QLineEdit::returnPressed, seg_path_edit, [seg_path_edit]() {
+        seg_path_edit->setFocus();
+    });
+    QObject::connect(seg_path_edit, &QLineEdit::returnPressed, load_button, [load_button]() {
+        load_button->click();
+    });
 
     auto* project_profile_row = new QHBoxLayout();
     project_profile_row->setSpacing(S(8));
@@ -794,6 +870,25 @@ void EngineeringSettingsDialogController::show()
                                                       startup_content,
                                                       startup_expanded,
                                                       QStringLiteral("startup_expanded")));
+
+    scroll_layout->addSpacing(S(4));
+
+    auto* image_retention_content = new QWidget(dialog);
+    auto* image_retention_layout = new QVBoxLayout(image_retention_content);
+    image_retention_layout->setContentsMargins(0, 0, 0, 0);
+    image_retention_layout->setSpacing(S(8));
+    auto* image_retention_grid = CreateSettingsGrid(10, 8);
+    SetGridColumnMinimumWidths(image_retention_grid, { 180, 170 });
+    SetGridColumnStretches(image_retention_grid, { 0, 0, 1 });
+    image_retention_grid->addWidget(new QLabel(QStringLiteral("图片最多保留"), dialog), 0, 0);
+    image_retention_grid->addWidget(image_retention_spin, 0, 1, Qt::AlignLeft);
+    image_retention_layout->addLayout(image_retention_grid);
+    image_retention_layout->addWidget(new QLabel(QStringLiteral("仅管理 PLC 保存图片；设置保存后下一次成功保存时生效。"), dialog));
+    scroll_layout->addWidget(CreateCollapsibleSection(dialog,
+                                                      QStringLiteral("图片保存"),
+                                                      image_retention_content,
+                                                      true,
+                                                      QStringLiteral("image_retention_expanded")));
 
     scroll_layout->addSpacing(S(4));
 
@@ -1204,6 +1299,7 @@ void EngineeringSettingsDialogController::show()
         owner->camera_ip_ = draft.camera_ip;
         owner->auto_start_enabled_ = draft.auto_start_enabled;
         owner->startup_delay_seconds_ = draft.startup_delay_seconds;
+        owner->max_saved_images_ = ClampMaxSavedImages(draft.max_saved_images);
         owner->workflow_.setCameraIp(owner->camera_ip_.toStdString());
         EngineeringSettingsService::SaveCameraIp(owner->camera_ip_);
         QString startup_error;
@@ -1211,6 +1307,7 @@ void EngineeringSettingsDialogController::show()
             QMessageBox::warning(owner, QStringLiteral("开机自启设置失败"), startup_error);
             return;
         }
+        EngineeringSettingsService::SaveImageRetentionSettings({ owner->max_saved_images_ });
         if (!owner->StageActiveEngineeringProfile(saved_profile, &save_error)) {
             QMessageBox::warning(owner,
                                  QStringLiteral("保存后生效失败"),
@@ -1328,23 +1425,65 @@ void EngineeringSettingsDialogController::show()
     });
 
     QObject::connect(delete_project_profile_button, &QPushButton::clicked, dialog, [owner,
+                                                                                      dialog,
                                                                                       project_profile_combo,
                                                                                       refresh_project_profile_combo,
                                                                                       selected_project_profile_name,
                                                                                       load_project_profile_draft]() {
         const QString profile_name = project_profile_combo->currentText().trimmed();
-        if (profile_name.isEmpty() || profile_name == DefaultProjectProfileName()) {
-            QMessageBox::warning(owner, QStringLiteral("无法删除"), QStringLiteral("默认 DG_8 工程方案不能删除。"));
+        const QStringList profile_names = ListProjectProfileNames();
+        if (profile_name.isEmpty()) {
             return;
         }
+        if (profile_names.size() <= 1) {
+            QMessageBox::warning(owner, QStringLiteral("无法删除"), QStringLiteral("至少保留一个工程方案。"));
+            return;
+        }
+        const bool deleting_active_profile =
+            profile_name == owner->active_project_profile_name_.trimmed();
+        const QString replacement_profile_name = deleting_active_profile
+            ? *std::find_if(profile_names.cbegin(),
+                            profile_names.cend(),
+                            [&profile_name](const QString& name) { return name != profile_name; })
+            : QString();
+        const QString confirmation = deleting_active_profile
+            ? QStringLiteral("将停止当前检测、相机和 PLC 流程，切换并加载方案“%1”。加载成功后删除方案“%2”。是否继续？")
+                  .arg(replacement_profile_name, profile_name)
+            : QStringLiteral("确定删除方案“%1”吗？").arg(profile_name);
         if (QMessageBox::question(owner,
                                   QStringLiteral("删除工程方案"),
-                                  QStringLiteral("确定删除方案“%1”吗？").arg(profile_name),
+                                  confirmation,
                                   QMessageBox::Yes | QMessageBox::No,
                                   QMessageBox::No) != QMessageBox::Yes) {
             return;
         }
         QString error_message;
+        if (deleting_active_profile) {
+            if (!owner->switchProjectProfile(
+                    replacement_profile_name,
+                    true,
+                    &error_message,
+                    [owner, profile_name](bool switched, const QString&) {
+                        if (!switched) {
+                            return;
+                        }
+                        QString delete_error;
+                        if (!DeleteProjectProfile(profile_name, &delete_error)) {
+                            QMessageBox::warning(owner, QStringLiteral("删除失败"), delete_error);
+                            return;
+                        }
+                        owner->refreshProjectProfileSelector();
+                        owner->updateStatusMessage(
+                            QStringLiteral("已切换到工程方案：%1，并删除方案：%2。")
+                                .arg(owner->active_project_profile_name_, profile_name),
+                            5000);
+                    })) {
+                QMessageBox::warning(owner, QStringLiteral("切换方案失败"), error_message);
+                return;
+            }
+            dialog->close();
+            return;
+        }
         if (!DeleteProjectProfile(profile_name, &error_message)) {
             QMessageBox::warning(owner, QStringLiteral("删除失败"), error_message);
             return;

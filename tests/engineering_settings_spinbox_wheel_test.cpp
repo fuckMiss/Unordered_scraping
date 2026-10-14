@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QKeyEvent>
 #include <QSpinBox>
 #include <QWheelEvent>
 
@@ -97,6 +98,26 @@ void WheelChangesComboBoxWithFocus()
     delete combo_box;
 }
 
+void ReturnDoesNotChangeComboBoxSelection()
+{
+    QComboBox* combo_box = CreateClickFocusedComboBox(nullptr);
+    combo_box->addItem(QStringLiteral("正向"));
+    combo_box->addItem(QStringLiteral("反向"));
+    combo_box->setCurrentIndex(0);
+    combo_box->setFocus();
+
+    QKeyEvent return_event(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    QApplication::sendEvent(combo_box, &return_event);
+    assert(combo_box->currentIndex() == 0);
+    assert(return_event.isAccepted());
+
+    QKeyEvent enter_event(QEvent::KeyPress, Qt::Key_Enter, Qt::NoModifier);
+    QApplication::sendEvent(combo_box, &enter_event);
+    assert(combo_box->currentIndex() == 0);
+    assert(enter_event.isAccepted());
+    delete combo_box;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -113,6 +134,7 @@ int main(int argc, char** argv)
     WheelChangesSpinBoxWithFocus();
     WheelDoesNotChangeComboBoxWithoutFocus();
     WheelChangesComboBoxWithFocus();
+    ReturnDoesNotChangeComboBoxSelection();
 
     std::cout << "engineering_settings_spinbox_wheel_test passed" << std::endl;
     return 0;

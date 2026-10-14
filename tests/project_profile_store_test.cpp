@@ -95,6 +95,15 @@ void ProfilesRoundTrip()
     assert(QFileInfo::exists(imported.seg_model_path));
     assert(QFileInfo::exists(QDir(QFileInfo(imported.obb_model_path).absolutePath()).filePath(QStringLiteral("best_obb.bin"))));
     assert(QFileInfo::exists(QDir(QFileInfo(imported.seg_model_path).absolutePath()).filePath(QStringLiteral("best_seg.bin"))));
+
+    assert(DeleteProjectProfile(QStringLiteral("DG_8"), &error));
+    assert(!ListProjectProfileNames().contains(QStringLiteral("DG_8")));
+    assert(ListProjectProfileNames().contains(QStringLiteral("DG_10")));
+    assert(EnsureDefaultProjectProfile(CreateBlankProjectProfile(DefaultProjectProfileName()), &error));
+    assert(!ListProjectProfileNames().contains(QStringLiteral("DG_8")));
+    assert(!DeleteProjectProfile(QStringLiteral("DG_10"), &error));
+    assert(error == QStringLiteral("至少保留一个工程方案。"));
+    assert(ListProjectProfileNames().contains(QStringLiteral("DG_10")));
 }
 
 void BlankProfileDefaults()
@@ -117,6 +126,17 @@ void BlankProfileDefaults()
     }
 }
 
+void DefaultProfileIsCreatedOnlyWhenNoProfilesExist()
+{
+    QTemporaryDir temp;
+    assert(temp.isValid());
+    qputenv("TANKEYE_SETTINGS_INI_PATH", (temp.path() + QStringLiteral("/engineering.ini")).toLocal8Bit());
+
+    QString error;
+    assert(EnsureDefaultProjectProfile(CreateBlankProjectProfile(DefaultProjectProfileName()), &error));
+    assert(ListProjectProfileNames() == QStringList{DefaultProjectProfileName()});
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -124,6 +144,7 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     ProfilesRoundTrip();
     BlankProfileDefaults();
+    DefaultProfileIsCreatedOnlyWhenNoProfilesExist();
     std::cout << "project_profile_store_test passed" << std::endl;
     return 0;
 }

@@ -1,4 +1,4 @@
-# TankEye-Iris 2.1.6 构建运行打包指南
+﻿# TankEye-Iris 2.2.3 构建运行打包指南
 
 ## 适用场景
 
@@ -40,6 +40,8 @@ build\Release\tankeye-openvino_qt_app.exe
 ```powershell
 .\launch_tankeye.ps1 -BuildDir build -Configuration Release -WindowMode Maximized -AutoLoadModels
 ```
+
+该命令保持 Manual 语义：只自动加载默认模型，不会自动进入 PLC 抓取。双击源码目录或运行包根目录的 `launch_tankeye_main_only.vbs` 时会使用 `-StartupProfile AutoStart`，模型加载完成后请求进入已有 PLC 抓取联动；工程设置关闭“开机自启”时仍会阻止自动进入。
 
 正式运行必须提供 `config\admin_auth.key` 作为管理员授权密钥。缺少该文件时，管理员授权校验无效，正式打包脚本也会直接报错。
 
@@ -87,19 +89,19 @@ config\admin_auth.key
 ## 5. 打包运行目录
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.6 -Force
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.2.3 -Force
 ```
 
 打包完成后，发布目录在：
 
 ```text
-dist\TankEye-Iris_2.1.6
+dist\TankEye-Iris_2.2.3
 ```
 
 压缩包在：
 
 ```text
-dist\TankEye-Iris_2.1.6.zip
+dist\TankEye-Iris_2.2.3.zip
 ```
 
 ## 6. 常见问题
@@ -118,7 +120,7 @@ dist\TankEye-Iris_2.1.6.zip
 
 ### 想重新来一遍
 
-可以直接删掉 `build` 目录，然后从第 1 步重新执行。
+优先在现有 `build` 上重新配置/构建。确需删除或清理构建目录时，先按 OPERATING_LIMITS 获得明确同意，再从第 1 步执行。
 
 ### 管理员授权无效
 

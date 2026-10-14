@@ -1,4 +1,4 @@
-# TankEye-Iris 2.1.6 编译、启动、打包流程
+# TankEye-Iris 2.2.3 编译、启动、打包流程
 
 本文档按当前项目事实整理。项目事实以源码、CMake、配置、脚本和测试为准，不依赖 README 系列文件。后续读写本文档必须使用 UTF-8，避免中文乱码。
 
@@ -58,7 +58,7 @@ cmake --build build --config Release --target tankeye-openvino_frame_postprocess
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release -Filter "*frame_postprocess_smoke*.exe"
 ```
 
-运行全部默认测试：
+全部默认测试入口（认证设置和临时目录完成仓内隔离后才能运行）：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_tests.ps1 -BuildDir build -Configuration Release
@@ -69,6 +69,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_test
 ```text
 [TankEyeTests] All tests passed.
 ```
+
+2026-10-12 的 2.2.2 发布核验中，17 个默认 Release 测试有 15 个真实通过；`admin_auth_helpers_test` 和 `engineering_settings_spinbox_wheel_test` 在 Qt UI 路径阻塞并已终止，不得把当前基线写成 17/17 全通过。其中认证测试把有副作用的凭据创建调用放在 `assert(...)` 内，Release `NDEBUG` 会移除该调用；认证原测试还会清空 Windows 用户级 QSettings，不应直接运行上述全量命令；应先将测试设置和临时目录隔离到仓内。2.2.3 沿用本轮几何回退验证：默认 15/17 通过，后处理冒烟另行通过；两个阻塞测试未修复，现场 GUI/设备验收待用户执行。
 
 ## 5. 从源码目录启动程序
 
@@ -102,12 +104,12 @@ config\tankeye.json
 ```json
 "app": {
   "name": "TankEye-Iris",
-  "version": "2.1.6",
+  "version": "2.2.3",
   "title": "截止阀抓取上料系统"
 }
 ```
 
-- 左上角显示：`name + V + version`，例如 `TankEye-Iris V2.1.6`。
+- 左上角显示：`name + V + version`，例如 `TankEye-Iris V2.2.3`。
 - 顶部中间标题显示：`title`。
 - 运行包内也有自己的 `config\tankeye.json`，重新打包或手动同步配置后才会在运行包中生效。
 - 正式运行包的启动脚本会设置 `TANKEYE_LOCK_APP_DISPLAY=1`，普通现场测试只改运行包 `config\tankeye.json` 不会改变顶部显示名、版本号或标题；这些显示值由程序内置默认值控制。
@@ -137,7 +139,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate_admin
 打包命令：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.6 -Force
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.2.3 -Force
 ```
 
 脚本会自动查找主程序，当前项目通常命中：
@@ -149,28 +151,28 @@ build\Release\tankeye-openvino_qt_app.exe
 成功后生成：
 
 ```text
-dist\TankEye-Iris_2.1.6
-dist\TankEye-Iris_2.1.6.zip
+dist\TankEye-Iris_2.2.3
+dist\TankEye-Iris_2.2.3.zip
 ```
 
-`dist\TankEye-Iris_2.1.6` 是可直接运行的文件夹，`dist\TankEye-Iris_2.1.6.zip` 是给新电脑拷贝使用的压缩包。运行包产物不纳入 GitHub。
+`dist\TankEye-Iris_2.2.3` 是可直接运行的文件夹，`dist\TankEye-Iris_2.2.3.zip` 是给新电脑拷贝使用的压缩包。运行包产物不纳入 GitHub。
 
 ## 9. 验证打包结果
 
 检查关键文件：
 
 ```powershell
-Test-Path .\dist\TankEye-Iris_2.1.6\tankeye-openvino_qt_app.exe
-Test-Path .\dist\TankEye-Iris_2.1.6\tankeye-openvino_device_probe.exe
-Test-Path .\dist\TankEye-Iris_2.1.6\platforms\qwindows.dll
-Test-Path .\dist\TankEye-Iris_2.1.6\models\DG_8_weights\best_obb.xml
-Test-Path .\dist\TankEye-Iris_2.1.6\models\DG_8_weights\best_seg.xml
-Test-Path .\dist\TankEye-Iris_2.1.6\openvino_intel_cpu_plugin.dll
-Test-Path .\dist\TankEye-Iris_2.1.6\openvino_intel_gpu_plugin.dll
-Test-Path .\dist\TankEye-Iris_2.1.6\config\admin_auth.key
-Test-Path .\dist\TankEye-Iris_2.1.6\USAGE_GUIDE.txt
-Test-Path .\dist\TankEye-Iris_2.1.6\docs
-Test-Path .\dist\TankEye-Iris_2.1.6\AGENTS.md
+Test-Path .\dist\TankEye-Iris_2.2.3\tankeye-openvino_qt_app.exe
+Test-Path .\dist\TankEye-Iris_2.2.3\tankeye-openvino_device_probe.exe
+Test-Path .\dist\TankEye-Iris_2.2.3\platforms\qwindows.dll
+Test-Path .\dist\TankEye-Iris_2.2.3\models\DG_8_weights\best_obb.xml
+Test-Path .\dist\TankEye-Iris_2.2.3\models\DG_8_weights\best_seg.xml
+Test-Path .\dist\TankEye-Iris_2.2.3\openvino_intel_cpu_plugin.dll
+Test-Path .\dist\TankEye-Iris_2.2.3\openvino_intel_gpu_plugin.dll
+Test-Path .\dist\TankEye-Iris_2.2.3\config\admin_auth.key
+Test-Path .\dist\TankEye-Iris_2.2.3\USAGE_GUIDE.txt
+Test-Path .\dist\TankEye-Iris_2.2.3\docs
+Test-Path .\dist\TankEye-Iris_2.2.3\AGENTS.md
 ```
 
 前 9 项按实际包内容应返回 `True`；`docs` 和 `AGENTS.md` 必须返回 `False`，表示运行包不包含源码文档和协作规则。
@@ -178,8 +180,8 @@ Test-Path .\dist\TankEye-Iris_2.1.6\AGENTS.md
 校验打包出的 exe 是否就是本次 build 的 exe：
 
 ```powershell
-(Get-FileHash .\build\Release\tankeye-openvino_qt_app.exe).Hash -eq (Get-FileHash .\dist\TankEye-Iris_2.1.6\tankeye-openvino_qt_app.exe).Hash
-(Get-FileHash .\build\Release\tankeye-openvino_device_probe.exe).Hash -eq (Get-FileHash .\dist\TankEye-Iris_2.1.6\tankeye-openvino_device_probe.exe).Hash
+(Get-FileHash .\build\Release\tankeye-openvino_qt_app.exe).Hash -eq (Get-FileHash .\dist\TankEye-Iris_2.2.3\tankeye-openvino_qt_app.exe).Hash
+(Get-FileHash .\build\Release\tankeye-openvino_device_probe.exe).Hash -eq (Get-FileHash .\dist\TankEye-Iris_2.2.3\tankeye-openvino_device_probe.exe).Hash
 ```
 
 返回 `True` 表示一致。
@@ -189,7 +191,7 @@ Test-Path .\dist\TankEye-Iris_2.1.6\AGENTS.md
 进入运行包目录：
 
 ```powershell
-cd .\dist\TankEye-Iris_2.1.6
+cd .\dist\TankEye-Iris_2.2.3
 ```
 
 正常启动：
@@ -220,10 +222,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch_tankeye.ps1 -De
 launch_tankeye_main_only.vbs
 ```
 
-## 11. 当前 2.1.6 关键行为
+该双击入口明确使用 `-StartupProfile AutoStart`：自动加载当前工程方案模型，并在模型加载完成后请求进入已有 PLC 抓取联动。工程设置中的“开机自启”关闭时，程序仍会阻止自动进入检测。直接运行 `launch_tankeye.ps1` 的默认值是 `Manual`，不会自动进入 PLC 抓取。
 
-- 真实夹爪框已完全接管旧延长 OBB 框，不恢复 `extended_corners` / `ExtendedObb` / `ScaleObbLongEdge`。
-- 真实夹爪长轴使用 1.0.14 语义：垂直 AC，宽度沿 AC。
+## 11. 当前 2.2.3 关键行为
+
+- C++ 后处理恢复 2.1.9 候选旧规则，执行 Canny 三边法向微调、`new_rect_4pts` 重建、重建矩形二次垂足选 C、固定 45 px 生成 A、基础框重建和沿 AC 垂直方向 2 倍放大。
+- `PoseDetection::corners` 使用最终 A/C 重建的基础框；真实夹爪方向为归一化 `AC角度 + 90°`，结合工程机械长宽生成。类型显示补偿旋转后执行既有平移，不改写上游安全几何。
 - D508 左右判定以夹取 OBB 本地方向为基准，使用 A->C 作为本地前向。
 - 四类型补偿已加入：大上右、小上左、大上左、小上右分别支持角度补偿和沿 AC 机械偏移。
 - 普通显示补偿后姿态，全显保留 raw/原始对照。
@@ -232,6 +236,8 @@ launch_tankeye_main_only.vbs
 - 图片读取使用后台线程。
 - OpenVINO 缓存默认保留；如需清理，启动时显式添加 `-ClearOpenVinoCache`。
 - 运行日志默认带时间戳，可在程序内打开“运行日志”查看。
+- PLC 保存图片默认最多保留 1000 张，可在管理员工程设置中调整；只清理 `images\tankeye_plc_*.png`，不影响其他文件。
+- 主界面“保存错误图片”保存最近一次 PLC 检测完成帧的原图和固定全显诊断图，输出到 `error_images\`，不参与普通图片数量限制。
 - 运行包不包含源码文档目录 `docs\`，也不包含协作规则文件 `AGENTS.md`。
 - 运行包启动脚本会锁定顶部显示名、版本号和标题，避免现场通过普通配置文件改显示。
 
@@ -247,6 +253,7 @@ launch_tankeye_main_only.vbs
 
 - 自动加载模型。
 - 模型加载完成后请求进入 PLC 抓取联动。
+- 源码目录、运行包根目录和桌面快捷方式的双击入口均使用该 AutoStart 画像。
 - 启动入口统一使用当前用户 Startup 文件夹中的 `TankEye-Iris.vbs`。
 - 不使用注册表、服务或计划任务。
 - 工程设置中可以关闭开机自启并调整延迟秒数。
@@ -286,7 +293,7 @@ cmake --build build --config Release --target tankeye-openvino_qt_app
 改用：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.6 -Force
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.2.3 -Force
 ```
 
 ### 提示：VCINSTALLDIR is not set
@@ -308,7 +315,7 @@ Windows 下 OpenCV 直接读取中文路径可能不稳定。临时规避方法�
 缓存目录：
 
 ```text
-dist\TankEye-Iris_2.1.6\openvino_cache
+dist\TankEye-Iris_2.2.3\openvino_cache
 ```
 
 只要不删除该目录，第二次启动或第二次加载同一套模型通常会更快。
@@ -335,5 +342,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_build_test
 需要打包时再执行：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.1.6 -Force
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_runtime.ps1 -BuildDir build -ReleaseName TankEye-Iris_2.2.3 -Force
 ```
