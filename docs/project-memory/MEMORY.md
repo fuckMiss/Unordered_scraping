@@ -52,3 +52,14 @@
 - 保留6个具有独有提交的远端分支：Unordered_Scraping_V5, Unordered_scraping-v3, Unordered_scraping_unit, Unordered_scraping_v2, Unordered_scraping_v4, runtime-package。它们未被 main 完整包含，按用户确认的条件不删除，不为清场擅自合入旧功能。
 - 业务/模型/结果文件及2.2.3运行包保持不变；本地PROGRESS.md、BLOCKED.md保留为已标注历史的未跟踪复核现场，未上传、不删除。其他资料遵循ignore保留本地。
 - 代码/local包/文档/规则/获准记忆均已核验或同步；GitHub发布已核验。现场GUI、相机、PLC及部署验收仍pending，不将推送当作现场上线；两个Qt测试限制和既有工具警告保留。
+
+## 2026-10-14 - 按最终授权删除全部非 main 分支
+
+- 用户追加明确授权：GitHub 仓库除 main 外的其余分支全部删除；本次授权取代此前“仅删除已被 main 包含的分支”的条件。
+- 删除前 main 为 f6da27c19a8d982fbb08f0e62a4523188aa1c93f；远端6条剩余分支与其提交已逐一核对。
+- 先生成并通过 git bundle verify 校验完整历史备份：build/branch_cleanup_20261014/retired_remote_branches.bundle；备份仅保存在本仓库，不创建其他远端分支或标签。
+- 已使用预期提交哈希租约和原子操作删除 Unordered_Scraping_V5、Unordered_scraping-v3、Unordered_scraping_unit、Unordered_scraping_v2、Unordered_scraping_v4、runtime-package。
+- 删除后 git ls-remote --heads origin 实测仅剩 main；本地分支仅 main，远端跟踪分支仅 origin/main。没有删除文件、改业务代码或改2.2.3运行包。
+- 原文中“保留6个独有提交分支”记录的是上一阶段状态；当前状态为全部非main分支已删除，历史可从仓内bundle恢复。
+- 任务开始后观察到README_zh.md及随后README.md的用户本地未提交改动，均保留，不夹带到本次记录提交。PROGRESS/BLOCKED历史现场也保留。
+- 本次仅Git分支操作和记录更新，不重复构建/GUI/设备测试；真实验证为备份完整性、原子删除返回值及远端/本地分支清单。发布记录单独提交main，最终提交以Git查询为准。
