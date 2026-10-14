@@ -6,7 +6,7 @@
 
 - 用户确认2.2.3为最终版，授权本地/GitHub main同步及删除已被main包含的其他分支。
 - 本轮从V7基线59e0e27创建本地main，保留远端旧main 7e0bfad的独立历史，以最终Windows源码树为准正常推送，不force push。
-- 发布与分支删除的实际完成结果追加在本文件末尾及TASK_HISTORY；当前提交以`git rev-parse HEAD`和`git ls-remote origin refs/heads/main`核对，不写入自引用哈希。
+- 发布与分支删除已完成，结果见本文件末尾及TASK_HISTORY；当前提交以`git rev-parse HEAD`和`git ls-remote origin refs/heads/main`核对，不写入自引用哈希。
 - 项目事实以源码、CMake、配置、脚本、测试和project-memory为准。历史事件见TASK_HISTORY，收尾前记忆快照见archive/2026-10-14-memory-before-closeout.md。
 
 ## 2.2.3 源码与本地产物
@@ -36,4 +36,12 @@
 
 ## 2026-10-14 本轮复核
 
-完整Release构建通过；默认安全测试15PASS/滚轮1TIMEOUT，后处理冒烟通过，认证因用户级设置副作用未重跑。文档UTF-8/链接、业务文件哈希、2.2.3包/ZIP及exe核验通过。架构PDF两页已实际渲染目视检查，SHA256 `DC7E2B1059799E407A4528EE51AE4265CD3B32A94A7DF292B3879D7DEE4B2E9A`；现场验收仍待用户反馈。发布执行结果见后续记录。
+完整Release构建通过；默认安全测试15PASS/滚轮1TIMEOUT，后处理冒烟通过，认证因用户级设置副作用未重跑。文档UTF-8/链接、业务文件哈希、2.2.3包/ZIP及exe核验通过。架构PDF两页已实际渲染目视检查，SHA256 `DC7E2B1059799E407A4528EE51AE4265CD3B32A94A7DF292B3879D7DEE4B2E9A`；现场验收仍待用户反馈。发布执行结果见下方完成记录。
+
+## 2026-10-14 发布与分支收尾完成
+
+- 最终源码快照提交 `55fe8b6a6d5f3d4cb8ffda1c4e39a43fbbf6247f`；保留旧 main 历史的合并提交 `781201f4b6ddf671c53702217bcf3864fb6533f2` 已正常推送到 GitHub main，并通过 ls-remote 核验本地/远端一致。后续只有本段文档闭环提交，最终 HEAD 以 Git 查询为准；未改写历史、未强制推送 main。
+- 用户明确授权后，逐条验证祖先关系；本地及远端 Unordered_scraping_v6、Unordered_scraping_v7 已删除，远端删除使用原子操作和预期哈希租约，防止误删并发新增提交。本地仅保留 main。
+- 保留6个具有独有提交的远端分支：Unordered_Scraping_V5, Unordered_scraping-v3, Unordered_scraping_unit, Unordered_scraping_v2, Unordered_scraping_v4, runtime-package。它们未被 main 完整包含，按用户确认的条件不删除，不为清场擅自合入旧功能。
+- 业务/模型/结果文件及2.2.3运行包保持不变；本地PROGRESS.md、BLOCKED.md保留为已标注历史的未跟踪复核现场，未上传、不删除。其他资料遵循ignore保留本地。
+- 代码/local包/文档/规则/获准记忆均已核验或同步；GitHub发布已核验。现场GUI、相机、PLC及部署验收仍pending，不将推送当作现场上线；两个Qt测试限制和既有工具警告保留。

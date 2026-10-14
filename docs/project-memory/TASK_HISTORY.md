@@ -1489,3 +1489,11 @@
 - PDF：Edge沙箱渲染遇到GPU进程失败，未提升浏览器权限；改用本机已有svglib/reportlab从最终HTML的两张SVG生成PDF，以MicrosoftYaHei嵌入字体，并通过Windows.Data.Pdf实际渲染两页PNG逐页检查无裁切、重叠或乱码。PDF SHA256 `DC7E2B1059799E407A4528EE51AE4265CD3B32A94A7DF292B3879D7DEE4B2E9A`。未安装依赖或改系统设置。
 - 产物：2.2.3 ZIP原SHA256 `101BB804D1DF71CE66803C977D2113BECE08D85285B1D905198F3589ED4FF948`保持不变，目录/ZIP每个文件相同，主程序和探测exe与当前build一致。未重新打包、未启动主程序GUI或设备。
 - 文档UTF-8及内部链接检查通过；业务代码、模型及结果BMP哈希保持，复核现场未清场。Git/现场运行的最终状态以本次后续记录为准；现场GUI、PLC、相机及真实动作仍pending。
+
+## 2026-10-14 发布与分支收尾完成
+
+- 最终源码快照提交 `55fe8b6a6d5f3d4cb8ffda1c4e39a43fbbf6247f`；保留旧 main 历史的合并提交 `781201f4b6ddf671c53702217bcf3864fb6533f2` 已正常推送到 GitHub main，并通过 ls-remote 核验本地/远端一致。后续只有本段文档闭环提交，最终 HEAD 以 Git 查询为准；未改写历史、未强制推送 main。
+- 用户明确授权后，逐条验证祖先关系；本地及远端 Unordered_scraping_v6、Unordered_scraping_v7 已删除，远端删除使用原子操作和预期哈希租约，防止误删并发新增提交。本地仅保留 main。
+- 保留6个具有独有提交的远端分支：Unordered_Scraping_V5, Unordered_scraping-v3, Unordered_scraping_unit, Unordered_scraping_v2, Unordered_scraping_v4, runtime-package。它们未被 main 完整包含，按用户确认的条件不删除，不为清场擅自合入旧功能。
+- 业务/模型/结果文件及2.2.3运行包保持不变；本地PROGRESS.md、BLOCKED.md保留为已标注历史的未跟踪复核现场，未上传、不删除。其他资料遵循ignore保留本地。
+- 代码/local包/文档/规则/获准记忆均已核验或同步；GitHub发布已核验。现场GUI、相机、PLC及部署验收仍pending，不将推送当作现场上线；两个Qt测试限制和既有工具警告保留。
