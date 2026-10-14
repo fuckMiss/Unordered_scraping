@@ -274,7 +274,3 @@ If the runtime folder is renamed or moved, recreate the desktop shortcut.
 - PLC cannot connect: verify the vision workflow with `-SimulatePlc`, then check PLC IP, port, register addresses, and network cabling.
 - Target coordinates look wrong: check nine-point calibration order, machine coordinate entry, homography validity, ROI, and axis mapping.
 - Admin authorization is rejected: verify `config/admin_license.json` exists, belongs to this PC, and was generated with the same `config/admin_auth.key`. Forgotten-password reset also requires the recovery answer configured when the admin account was created.
-
-## Final Maintenance Baseline
-
-The final local package is 2.2.3. Current status, package SHA256, verification limits and site acceptance items are maintained in [HANDOFF](docs/project-memory/HANDOFF.md). The remote legacy main and V7 have unrelated histories; publication preserves both histories with the final Windows source tree, using no force push.

@@ -268,7 +268,3 @@ dist/TankEye-Iris_2.2.3.zip
 - PLC 不联机：先用 `-SimulatePlc` 验证视觉链路，再检查 PLC IP、端口、寄存器地址和网线。
 - 目标坐标异常：优先检查九点标定点顺序、机械坐标录入、单应矩阵有效性和 ROI/轴向映射。
 - 管理员授权无效：检查 `config/admin_license.json` 是否存在、是否属于本机、是否由同一份 `config/admin_auth.key` 生成；忘记密码还需要正确回答创建管理员时设置的恢复问题。
-
-## 最终维护基线
-
-当前正式本地产物为 2.2.3；包哈希、验证限制与现场待验项以 [HANDOFF](docs/project-memory/HANDOFF.md) 为准。远端旧 main 与 V7 历史独立，本轮发布保留两条历史，以最终 Windows 源码树为准，不强制推送。
